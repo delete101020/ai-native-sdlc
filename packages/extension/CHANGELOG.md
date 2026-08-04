@@ -5,6 +5,7 @@
 ### Fixed
 
 - fix(annotron): **GH-84: Mermaid flowchart edge labels no longer render broken.** merslim renders flowchart *edge* labels verbatim — unlike node labels it doesn't strip the wrapping `"…"` quotes or turn `<br/>` into line breaks — so a label like `-.->|"customer knows,<br/>but cannot tell CF"|` came out with visible quotes and a literal `<br/>` that overflowed the edge. Such flowcharts now fall back to the client-side mermaid runtime (as sequence/state/mindmap already do), which lays the label out faithfully. Flowcharts with plain edge labels still use merslim's offline SVG unchanged.
+- fix(annotron): **GH-83 (part 3): the browser now auto-opens on Windows.** `openBrowser` spawned the `start` command directly, but `start` is a `cmd.exe` builtin, not an executable — on Windows the spawn threw `ENOENT`, so clicking **Feedback**/**Preview** started the server but never opened the page, forcing the user to hunt for the URL in the chat log. It now launches via `cmd /c start "" <url>`. macOS/Linux paths are unchanged. (GH-83 parts 1 & 2 — Mermaid not rendering in the HTML view, and MD→HTML latency with no hot reload — were already resolved in 3.4.0, which serves the `.md` directly through annotron with on-the-fly rendering and file-watch reload.)
 
 ## 3.4.0
 
