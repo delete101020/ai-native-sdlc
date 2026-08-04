@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.4.1
+
+### Fixed
+
+- fix(annotron): **GH-84: Mermaid flowchart edge labels no longer render broken.** merslim renders flowchart *edge* labels verbatim — unlike node labels it doesn't strip the wrapping `"…"` quotes or turn `<br/>` into line breaks — so a label like `-.->|"customer knows,<br/>but cannot tell CF"|` came out with visible quotes and a literal `<br/>` that overflowed the edge. Such flowcharts now fall back to the client-side mermaid runtime (as sequence/state/mindmap already do), which lays the label out faithfully. Flowcharts with plain edge labels still use merslim's offline SVG unchanged.
+
 ## 3.4.0
 
 ### Annotron diagram rendering + review fixes (customer-reported)

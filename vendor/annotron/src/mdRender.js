@@ -37,15 +37,36 @@ function escapeHtml(s) {
   ));
 }
 
+// merslim (≤0.2.3) renders flowchart *edge* labels verbatim: unlike node
+// labels it neither strips the surrounding "…" quotes mermaid uses to allow
+// special characters nor converts <br/> into line breaks. Such labels come out
+// with visible quotes and a literal "<br/>" that overflows the edge (issue #84).
+// When any edge label needs that handling, hand the whole diagram to
+// client-side mermaid.js instead, which renders it faithfully.
+function flowchartNeedsClientRender(ir) {
+  const edges = (ir && ir.edges) || [];
+  return edges.some((e) => {
+    const l = e && e.label;
+    if (typeof l !== 'string') return false;
+    return /<br\s*\/?>/i.test(l) || /^\s*".*"\s*$/.test(l);
+  });
+}
+
+// A built SVG that still carries a literal "<br/>" in rendered text means a
+// label's line break was not laid out — treat it as degraded and fall back.
+function svgLooksDegraded(svg) {
+  return /&lt;br\s*\/?&gt;/i.test(svg);
+}
+
 async function renderDiagram(src) {
   try {
     const r = await parseToIR(src);
     if (r && r.ok) {
       const build = SVG_BUILDERS[r.type];
-      if (build) {
+      if (build && !(r.type === 'flowchart' && flowchartNeedsClientRender(r.ir))) {
         try {
           const svg = build(r.ir, { dark: false });
-          if (typeof svg === 'string' && svg.includes('<svg')) {
+          if (typeof svg === 'string' && svg.includes('<svg') && !svgLooksDegraded(svg)) {
             return `<figure class="mmd-diagram" data-mmd-type="${escapeHtml(r.type)}">${svg}</figure>`;
           }
         } catch { /* fall through to client-side mermaid */ }
