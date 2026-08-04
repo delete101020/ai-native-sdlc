@@ -69,10 +69,17 @@ async function postJSON(path, body) {
 }
 
 function openBrowser(url) {
-  const cmd = process.platform === 'darwin' ? 'open'
-    : process.platform === 'win32' ? 'start'
-    : 'xdg-open';
-  spawn(cmd, [url], { stdio: 'ignore', detached: true }).unref();
+  const opts = { stdio: 'ignore', detached: true };
+  if (process.platform === 'win32') {
+    // `start` is a cmd.exe builtin, NOT an executable — `spawn('start', …)`
+    // throws ENOENT and the browser never opens (issue #83, Windows). Go
+    // through cmd.exe. The empty "" is start's window-title argument, so the
+    // URL isn't swallowed as the title.
+    spawn('cmd', ['/c', 'start', '', url], opts).unref();
+  } else {
+    const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+    spawn(cmd, [url], opts).unref();
+  }
 }
 
 // --- Commands ---
