@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 3.5.1
+
+A patch on top of 3.5.0: one real bug in `aidlc doctor`, and the onboarding
+documentation this fork needs because it is distributed by hand.
 
 ### Fixed
 

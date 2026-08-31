@@ -30,7 +30,7 @@ npm**. Build it from the repo:
 pnpm install                                 # at repo root
 pnpm -r compile
 cd packages/cli && pnpm bundle && npm link   # makes `aidlc` available globally
-aidlc --version                              # 3.5.0
+aidlc --version                              # 3.5.1
 ```
 
 `npm link` points at the working tree, so a later `pnpm bundle` is enough to

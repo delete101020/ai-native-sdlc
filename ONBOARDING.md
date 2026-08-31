@@ -39,7 +39,7 @@ moving or deleting it later breaks the `aidlc` command.
 
 ```sh
 pnpm package:extension                                        # → packages/extension/aidlc-<version>.vsix
-code --install-extension packages/extension/aidlc-3.5.0.vsix --force
+code --install-extension packages/extension/aidlc-3.5.1.vsix --force
 ```
 
 `--force` is what lets you re-install over the same version number; without it
@@ -54,7 +54,7 @@ Verify, and check for the clash:
 code --list-extensions --show-versions | grep -i aidlc
 ```
 
-You want `delete101020.aidlc@3.5.0`. **If `hueanmy.aidlc` also appears, disable
+You want `delete101020.aidlc@3.5.1`. **If `hueanmy.aidlc` also appears, disable
 one of them** (Extensions view → the extension → Disable). Both builds
 contribute the same `aidlc.*` command ids, and VS Code binds each command to
 whichever extension activated first — with both enabled, which one answers a
@@ -64,7 +64,7 @@ command is not predictable.
 
 ```sh
 cd packages/cli && pnpm bundle && npm link
-aidlc --version        # 3.5.0
+aidlc --version        # 3.5.1
 which aidlc
 ```
 
@@ -81,7 +81,7 @@ Two things to know about the link:
   versions with nvm and `aidlc` disappears from `PATH`; re-run `npm link` under
   the new version.
 
-If `aidlc --version` prints something other than `3.5.0`, an older global
+If `aidlc --version` prints something other than `3.5.1`, an older global
 install is shadowing the link — check `which aidlc` before assuming the build
 is wrong.
 
