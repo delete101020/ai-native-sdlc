@@ -1,12 +1,14 @@
 /**
- * AI-Native SDLC workflow — the third built-in pipeline, following stages 1-4
+ * AI-Native SDLC workflow — the third built-in pipeline, following stages 1-5
  * of the AI-Native SDLC Playbook.
  *
  * These tests guard the two things that are easy to get silently wrong when a
  * workflow is added: the flat `~/.claude/{agents,skills}` filename namespace
  * shared by every workflow, and the shared `CANONICAL_PHASES` shortcut layer
- * where one phase id carries one description across all pipelines.
+ * where one phase id carries one description across all pipelines. The last
+ * block covers the stage-5 approval gate, which is a hook rather than prose.
  */
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { describe, it, expect } from 'vitest';
@@ -22,8 +24,8 @@ import { CANONICAL_PHASES, CANONICAL_PHASE_IDS, getCanonicalPhase } from '../src
 const CORE_ROOT = path.join(__dirname, '..');
 
 describe('AI-Native SDLC — canonical phases', () => {
-  it('registers the four new phases', () => {
-    for (const id of ['intent', 'spec', 'build-plan', 'verify']) {
+  it('registers the five new phases', () => {
+    for (const id of ['intent', 'spec', 'build-plan', 'verify', 'review']) {
       expect(CANONICAL_PHASE_IDS).toContain(id);
     }
   });
@@ -33,6 +35,7 @@ describe('AI-Native SDLC — canonical phases', () => {
     expect(getCanonicalPhase('spec')!.artifact).toBe('spec.md');
     expect(getCanonicalPhase('build-plan')!.artifact).toBe('plan.md');
     expect(getCanonicalPhase('verify')!.artifact).toBe('verify.md');
+    expect(getCanonicalPhase('review')!.artifact).toBe('review.md');
   });
 
   it('does not collide with the AIDLC `plan` phase', () => {
@@ -59,9 +62,9 @@ describe('AI-Native SDLC — workflow registration', () => {
     expect(ids).toContain('ai-native-pipeline');
   });
 
-  it('runs the five stage 1-4 phases in a linear DAG', () => {
+  it('runs the six stage 1-5 phases in a linear DAG', () => {
     expect(workflow.phases.map((p) => p.id)).toEqual([
-      'intent', 'spec', 'build-plan', 'implement', 'verify',
+      'intent', 'spec', 'build-plan', 'implement', 'verify', 'review',
     ]);
     const declared = new Set(workflow.phases.map((p) => p.id));
     for (const phase of workflow.phases) {
@@ -78,6 +81,22 @@ describe('AI-Native SDLC — workflow registration', () => {
       expect(canonical, `phase \`${phase.id}\` is not canonical`).toBeDefined();
     }
     expect(workflow.phases.find((p) => p.id === 'build-plan')!.artifact).toBe('plan.md');
+  });
+
+  it('gates the review phase on verify, behind a human', () => {
+    const review = workflow.phases.find((p) => p.id === 'review')!;
+    expect(review.dependsOn).toEqual(['verify']);
+    expect(review.artifact).toBe('review.md');
+    expect(review.humanReview).toBe(true);
+    // `github` here is a declarative permission, inert until a github MCP
+    // server is configured — the phase reads the diff locally (Q2, locked).
+    expect(review.capabilities).toContain('github');
+  });
+
+  it('puts review after verify in the full recipe', () => {
+    const full = (workflow.recipes ?? []).find((r) => r.id === 'native-full')!;
+    expect(full.steps.indexOf('review')).toBe(full.steps.length - 1);
+    expect(full.steps.indexOf('review')).toBeGreaterThan(full.steps.indexOf('verify'));
   });
 
   it('every recipe step is a declared phase', () => {
@@ -150,4 +169,55 @@ describe('flat ~/.claude namespace', () => {
       expect(clashes).toEqual([]);
     });
   }
+});
+
+describe('approval-gate hook', () => {
+  /**
+   * W2.4 — stage 5 puts the gate in the tooling, not in a checklist. The hook
+   * is a PreToolUse command: exit 0 allows, exit 2 blocks with the reason on
+   * stderr. Registration lives in `.claude/settings.json`, which is gitignored,
+   * so this test exercises the script directly.
+   */
+  const HOOK = path.join(CORE_ROOT, '..', '..', '.claude', 'hooks', 'aidlc-approval-gate.py');
+
+  const run = (payload: unknown): { code: number; stderr: string } => {
+    const r = spawnSync('python3', [HOOK], { input: JSON.stringify(payload), encoding: 'utf8' });
+    return { code: r.status ?? -1, stderr: r.stderr ?? '' };
+  };
+
+  const bash = (command: string): unknown => ({ tool_name: 'Bash', tool_input: { command } });
+  const edit = (file_path: string): unknown => ({ tool_name: 'Edit', tool_input: { file_path } });
+
+  it('exists and is executable', () => {
+    expect(fs.existsSync(HOOK)).toBe(true);
+  });
+
+  it('blocks a force-push to a protected branch', () => {
+    const r = run(bash('git push --force origin main'));
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/force-push/);
+  });
+
+  it('blocks staging a credential-looking file', () => {
+    expect(run(bash('git add .env')).code).toBe(2);
+    expect(run(bash('git add secrets/server.pem')).code).toBe(2);
+  });
+
+  it('blocks hand-editing pipeline-owned run state', () => {
+    const r = run(edit('docs/epics/AID-0001/state.json'));
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/Mark step done/);
+  });
+
+  it('allows ordinary work', () => {
+    expect(run(bash('git push origin feat/thing')).code).toBe(0);
+    expect(run(bash('git push --follow-tags origin main')).code).toBe(0);
+    expect(run(bash('git add src/index.ts')).code).toBe(0);
+    expect(run(edit('docs/epics/AID-0001/artifacts/review.md')).code).toBe(0);
+  });
+
+  it('fails open on input it cannot parse', () => {
+    const r = spawnSync('python3', [HOOK], { input: 'not json', encoding: 'utf8' });
+    expect(r.status).toBe(0);
+  });
 });

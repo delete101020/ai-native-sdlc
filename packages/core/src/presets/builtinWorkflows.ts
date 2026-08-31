@@ -471,6 +471,20 @@ const AINATIVE_PHASES: PhaseDef[] = [
     capabilities: ['github', 'files'],
     dependsOn: ['implement'],
   },
+  {
+    id: 'review', name: 'Review', persona: 'native-reviewer', skillFiles: ['native-review'], model: 'claude-sonnet-4-6',
+    description: 'Review the diff against policy before it ships.',
+    inputs: 'The diff, CLAUDE.md, the loaded skills, spec.md, verify.md',
+    outputs: 'review.md — findings traced to the policy line they violate, plus a ship/hold verdict',
+    artifact: 'review.md',
+    humanReview: true, autoReview: false,
+    // `github` is a *declarative permission*, not runtime wiring: it says this
+    // agent may read GitHub, and stays inert until a github MCP server is
+    // configured. The phase itself reads the diff locally and needs no remote
+    // (Q2, locked — see AI_NATIVE_SDLC_ALIGNMENT.md).
+    capabilities: ['github', 'files'],
+    dependsOn: ['verify'],
+  },
 ];
 
 /**
@@ -484,8 +498,8 @@ const AINATIVE_RECIPES: RecipeDef[] = [
   },
   {
     id: 'native-full',
-    description: 'Full AI-Native flow: intent → spec → build-plan → implement → verify.',
-    steps: ['intent', 'spec', 'build-plan', 'implement', 'verify'],
+    description: 'Full AI-Native flow: intent → spec → build-plan → implement → verify → review.',
+    steps: ['intent', 'spec', 'build-plan', 'implement', 'verify', 'review'],
   },
   {
     id: 'native-spike',
@@ -521,9 +535,9 @@ export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
     name: 'AI-Native SDLC',
     templatesDir: 'ainative',
     description:
-      'The AI-Native SDLC Playbook, stages 1-4: Intent → Spec → Build Plan → Implement → Verify. ' +
-      'Artifacts follow the playbook (intent.md, spec.md, plan.md). Originator / Product Owner / Engineer / Verifier, ' +
-      'with verification run by a fresh-context agent rather than the session that wrote the code.',
+      'The AI-Native SDLC Playbook, stages 1-5: Intent → Spec → Build Plan → Implement → Verify → Review. ' +
+      'Artifacts follow the playbook (intent.md, spec.md, plan.md). Originator / Product Owner / Engineer / Verifier / Reviewer, ' +
+      'with verification and review each run by a fresh-context agent rather than the session that wrote the code.',
     phases: AINATIVE_PHASES,
     recipes: AINATIVE_RECIPES,
   },

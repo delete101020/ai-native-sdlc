@@ -53,8 +53,8 @@ export interface CanonicalPhase {
  * builtinWorkflows.ts plus two first-class additions from GH-71:
  * `unit-test` (split out of implement's `['implement','unit-test']`) and
  * `benchmark` (performance run, previously unmodeled) — and the AI-Native
- * SDLC phases (`intent`, `spec`, `build-plan`, `verify`) used by the
- * `ai-native-full` pipeline.
+ * SDLC phases (`intent`, `spec`, `build-plan`, `verify`, `review`) used by
+ * the `ai-native-full` pipeline.
  *
  * This is a *union* across pipelines, not one pipeline's step list: a phase
  * only runs where a pipeline declares it as a step. Appending here adds a
@@ -80,6 +80,7 @@ export const CANONICAL_PHASES: CanonicalPhase[] = [
   { id: 'spec', name: 'Spec', description: 'Collapse requirements and design into spec.md.', artifact: 'spec.md' },
   { id: 'build-plan', name: 'Build Plan', description: 'Plan the implementation before writing code.', artifact: 'plan.md' },
   { id: 'verify', name: 'Verify', description: 'Independent verdict on whether the build meets the spec.', artifact: 'verify.md' },
+  { id: 'review', name: 'Review', description: 'Review the diff against policy before it ships.', artifact: 'review.md' },
 ];
 
 export const CANONICAL_PHASE_IDS: string[] = CANONICAL_PHASES.map((p) => p.id);

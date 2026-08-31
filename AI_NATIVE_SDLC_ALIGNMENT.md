@@ -104,7 +104,7 @@ Order: W0 → W1 → W2 → W3 → W4. W4 is optional.
 | 3. Build (plan mode) | `build-plan` | `native-engineer` | `plan.md` | 🆕 new |
 | 3. Build (code) | `implement` | `native-engineer` | `implement.md` | ♻️ reused |
 | 4. Test | `verify` | `native-verifier` | `verify.md` | 🆕 new |
-| 5. Deploy | `review` | `native-reviewer` | `review.md` | 🆕 W2 |
+| 5. Deploy | `review` | `native-reviewer` | `review.md` | 🆕 new |
 | 6. Maintain | `maintain` | `native-operator` | `incident.md` | 🆕 W3 |
 
 **Why phase ids do not map 1:1 onto the playbook's names:** `plan` is already taken
@@ -160,17 +160,17 @@ workflow, and neither `aidlc-workflow` nor `speckit-pipeline` regresses.
 
 > Goal: make PR review and approval gates a real phase instead of a checklist inside `design.md`.
 
-- [ ] W2.1 Add `review` to `CANONICAL_PHASES` (artifact `review.md`)
-- [ ] W2.2 `PhaseDef` for `review`: persona `native-reviewer`, `dependsOn: ['verify']`, `humanReview: true`
-- [ ] W2.3 Write `agents/native-reviewer.md` and `skills/native-review.md` — read the diff/PR, check against the policies in CLAUDE.md and the loaded skills
-- [ ] W2.4 Hooks as approval gates: add a sample hook under `.claude/hooks/` that blocks out-of-policy actions
-- [ ] W2.5 Declare `capabilities: ['github']` on the `review` phase (declarative permission only — inert until an MCP server is configured)
+- [x] W2.1 Add `review` to `CANONICAL_PHASES` (artifact `review.md`)
+- [x] W2.2 `PhaseDef` for `review`: persona `native-reviewer`, `dependsOn: ['verify']`, `humanReview: true`
+- [x] W2.3 Write `agents/native-reviewer.md` and `skills/native-review.md` — read the diff/PR, check against the policies in CLAUDE.md and the loaded skills
+- [x] W2.4 Hooks as approval gates: add a sample hook under `.claude/hooks/` that blocks out-of-policy actions
+- [x] W2.5 Declare `capabilities: ['github']` on the `review` phase (declarative permission only — inert until an MCP server is configured)
 - [ ] ~~W2.5b Wire `@claude` into the PR loop via a GitHub Action~~ — **deferred**, see §W2 decisions
-- [ ] W2.6 Update recipes so the full recipe inserts `review` after `verify`
-- [ ] W2.7 Tests, plus `.github/workflows/ci.yml` if review is to run in CI
+- [x] W2.6 Update recipes so the full recipe inserts `review` after `verify`
+- [x] W2.7 Tests, plus `.github/workflows/ci.yml` if review is to run in CI
 
 **Acceptance:** `/review <epic>` produces `review.md` with findings traced to policy,
-and the hook demonstrably blocks at least one violating action.
+and the hook demonstrably blocks at least one violating action. — **met.**
 
 #### W2 decisions (Q2, locked 2026-08-31)
 
@@ -274,6 +274,8 @@ with a valid `intent.md`, and the next phase on that epic can read it.
 | 2026-08-31 | Locked Q1 (playbook artifact names) and Q4 (parallel workflow); wrote the phase map; found the flat-namespace constraint | §W0 |
 | 2026-08-31 | W1.1–W1.2: template tree plus four personas under `templates/ainative/agents/` | Prefix settled as `native-` so files install as `aidlc-native-*.md` |
 | 2026-08-31 | W1 complete: `ainative` template tree (4 personas, 5 skills, 5 artifact templates), 4 canonical phases, third workflow registered, `preset.ts` id lookup, commands regenerated, 13 new tests | 243 core + 22 extension tests green |
+| 2026-08-31 | Q2 locked: local CLI for the review phase; MCP capability pre-staged, GitHub Action deferred with its prerequisites recorded | §W2 decisions |
+| 2026-08-31 | W2 complete: `review` phase (persona, skill, artifact template, canonical phase, recipe step), `aidlc-approval-gate.py` hook, `/review` command, 8 new tests | 251 core tests green; W2.5b still deferred |
 
 ---
 
@@ -296,7 +298,61 @@ with a valid `intent.md`, and the next phase on that epic can read it.
 missing `prototype.md`. `prototype` has been a canonical phase since GH-77 but its
 shortcut command file had never been written; the generator simply filled the gap.
 
-**Not done in W1, by design:** stage 5 (`review`) and stage 6 (`maintain`) — W2 and W3.
-The `native-reviewer` and `native-operator` personas do not exist yet, so the phase
-map in §W0 lists them as planned rather than shipped.
-| 2026-08-31 | Q2 locked: local CLI for the review phase; MCP capability pre-staged, GitHub Action deferred with its prerequisites recorded | No code yet — W2 not started |
+**Not done in W1, by design:** stage 5 (`review`) and stage 6 (`maintain`) — deferred
+to W2 and W3. `native-reviewer` shipped in W2 (below); `native-operator` is still W3.
+
+---
+
+## 9. W2 delivery notes
+
+**What shipped**
+
+| Area | Files |
+|---|---|
+| Persona | `templates/ainative/agents/native-reviewer.md` |
+| Skill | `templates/ainative/skills/native-review.md` |
+| Artifact template | `templates/ainative/artifacts/review.md` |
+| Canonical phase | `commandModel.ts` — `review` → `review.md` |
+| Workflow | `builtinWorkflows.ts` — `review` phase (`dependsOn: ['verify']`, `humanReview`, `capabilities: ['github','files']`), appended to the `native-full` recipe |
+| Approval gate | `.claude/hooks/aidlc-approval-gate.py` |
+| Command | `.claude/commands/review.md` |
+| Tests | `ainative-workflow.test.ts` — 8 new cases (2 phase wiring, 6 hook behavior) |
+
+**Reviewer vs. Verifier.** They answer different questions, which is why they are
+separate phases rather than one bigger one. The Verifier asks *does it do what the
+spec said?* and re-derives its checks from `spec.md`. The Reviewer asks *is this how
+we build things here, and is it safe to ship?* and derives its checks from written
+policy — `CLAUDE.md`, the loaded skills, the active standard. A change can satisfy
+every acceptance criterion and still hard-code a secret or swallow an error; nothing
+in the spec forbids that, the policy does.
+
+Every finding cites the policy line it breaks, or is explicitly labelled `opinion`.
+That constraint is what keeps the phase from degenerating into taste, and it makes
+the report's last section — **Policy amendments** — meaningful: a rule that keeps
+being violated is a broken rule, and that observation is exactly what stage 6 (W3)
+feeds back into `CLAUDE.md`.
+
+**The approval gate is a hook, not prose.** A skill can be talked past by an agent
+that has convinced itself; a `PreToolUse` hook cannot. `aidlc-approval-gate.py`
+reads the hook payload on stdin and exits 2 to block, with the reason on stderr:
+
+| Blocked | Why |
+|---|---|
+| `git push --force` to `main`/`master` | Protected branches are fast-forward only |
+| `git add` of a credential-looking path (`.env`, `*.pem`, `id_rsa`, …) | Secrets never enter a commit |
+| Hand-editing `docs/epics/*/state.json` | The runner is the single writer; state advances via "Mark step done" |
+
+It **fails open** — malformed JSON, an unknown tool, or an unevaluable rule allows
+the action. A gate that fails closed on its own bugs blocks real work, and would be
+uninstalled within a day.
+
+Registration lives in `.claude/settings.json`, which is gitignored, so each clone
+opts in deliberately; the snippet is in the hook's own docstring. Because the hook is
+therefore not exercised by simply having the file, the test suite runs it directly
+against six payloads (three that must block, three that must not).
+
+**Verification:** `pnpm -r compile` clean; `@aidlc/core` 251/251 pass (up from 243).
+
+**Deferred, deliberately:** W2.5b, the `@claude` GitHub Action — see §W2 decisions.
+No `ci.yml` change was needed: the hook tests run inside the existing
+`pnpm --filter @aidlc/core test` step.
