@@ -145,6 +145,21 @@ export interface ScaffoldEpicArgs {
    */
   aidlcDir?: string;
   /**
+   * Artifact files to seed into `<epic>/artifacts/`, keyed by filename
+   * (`intent.md` → its markdown body). Written *after* the pipeline's artifact
+   * templates, so a seeded file replaces the empty template for that artifact.
+   *
+   * This is how stage 6 closes the loop: `maintain` diagnoses a signal and hands
+   * the next epic a real `intent.md` instead of a blank one, so the spec phase
+   * has something to read on the very first run. Nothing about it is
+   * playbook-specific — any caller that already knows an artifact's content can
+   * pass it here.
+   *
+   * Filenames only: a key containing a path separator (or `..`) is rejected, so
+   * a seed can never escape `artifacts/`.
+   */
+  seedArtifacts?: Record<string, string>;
+  /**
    * aidlc-autopilot (experimental / "coming soon"): when true, collect epic
    * context and generate a recommended plan (`context.json` +
    * `autopilot-plan.{json,md}`) at scaffold time. Defaults to **false** so the
@@ -169,7 +184,7 @@ export interface ScaffoldEpicResult {
 export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   const {
     workspaceRoot, doc, epicId, title, description, target, agents, inputs, extraProjects, pipeline,
-    enableAutopilot = false,
+    seedArtifacts, enableAutopilot = false,
   } = args;
 
   if (!epicId.trim()) { throw new EpicScaffoldError('Epic id is required.'); }
@@ -202,6 +217,16 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
         }
       }
     }
+  }
+
+  // Seeded artifacts land after the templates so a caller-supplied artifact
+  // (stage 6 handing the next epic its `intent.md`) wins over the blank
+  // template for the same filename.
+  for (const [fileName, content] of Object.entries(seedArtifacts ?? {})) {
+    if (fileName.includes('/') || fileName.includes('\\') || fileName.includes('..') || !fileName.trim()) {
+      throw new EpicScaffoldError(`Seed artifact name must be a plain filename, got "${fileName}".`);
+    }
+    fs.writeFileSync(path.join(artifactsDir, fileName), content, 'utf8');
   }
 
   const initialState = {

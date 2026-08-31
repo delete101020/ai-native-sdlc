@@ -76,7 +76,7 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
   },
   {
     id: 'ai-native',
-    description: 'AI-Native SDLC (playbook stages 1-4): Intent → Spec → Build Plan → Implement → Verify',
+    description: 'AI-Native SDLC (playbook stages 1-6): Intent → Spec → Build Plan → Implement → Verify → Review → Maintain',
     apply(_root, doc) {
       return applyBuiltinWorkflow('ai-native-pipeline', doc);
     },

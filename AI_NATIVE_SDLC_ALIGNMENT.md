@@ -64,7 +64,7 @@ task-type recipes.
 | `packages/core/templates/<dir>/{agents,skills,artifacts}/` | Markdown source for a preset | ✅ New tree |
 | `packages/core/src/schema/WorkspaceSchema.ts` | `workspace.yaml` schema, `dependsOn` DAG | ⬜ Already sufficient |
 | `packages/core/src/runner/DefaultRunner.ts` | Spawns the `claude` CLI | ⬜ No change |
-| `packages/core/src/runs/EpicScaffold.ts` | Creates the epic tree and seeds artifacts | ✅ For intent.md + loop closure (W3) |
+| `packages/core/src/runs/EpicScaffold.ts` | Creates the epic tree and seeds artifacts | ✅ Done in W3 — `seedArtifacts` |
 | `packages/core/src/presets/globalDefaults.ts` | Installs a preset into `~/.claude` | ✅ Verify the new workflow is listed |
 | `.claude/commands/*.md` | Slash commands generated from `CANONICAL_PHASES` | ✅ Regenerate |
 | `packages/cli/src/commands/preset.ts` | CLI preset command | ⚠️ Line 80 hard-codes `BUILTIN_WORKFLOWS[0]` |
@@ -105,7 +105,7 @@ Order: W0 → W1 → W2 → W3 → W4. W4 is optional.
 | 3. Build (code) | `implement` | `native-engineer` | `implement.md` | ♻️ reused |
 | 4. Test | `verify` | `native-verifier` | `verify.md` | 🆕 new |
 | 5. Deploy | `review` | `native-reviewer` | `review.md` | 🆕 new |
-| 6. Maintain | `maintain` | `native-operator` | `incident.md` | 🆕 W3 |
+| 6. Maintain | `maintain` | `native-operator` | `incident.md` | 🆕 new |
 
 **Why phase ids do not map 1:1 onto the playbook's names:** `plan` is already taken
 by `aidlc-workflow`, where it means "scaffold the epic and write the PRD". The
@@ -217,16 +217,17 @@ to the phase built in W2.1-W2.4.
 > Goal: production signal → diagnosis → a new `intent.md` → back to stage 1.
 > This is the only workstream that genuinely changes the engine, and the change is small.
 
-- [ ] W3.1 Add `maintain` to `CANONICAL_PHASES` (artifact `incident.md`)
-- [ ] W3.2 `PhaseDef` for `maintain`: persona `native-operator`, must run non-interactively
-- [ ] W3.3 Write `agents/native-operator.md` and `skills/native-maintain.md` — take a signal, write the diagnosis
-- [ ] W3.4 **Engine:** teach `EpicScaffold.ts` to accept `intent.md` as the input to the `plan`/`spec` phase
-- [ ] W3.5 **Engine:** have `maintain` emit the `intent.md` of a *new* epic, closing the loop
+- [x] W3.1 Add `maintain` to `CANONICAL_PHASES` (artifact `incident.md`)
+- [x] W3.2 `PhaseDef` for `maintain`: persona `native-operator`, must run non-interactively
+- [x] W3.3 Write `agents/native-operator.md` and `skills/native-maintain.md` — take a signal, write the diagnosis
+- [x] W3.4 **Engine:** teach `EpicScaffold.ts` to accept `intent.md` as the input to the `plan`/`spec` phase
+- [x] W3.5 **Engine:** have `maintain` emit the `intent.md` of a *new* epic, closing the loop
 - [x] W3.6 Investigate reusing `otelReceiver.ts` / `observeClient.ts` for production signals (Q3) — **answered: no**, see §W3 decisions
-- [ ] W3.7 Test the loop: maintain → intent.md → the next epic's spec phase reads it
+- [x] W3.7 Test the loop: maintain → intent.md → the next epic's spec phase reads it
 
 **Acceptance:** running `maintain` against a simulated signal produces a new epic
-with a valid `intent.md`, and the next phase on that epic can read it.
+with a valid `intent.md`, and the next phase on that epic can read it — **met**
+(`test/maintain-loop.test.ts`, "the loop closes").
 
 #### W3 decisions (Q3, locked 2026-08-31)
 
@@ -325,6 +326,7 @@ its source, and can be built against the schema above.
 | 2026-08-31 | Q2 locked: local CLI for the review phase; MCP capability pre-staged, GitHub Action deferred with its prerequisites recorded | §W2 decisions |
 | 2026-08-31 | W2 complete: `review` phase (persona, skill, artifact template, canonical phase, recipe step), `aidlc-approval-gate.py` hook, `/review` command, 8 new tests | 251 core tests green; W2.5b still deferred |
 | 2026-08-31 | Q3 locked: signal file / webhook, with the signal schema as the contract; W3.6 answered "no" — the existing OTel/observe modules measure Claude Code, not production | §W3 decisions. No code — W3.1–W3.5 unblocked |
+| 2026-08-31 | W3 complete: `maintain` phase (persona, skill, artifact template, canonical phase, `native-incident` recipe), `Signal` schema, `IncidentLoop` (`openFollowUpEpic`), `seedArtifacts` in `EpicScaffold`, `/maintain` command, 18 new tests | 269 core + 22 extension tests green; the loop closes end to end |
 
 ---
 
@@ -348,7 +350,7 @@ missing `prototype.md`. `prototype` has been a canonical phase since GH-77 but i
 shortcut command file had never been written; the generator simply filled the gap.
 
 **Not done in W1, by design:** stage 5 (`review`) and stage 6 (`maintain`) — deferred
-to W2 and W3. `native-reviewer` shipped in W2 (below); `native-operator` is still W3.
+to W2 and W3. `native-reviewer` shipped in W2 and `native-operator` in W3 (both below).
 
 ---
 
@@ -405,3 +407,72 @@ against six payloads (three that must block, three that must not).
 **Deferred, deliberately:** W2.5b, the `@claude` GitHub Action — see §W2 decisions.
 No `ci.yml` change was needed: the hook tests run inside the existing
 `pnpm --filter @aidlc/core test` step.
+
+---
+
+## 10. W3 delivery notes
+
+**What shipped**
+
+| Area | Files |
+|---|---|
+| Persona | `templates/ainative/agents/native-operator.md` |
+| Skill | `templates/ainative/skills/native-maintain.md` |
+| Artifact template | `templates/ainative/artifacts/maintain.md` → `incident.md` |
+| Canonical phase | `commandModel.ts` — `maintain` → `incident.md` |
+| Workflow | `builtinWorkflows.ts` — `maintain` phase (`dependsOn: ['review']`, **no human gate**) plus the `native-incident` recipe |
+| Signal contract | `core/src/maintain/Signal.ts` — Zod schema, `parseSignal`, `isSignal` |
+| Loop closure | `core/src/maintain/IncidentLoop.ts` — `followUpEpicId`, `renderIntentMarkdown`, `openFollowUpEpic` |
+| Engine | `EpicScaffold.ts` — `seedArtifacts` |
+| Command | `.claude/commands/maintain.md` |
+| Tests | `maintain-loop.test.ts` (16 cases) + 2 in `ainative-workflow.test.ts` |
+
+**The loop, concretely.** Stage 6 is the only stage whose output is another
+stage's input rather than a deliverable. A signal arrives → the Operator writes
+`incident.md` → when the fix is real work, `openFollowUpEpic` scaffolds a new epic
+with `intent.md` **already written**, so the spec phase has something to read on
+its first run. That last step is the whole of the engine change: `scaffoldEpic`
+previously only ever laid down blank templates.
+
+`seedArtifacts` is deliberately generic — a map of filename → content, written
+after the templates so it wins — and rejects any key with a path separator or
+`..`, so a seed can never escape `artifacts/`. Nothing in it knows about the
+playbook; any caller that already has an artifact's content can use it.
+
+**The only phase with no human gate.** A production signal arrives at 3am, so the
+phase has to run with nobody present. The gate did not disappear — it moved to
+stage 1 of the epic this phase opens, where the emitted `intent.md` is reviewed
+like any other intent. The agent diagnoses and hands forward; it never repairs. A
+hotfix decided unattended is precisely what stage 5 exists to prevent.
+
+**Why `maintain` is not in the `native-full` recipe.** It is declared last in the
+pipeline so the DAG stays a chain, but a feature epic that shipped is *done* —
+appending an incident phase to it would end every epic with a report saying "no
+signal yet". Stage 6 is entered on its own, via `native-incident`
+(`steps: ['maintain']`); `PipelineAssembler` prunes the dangling `depends_on`.
+
+**Two rules the emitted intent inherits from stage 1**, both enforced by
+`renderIntentMarkdown` rather than left to the agent's discretion:
+
+1. *No solution language.* However sure the Operator is about which line is at
+   fault, that belongs in `incident.md`. An intent that names the fix has
+   pre-decided the spec, and the next four stages become theatre.
+2. *Never invent evidence.* Anything the caller did not supply is rendered as an
+   explicit open question, not as a plausible sentence. A visible gap gets
+   answered; a fabricated line gets believed.
+
+**Epic ids read as the symptom** (`INC-CHECKOUT-RETURNS-500-FOR`), because the id
+ends up in a branch name, a folder, and every later reference — `INC-7` tells a
+reader nothing six weeks on. A recurrence gets a `-2` suffix rather than a
+collision error: the same signal coming back is exactly when you want the two
+epics side by side.
+
+**Verification:** `pnpm -r compile` clean; `@aidlc/core` 269/269 (up from 251),
+extension 22/22. The loop test asserts the full chain — new epic exists, its
+`intent.md` is written rather than blank, the `spec` step's `requires` names that
+exact file, the run starts at step 0 behind its human gate, and provenance
+(`from_epic`, `signal_source`) is queryable from `inputs.json`.
+
+**Not built, by decision:** the Sentry adapter (Q3(b)) and OTel wiring (Q3(a)) —
+both are sources that fill the same five-field schema, and neither changes the
+phase. See §W3 decisions.

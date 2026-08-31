@@ -68,6 +68,22 @@ export type {
   ScaffoldEpicResult,
 } from './runs/EpicScaffold';
 
+// ── Stage 6: maintain, and the loop back to stage 1 ────────────────
+export { SignalSchema, parseSignal, isSignal, SignalParseError } from './maintain/Signal';
+export type { Signal } from './maintain/Signal';
+export {
+  openFollowUpEpic,
+  renderIntentMarkdown,
+  followUpEpicId,
+  existingEpicIds,
+  FOLLOW_UP_ARTIFACT,
+} from './maintain/IncidentLoop';
+export type {
+  OpenFollowUpEpicArgs,
+  OpenFollowUpEpicResult,
+  RenderIntentOptions,
+} from './maintain/IncidentLoop';
+
 export { collectContext } from './epics/ContextCollector';
 export type { EpicContext } from './epics/ContextCollector';
 export { generatePlan, renderPlanMarkdown } from './epics/PlanGenerator';

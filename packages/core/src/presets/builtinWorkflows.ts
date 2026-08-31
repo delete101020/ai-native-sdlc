@@ -402,14 +402,19 @@ const SPECKIT_RECIPES: RecipeDef[] = [
 
 /**
  * AI-Native SDLC workflow — the six-stage lifecycle from the AI-Native SDLC
- * Playbook (https://claude.com/blog/the-ai-native-sdlc-playbook), stages 1-4:
+ * Playbook (https://claude.com/blog/the-ai-native-sdlc-playbook):
  *
- *     intent → spec → build-plan → implement → verify
+ *     intent → spec → build-plan → implement → verify → review → maintain
  *
- * Artifact names follow the playbook (`intent.md`, `spec.md`, `plan.md`), which
- * is why they are lowercase and unprefixed where the other two workflows use
- * SHOUTING-CASE. Stage 5 (`review`) and stage 6 (`maintain`) are not modeled
- * yet — see AI_NATIVE_SDLC_ALIGNMENT.md, workstreams W2 and W3.
+ * Artifact names follow the playbook (`intent.md`, `spec.md`, `plan.md`,
+ * `incident.md`), which is why they are lowercase and unprefixed where the
+ * other two workflows use SHOUTING-CASE.
+ *
+ * `maintain` is stage 6 and closes the loop: it turns a production signal into
+ * a diagnosis and then into the `intent.md` of a *new* epic, which re-enters at
+ * stage 1. It is declared last in the chain so the DAG stays linear, but the
+ * `native-incident` recipe runs it alone — a signal does not wait for a feature
+ * epic to finish.
  *
  * Note the phase id `build-plan`: the playbook calls its stage-3 artifact
  * `plan.md`, but `plan` as a *phase id* is already taken by the AIDLC workflow
@@ -485,6 +490,23 @@ const AINATIVE_PHASES: PhaseDef[] = [
     capabilities: ['github', 'files'],
     dependsOn: ['verify'],
   },
+  {
+    id: 'maintain', name: 'Maintain', persona: 'native-operator', skillFiles: ['native-maintain'], model: 'claude-sonnet-4-6',
+    description: 'Turn a production signal into a diagnosis, and into the next epic.',
+    inputs: 'A signal (source, observedAt, symptom, scope, evidence), the shipped code, spec.md',
+    outputs: 'incident.md — what happened, why, and the intent.md of the follow-up epic',
+    artifact: 'incident.md',
+    // The only phase with no human gate: a signal arrives unattended, so the
+    // phase has to run unattended too. The human gate has not disappeared — it
+    // moved to stage 1 of the epic this phase opens, where `intent.md` is
+    // reviewed like any other intent.
+    humanReview: false, autoReview: false,
+    capabilities: ['github', 'files'],
+    // Linear in the full pipeline so the DAG stays a chain, but stage 6 is
+    // normally entered on its own via the `native-incident` recipe: a signal
+    // does not wait for a feature epic to finish.
+    dependsOn: ['review'],
+  },
 ];
 
 /**
@@ -500,6 +522,11 @@ const AINATIVE_RECIPES: RecipeDef[] = [
     id: 'native-full',
     description: 'Full AI-Native flow: intent → spec → build-plan → implement → verify → review.',
     steps: ['intent', 'spec', 'build-plan', 'implement', 'verify', 'review'],
+  },
+  {
+    id: 'native-incident',
+    description: 'A production signal arrived — diagnose it and open the follow-up epic.',
+    steps: ['maintain'],
   },
   {
     id: 'native-spike',
@@ -535,9 +562,9 @@ export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
     name: 'AI-Native SDLC',
     templatesDir: 'ainative',
     description:
-      'The AI-Native SDLC Playbook, stages 1-5: Intent → Spec → Build Plan → Implement → Verify → Review. ' +
-      'Artifacts follow the playbook (intent.md, spec.md, plan.md). Originator / Product Owner / Engineer / Verifier / Reviewer, ' +
-      'with verification and review each run by a fresh-context agent rather than the session that wrote the code.',
+      'The AI-Native SDLC Playbook, stages 1-6: Intent → Spec → Build Plan → Implement → Verify → Review → Maintain. ' +
+      'Artifacts follow the playbook (intent.md, spec.md, plan.md, incident.md). Originator / Product Owner / Engineer / Verifier / Reviewer / Operator, ' +
+      'with verification and review each run by a fresh-context agent rather than the session that wrote the code, and maintain closing the loop back to stage 1.',
     phases: AINATIVE_PHASES,
     recipes: AINATIVE_RECIPES,
   },

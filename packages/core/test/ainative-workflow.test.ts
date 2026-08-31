@@ -1,6 +1,6 @@
 /**
- * AI-Native SDLC workflow — the third built-in pipeline, following stages 1-5
- * of the AI-Native SDLC Playbook.
+ * AI-Native SDLC workflow — the third built-in pipeline, following all six
+ * stages of the AI-Native SDLC Playbook.
  *
  * These tests guard the two things that are easy to get silently wrong when a
  * workflow is added: the flat `~/.claude/{agents,skills}` filename namespace
@@ -24,8 +24,8 @@ import { CANONICAL_PHASES, CANONICAL_PHASE_IDS, getCanonicalPhase } from '../src
 const CORE_ROOT = path.join(__dirname, '..');
 
 describe('AI-Native SDLC — canonical phases', () => {
-  it('registers the five new phases', () => {
-    for (const id of ['intent', 'spec', 'build-plan', 'verify', 'review']) {
+  it('registers the six new phases', () => {
+    for (const id of ['intent', 'spec', 'build-plan', 'verify', 'review', 'maintain']) {
       expect(CANONICAL_PHASE_IDS).toContain(id);
     }
   });
@@ -36,6 +36,7 @@ describe('AI-Native SDLC — canonical phases', () => {
     expect(getCanonicalPhase('build-plan')!.artifact).toBe('plan.md');
     expect(getCanonicalPhase('verify')!.artifact).toBe('verify.md');
     expect(getCanonicalPhase('review')!.artifact).toBe('review.md');
+    expect(getCanonicalPhase('maintain')!.artifact).toBe('incident.md');
   });
 
   it('does not collide with the AIDLC `plan` phase', () => {
@@ -62,9 +63,9 @@ describe('AI-Native SDLC — workflow registration', () => {
     expect(ids).toContain('ai-native-pipeline');
   });
 
-  it('runs the six stage 1-5 phases in a linear DAG', () => {
+  it('runs the seven playbook phases in a linear DAG', () => {
     expect(workflow.phases.map((p) => p.id)).toEqual([
-      'intent', 'spec', 'build-plan', 'implement', 'verify', 'review',
+      'intent', 'spec', 'build-plan', 'implement', 'verify', 'review', 'maintain',
     ]);
     const declared = new Set(workflow.phases.map((p) => p.id));
     for (const phase of workflow.phases) {
@@ -97,6 +98,24 @@ describe('AI-Native SDLC — workflow registration', () => {
     const full = (workflow.recipes ?? []).find((r) => r.id === 'native-full')!;
     expect(full.steps.indexOf('review')).toBe(full.steps.length - 1);
     expect(full.steps.indexOf('review')).toBeGreaterThan(full.steps.indexOf('verify'));
+  });
+
+  it('runs maintain unattended — a signal does not wait for office hours', () => {
+    const maintain = workflow.phases.find((p) => p.id === 'maintain')!;
+    expect(maintain.artifact).toBe('incident.md');
+    expect(maintain.persona).toBe('native-operator');
+    // The only phase without a human gate. The gate moved to stage 1 of the
+    // epic this phase opens, where the emitted intent.md is reviewed.
+    expect(maintain.humanReview).toBe(false);
+    expect(maintain.autoReview).toBe(false);
+  });
+
+  it('lets a signal enter stage 6 on its own, not only after review', () => {
+    const incident = (workflow.recipes ?? []).find((r) => r.id === 'native-incident')!;
+    expect(incident.steps).toEqual(['maintain']);
+    // …while the feature flow still ends at review: an epic that shipped is done.
+    const full = (workflow.recipes ?? []).find((r) => r.id === 'native-full')!;
+    expect(full.steps).not.toContain('maintain');
   });
 
   it('every recipe step is a declared phase', () => {
