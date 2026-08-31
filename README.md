@@ -1,11 +1,17 @@
-# AIDLC v3.4 🚀
+# AIDLC v3.5 🚀
 
-**AI-driven SDLC pipeline runner. Plan → Prototype → Design ∥ Test → Implement → Release. See what Claude is building, control every step, track every token.**
+**AI-driven SDLC pipeline runner. Plan → Prototype → Design ∥ Test → Implement → Release, plus the six-stage AI-Native SDLC Playbook. See what Claude is building, control every step, track every token.**
 
-[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-Install-2b6cb0)](https://marketplace.visualstudio.com/items?itemName=hueanmy.aidlc)
-[![Open VSX](https://img.shields.io/open-vsx/v/hueanmy/aidlc?label=Open%20VSX&color=a259e6)](https://open-vsx.org/extension/hueanmy/aidlc)
 [![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/hueanmy)
+[![Build: local](https://img.shields.io/badge/build-local%20%2Evsix-6b7280)](#install-this-build)
+
+> **This is a fork.** Upstream is [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc)
+> by [hueanmy](https://github.com/hueanmy), published on the Marketplace as
+> `hueanmy.aidlc`. **This build is not published anywhere** — it is installed from
+> a locally built `.vsix` and a locally linked CLI ([Install this build](#install-this-build)).
+> What it adds on top of upstream is the **AI-Native SDLC Playbook** workflow; see
+> [`AI_NATIVE_SDLC_ALIGNMENT.md`](AI_NATIVE_SDLC_ALIGNMENT.md) for the full record of
+> what was built and why.
 
 AI-driven SDLC + agent workflow runner — drives Claude through any pipeline you
 declare in `.aidlc/workspace.yaml`. Use it through the VS Code Builder UI or
@@ -17,6 +23,23 @@ observability, and a native session-insights dashboard built from the Claude
 Code transcript.
 
 ![aidlc demo](packages/extension/media/demo.gif)
+
+## ✨ What's New in v3.5 — the AI-Native SDLC Playbook (this fork)
+
+- **🧭 A third built-in workflow, `ai-native-pipeline`** — the playbook's six stages as one pipeline: **Intent → Spec → Plan → Build → Test → Deploy → Maintain** (`intent.md` · `spec.md` · `plan.md` · diffs & PRs · `verify.md` · `review.md` · `incident.md`). Apply it with `aidlc preset apply ai-native`. The existing `aidlc-workflow` and `speckit-pipeline` are untouched.
+- **🛡️ The stage-5 gate lives in the tooling** — a `PreToolUse` hook (`.claude/hooks/aidlc-approval-gate.py`) blocks force-pushes to protected branches, staging credential-shaped files, and hand-edits of pipeline-owned run state. A checklist you can skip is not a gate.
+- **🔁 Stage 6 closes the loop back to stage 1** — a production signal opens an incident epic, and the diagnosis opens the follow-up epic with its `intent.md` already written:
+
+  ```sh
+  aidlc maintain --signal signal.json        # register the signal → INC-… epic
+  aidlc maintain follow-up INC-… --problem … # open the work it turned out to need
+  ```
+
+  `maintain` is the only phase with no human gate — a signal does not wait for
+  office hours. The gate moved to stage 1 of the epic it opens.
+- **⌨️ CLI first, by rule** — every new phase is runnable from a terminal, a cron job or a webhook forwarder before it gets a button. `@aidlc/core` is the API; the extension and the CLI are both callers.
+
+---
 
 ## ✨ What's New in v3.4
 
@@ -75,7 +98,7 @@ The mirror image runs at the **start** of a phase: a **discovery gate**. When th
 
 | Package | Path | Purpose |
 |---|---|---|
-| [`aidlc`](packages/extension/) (extension) | `packages/extension/` | VS Code extension. Builder UI for `workspace.yaml`, sidebar for active runs, run-state commands, and the **AIDLC Monitor** (token usage + session insights + live agent observability). Marketplace + Open VSX as `hueanmy.aidlc`. |
+| [`aidlc`](packages/extension/) (extension) | `packages/extension/` | VS Code extension. Builder UI for `workspace.yaml`, sidebar for active runs, run-state commands, and the **AIDLC Monitor** (token usage + session insights + live agent observability). Installed locally as `delete101020.aidlc` (see [Install this build](#install-this-build)). |
 | [`@aidlc/core`](packages/core/) | `packages/core/` | Pure-TypeScript engine: Zod schema, workspace loader, runner registry (`DefaultRunner` shells out to `claude`), pipeline state machine. **No `import 'vscode'`** — runs identically in CLI / tests / cloud. |
 | [`aidlc`](packages/cli/) (CLI) | `packages/cli/` | Standalone terminal CLI. Manages `workspace.yaml`, drives runs end-to-end via Claude, no VS Code required. See [packages/cli/README.md](packages/cli/README.md). |
 
@@ -83,12 +106,12 @@ The mirror image runs at the **start** of a phase: a **discovery gate**. When th
 
 ### 1. Install the CLI
 
-```sh
-# (when published to npm)
-npm install -g aidlc
+This build is not on npm. Install it from the repo:
 
-# (locally during development)
-pnpm install && cd packages/cli && npm link
+```sh
+pnpm install
+pnpm -r compile
+cd packages/cli && pnpm bundle && npm link   # puts `aidlc` on your PATH
 ```
 
 ### 2. Bootstrap a workspace
@@ -285,15 +308,43 @@ teammates on other machines converge through the git remote you already use.
 configured it degrades to local commit-only — still durable, just
 single-machine. The default file backend is unchanged; git is fully opt-in.
 
-## Marketplace
+## Install this build
 
-- **VS Code Marketplace**: [hueanmy.aidlc](https://marketplace.visualstudio.com/items?itemName=hueanmy.aidlc)
-- **Open VSX**: [hueanmy.aidlc](https://open-vsx.org/extension/hueanmy/aidlc)
+Nothing here is published — no Marketplace listing, no Open VSX entry, no npm
+package. Both artifacts are built from this repo and installed locally.
 
-## Sponsor
+**The extension:**
 
-If AIDLC saves you time, consider [sponsoring on GitHub](https://github.com/sponsors/hueanmy) ❤️ — it keeps the extension, the CLI, and the monitor maintained.
+```sh
+pnpm install
+pnpm package:extension                                  # → packages/extension/aidlc-3.5.0.vsix
+code --install-extension packages/extension/aidlc-3.5.0.vsix
+```
+
+Reload the window afterwards. The extension installs as `delete101020.aidlc`;
+if you also have the upstream `hueanmy.aidlc` installed, disable one of them —
+they contribute the same `aidlc.*` command ids.
+
+**The CLI:**
+
+```sh
+pnpm -r compile
+cd packages/cli && pnpm bundle && npm link               # `aidlc` on your PATH
+aidlc --version                                          # 3.5.0
+```
+
+To pick up later changes, re-run the same two commands — `npm link` points at
+the working tree, so a rebuild is enough for the CLI; the extension needs a new
+`.vsix` and a reinstall.
+
+## Credit
+
+Built on [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc) by
+[hueanmy](https://github.com/hueanmy) — the extension, the CLI, the monitor and
+the annotation loop are all upstream work. If it saves you time,
+[sponsor the original author](https://github.com/sponsors/hueanmy) ❤️.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE). The original copyright line is kept; this fork's
+changes are added under the same terms.

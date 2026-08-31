@@ -1,5 +1,84 @@
 # Changelog
 
+## 3.5.0
+
+First release of this fork. Upstream (`aidlc-io/aidlc`, published as
+`hueanmy.aidlc`) stops at 3.4.1; everything below is added on top of it and is
+distributed only as a locally built `.vsix` plus a locally linked CLI — there is
+no Marketplace, Open VSX or npm listing for this build.
+
+### Added — the AI-Native SDLC Playbook workflow
+
+- feat(workflow): **`ai-native-pipeline`**, a third built-in workflow alongside
+  `aidlc-workflow` and `speckit-pipeline` (neither is changed). It runs the
+  playbook's six stages as seven phases — `intent` → `spec` → `build-plan` →
+  `implement` → `verify` → `review` → `maintain` — producing `intent.md`,
+  `spec.md`, `plan.md`, `implement.md`, `verify.md`, `review.md` and
+  `incident.md`. Six personas and six skills ship under `templates/ainative/`,
+  all `native-`-prefixed so the flat `~/.claude/{agents,skills}` namespace stays
+  collision-free. Apply it with `aidlc preset apply ai-native` or from the
+  Builder. Recipes: `native-quick`, `native-full`, `native-spike`,
+  `native-incident`.
+- feat(commands): six new canonical phases (`intent`, `spec`, `build-plan`,
+  `verify`, `review`, `maintain`) join the two-layer command model, so each gets
+  a shortcut command and `/aidlc <epic> [phase]` dispatches to it. `plan` keeps
+  its AIDLC meaning (scaffold + PRD); the playbook's implementation plan is
+  `build-plan` with `plan.md` as its artifact.
+- feat(review): **stage 5 is a phase, not a checklist.** `review` depends on
+  `verify`, is human-gated, reads the diff locally against the policies in
+  `CLAUDE.md`, and writes `review.md`. It declares `capabilities: ['github']` —
+  a declarative permission, inert until a github MCP server is configured. No CI
+  credentials and no remote required.
+- feat(hooks): **the approval gate runs in the tooling.**
+  `.claude/hooks/aidlc-approval-gate.py` is a `PreToolUse` hook that blocks
+  force-pushes to protected branches, staging credential-shaped files (`.env`,
+  `*.pem`), and hand-edits of pipeline-owned run state (`state.json`), each with
+  the reason on stderr. It fails open on input it cannot parse.
+- feat(maintain): **stage 6 closes the loop back to stage 1.** A production
+  signal (`source` / `observedAt` / `symptom` / `scope` / `evidence`, Zod-parsed)
+  opens an incident epic; the diagnosis then opens the follow-up epic with its
+  `intent.md` already written, and anything the signal did not establish is
+  rendered as an explicit open question rather than a guess. `maintain` is the
+  only phase with no human gate — a signal does not wait for office hours; the
+  gate moved to stage 1 of the epic it opens.
+- feat(cli): **`aidlc maintain`** — stage 6's front door, and the rule that every
+  new phase is runnable from a terminal before it gets a button:
+  - `aidlc maintain --signal <file>` (`-` reads stdin) registers a signal as an
+    `INC-…` epic and parks the payload at `docs/epics/<epic>/signal.json`, where
+    the `native-maintain` skill looks for it.
+  - `aidlc maintain follow-up <epic>` opens the `INC-…-FIX` epic the diagnosis
+    calls for, reading the signal back from disk so it need not be repeated.
+    `--problem` / `--who-hurts` / `--cost` / `--done` / `--question` fill
+    `intent.md`, or `--intent <file>` supplies the markdown verbatim.
+  - Both accept `--recipe` / `--pipeline` / `--from` / `--epic` / `--json`.
+- feat(core): `Signal.ts` and `IncidentLoop.ts` — `parseSignal`,
+  `openIncidentEpic`, `openFollowUpEpic`, `renderIntentMarkdown`,
+  `readEpicSignal`, `followUpEpicId`, `followUpIdFor`. `@aidlc/core` is the API;
+  the extension and the CLI are both callers, and neither holds logic the other
+  needs.
+- feat(epics): `scaffoldEpic` gains `seedArtifacts` — a caller that already knows
+  an artifact's content can hand it to the new epic, so stage 6 creates the
+  follow-up with a real `intent.md` instead of a blank template. Filenames only;
+  a key with a path separator is rejected.
+
+### Changed
+
+- chore(identity): `publisher` is now `delete101020` (extension id
+  `delete101020.aidlc`) and every `repository` / `homepage` / `bugs` URL points at
+  this fork. The `aidlc.*` command namespace is deliberately **unchanged** — see
+  the migration note below. The upstream sponsor links are removed from package
+  metadata and kept as a credit line in the READMEs instead.
+- docs: READMEs state plainly that this build is installed from a local `.vsix` /
+  `npm link` and is published nowhere; `LICENSE` keeps the original MIT copyright
+  line and adds this fork's.
+
+### Migration
+
+Nothing to migrate. Command ids, settings, `workspace.yaml` and existing epics
+are byte-compatible with 3.4.1 — the new workflow is additive. If both this build
+and upstream `hueanmy.aidlc` are installed, **disable one**: they contribute the
+same `aidlc.*` commands.
+
 ## 3.4.1
 
 ### Fixed

@@ -2,15 +2,12 @@
   "name": "aidlc",
   "displayName": "AIDLC",
   "description": "AI-driven SDLC pipeline runner for VS Code. Plan → Prototype → Design ∥ Test → Implement → Release. Discovery gates for human-in-the-loop questions, prototype phase for visual UI design, requirements traceability, AIDLC Monitor with token usage & live observability. Supports Spec Kit (spec-driven development), recipe-based task classification, multi-pipeline workspaces.",
-  "version": "3.4.1",
-  "publisher": "hueanmy",
+  "version": "3.5.0",
+  "publisher": "delete101020",
   "license": "MIT",
-  "sponsor": {
-    "url": "https://github.com/sponsors/hueanmy"
-  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/aidlc-io/aidlc"
+    "url": "https://github.com/delete101020/ai-native-sdlc"
   },
   "icon": "media/icon.png",
   "keywords": [

@@ -1,7 +1,7 @@
 # aidlc
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](https://github.com/aidlc-io/aidlc/blob/main/LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/hueanmy)
+[![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](https://github.com/delete101020/ai-native-sdlc/blob/main/LICENSE)
+[![Build: local](https://img.shields.io/badge/build-local%20link-6b7280)](https://github.com/delete101020/ai-native-sdlc)
 
 Terminal CLI for AIDLC — drives Claude through pipelines you declare in
 `.aidlc/workspace.yaml`. Manages the workspace, executes runs end-to-end via
@@ -23,14 +23,18 @@ epic's memory whenever a prompt mentions it. See the [`globals`](#globals--built
 
 ## Install
 
-```sh
-# From npm (when published)
-npm install -g aidlc
+This build is a fork of [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc) and is **not published to
+npm**. Build it from the repo:
 
-# From source (development)
+```sh
 pnpm install                                 # at repo root
-cd packages/cli && npm link                  # makes `aidlc` available globally
+pnpm -r compile
+cd packages/cli && pnpm bundle && npm link   # makes `aidlc` available globally
+aidlc --version                              # 3.5.0
 ```
+
+`npm link` points at the working tree, so a later `pnpm bundle` is enough to
+pick up changes — no reinstall.
 
 ## Prerequisites
 
@@ -595,10 +599,13 @@ Runs and presets are local-only — gitignore `.aidlc/runs/` and
 | Pipeline step appears as a string in YAML, but I edited it as an object | Both forms are valid. The CLI writes string form when there's no metadata, object form when there's `human_review` or `produces`. |
 | Custom runner not loading | `runner_path` must be `.js` / `.cjs` / `.mjs` (no TypeScript yet). Run `aidlc doctor` to check the file resolves. |
 
-## Sponsor
+## Credit
 
-If AIDLC saves you time, consider [sponsoring on GitHub](https://github.com/sponsors/hueanmy) ❤️ — it keeps the extension, the CLI, and the monitor maintained.
+Built on [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc) by
+[hueanmy](https://github.com/hueanmy). If it saves you time,
+[sponsor the original author](https://github.com/sponsors/hueanmy) ❤️.
 
 ## License
 
-MIT
+MIT — the original copyright line is kept; this fork's changes are added under
+the same terms.

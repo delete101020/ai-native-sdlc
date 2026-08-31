@@ -280,15 +280,21 @@ its source, and can be built against the schema above.
 
 ---
 
-### W4 — Rebrand and publish *(optional — only if we decide to ship)*
+### W4 — Rebrand and install locally ✅ **Done** *(scope changed: no marketplace)*
 
-- [ ] W4.1 Change `publisher` in `packages/extension/package.json` (currently `hueanmy`)
-- [ ] W4.2 Change the `aidlc.*` command namespace (29 commands) — breaking, needs a migration note
-- [ ] W4.3 Fix `repository.url` in the root `package.json` (still points at `aidlc-io/aidlc`)
-- [ ] W4.4 LICENSE: **keep** the MIT text and the original copyright line, add ours
-- [ ] W4.5 README and CHANGELOG for our build
-- [ ] W4.6 Run the `/publish` skill
-- [ ] W4.7 Publish `@aidlc/core` + the CLI as their own artifact, not only the `.vsix` (Q5)
+> **Scope decision, 2026-08-31.** The user chose to run this build **locally
+> first**, so W4 keeps the rebrand and drops the release. W4.6 and W4.7 are
+> replaced by a local-install flow rather than deleted: the work they describe
+> (a repeatable, verified install of *both* artifacts) still has to exist, it
+> just ends at this machine instead of a registry.
+
+- [x] W4.1 Change `publisher` in `packages/extension/package.json` → `delete101020`; the upstream `sponsor` block removed from package metadata and kept as a credit line in the READMEs
+- [ ] ~~W4.2 Change the `aidlc.*` command namespace (29 commands)~~ — **declined**, see below
+- [x] W4.3 Fix `repository.url` — root, extension and CLI `package.json` now point at `delete101020/ai-native-sdlc`; `homepage`/`bugs` too, and `@aidlc/core` gained the field it lacked
+- [x] W4.4 LICENSE: MIT text and the original copyright line **kept**, ours added beneath (root + `packages/extension/LICENSE`, kept identical)
+- [x] W4.5 README and CHANGELOG for our build — all three READMEs say plainly that this is a fork installed from a local `.vsix` / `npm link`; `3.5.0` entry in `packages/extension/CHANGELOG.md` covering W1–W3.8
+- [x] W4.6 ~~Run the `/publish` skill~~ → **`/install-local`**, a new skill that builds, tests, packages, installs and smoke-tests this build; `/publish` kept with a banner saying it targets the upstream author's accounts
+- [x] W4.7 Both artifacts installable independently — the CLI via `pnpm bundle && npm link`, not only inside the `.vsix` (Q5, commitment 3, in its local form)
 
 #### W4 decisions (Q5, locked 2026-08-31)
 
@@ -369,7 +375,7 @@ anywhere. See §11.
 | New phases break the two existing workflows | Medium | `CANONICAL_PHASES` is a union — a new phase only appears in pipelines that declare it. Regression-test all three. |
 | ~~`preset.ts:80` hard-codes `BUILTIN_WORKFLOWS[0]`~~ | Low | ✅ Resolved in W1.8 — extracted `applyBuiltinWorkflow(id, doc)`, lookup by id |
 | Drift from upstream `aidlc-io/aidlc` | Medium | Keep the new preset in its own directory and minimise edits to shared files, so upstream merges stay easy |
-| Scope creep into W4 too early | Medium | W4 opens only once W1–W3 are done and the workflow has been used for real |
+| ~~Scope creep into W4 too early~~ | Low | ✅ W4 opened only after W1–W3.8 were done, and shrank rather than grew: rebrand + local install, no publish |
 | Agent/skill filename collisions across workflows (flat `~/.claude` namespace) | **High** | Mandatory `native-` prefix, now enforced by a regression test in `test/ainative-workflow.test.ts` |
 
 ---
@@ -389,6 +395,7 @@ anywhere. See §11.
 | 2026-08-31 | W3 complete: `maintain` phase (persona, skill, artifact template, canonical phase, `native-incident` recipe), `Signal` schema, `IncidentLoop` (`openFollowUpEpic`), `seedArtifacts` in `EpicScaffold`, `/maintain` command, 18 new tests | 269 core + 22 extension tests green; the loop closes end to end |
 | 2026-08-31 | Q5 locked: keep both surfaces, core + CLI is the contract; Q5's original "would invert the whole plan" impact re-scoped — W1–W3 contain no VS Code code. Added W4.7 (publish the CLI too) and recorded the missing `aidlc maintain --signal` entry point | §W4 decisions. No code |
 | 2026-08-31 | W3.8: stage 6's front door — `aidlc maintain --signal` / `aidlc maintain follow-up`, with `openIncidentEpic` / `readEpicSignal` / `followUpIdFor` added to core. Closes the gap the Q5 lock recorded | `cli/src/commands/maintain.ts`, `core/src/maintain/IncidentLoop.ts`, `+6` tests (275/275) |
+| 2026-08-31 | W4 (local scope): publisher/repository/LICENSE/README/CHANGELOG rebranded to this fork, version 3.5.0, `/install-local` skill replacing `/publish`. Marketplace, Open VSX and npm all declined — this build is installed from a local `.vsix` and `npm link` | 9 files + 1 new skill; W4.2 (command rename) declined with the condition to reopen it recorded in §12 |
 
 ---
 
@@ -597,3 +604,80 @@ a collision, and `aidlc validate` passes on the workspace afterwards.
 **Not built, by decision:** no `--open-follow-up` shortcut on `maintain` (it would
 pre-empt the diagnosis), and no extension command — under (c) the button is
 optional and comes second, if at all.
+
+---
+
+## 12. W4 delivery notes — rebrand, and an install that stops at this machine
+
+**What shipped**
+
+| Area | Files |
+|---|---|
+| Identity | `package.json` (root), `packages/{extension,cli,core}/package.json` |
+| Licence | `LICENSE`, `packages/extension/LICENSE` |
+| Docs | `README.md`, `packages/extension/README.md`, `packages/cli/README.md`, `CHANGELOG.md`, `packages/extension/CHANGELOG.md` |
+| Install flow | `.claude/skills/install-local/SKILL.md` (new), `.claude/skills/publish/SKILL.md` (banner) |
+| Dev host | `.vscode/launch.json` |
+| In-product help | `packages/core/src/help/aidlcGuide.ts` |
+
+**The scope shrank on purpose.** W4 was written as "rebrand *and publish*", and
+publishing is the half that was dropped: no Marketplace listing, no Open VSX
+entry, no npm package. That is not a deferral of paperwork — it changes who the
+docs are addressed to. A README for a Marketplace listing sells; a README for a
+local build has one job, which is to tell the person who cloned this repo how to
+get the thing running and where it came from. All three READMEs were rewritten
+on that basis, and every badge that pointed at a listing this build does not
+have was removed rather than left to lie.
+
+**W4.2 declined, with the condition to reopen it.** Renaming the `aidlc.*`
+command namespace touches 29 command ids plus their menus, keybindings, webview
+messages, docs and tests, and it breaks every existing keybinding and setting.
+Its only actual benefit is avoiding a collision with the upstream listing on the
+Marketplace — which this build is not on. So the cost is real and the benefit is
+currently zero, and it stays undone. **Reopen it if either becomes true:** this
+build gets published anywhere, or someone runs it alongside upstream
+`hueanmy.aidlc` regularly enough that the shared command ids actually bite.
+Until then the two are distinguished by publisher (`delete101020.aidlc` vs
+`hueanmy.aidlc`), and the honest mitigation is the one the README and
+`/install-local` both give: install one, disable the other.
+
+**Attribution is not decoration.** The extension, the CLI, the monitor and the
+annotation loop are upstream's work — roughly 34k lines against the ~2k this
+alignment added. So the original MIT copyright line stays in both `LICENSE`
+files with ours added beneath, the sponsor link moves out of package metadata
+(where it would have solicited money through *our* listing) into a Credit
+section that names the author it belongs to, and the fork banner is the first
+thing in every README rather than a footnote.
+
+**Version 3.5.0, not 3.4.2.** Upstream stops at 3.4.1. A minor bump says the
+right thing — additive, nothing removed, existing epics and `workspace.yaml`
+byte-compatible — and gives the local install a number that distinguishes it
+from the upstream build at a glance in `code --list-extensions --show-versions`.
+The CLI moved from a stale `3.0.0` to `3.5.0` too, so `aidlc --version` and the
+extension agree about which build you have; they are released together and there
+is no reason for two numbers.
+
+**`/install-local` replaces `/publish` rather than editing it.** `/publish` is
+written against `OVSX_PAT` and `VSCE_PAT` — the upstream author's credentials —
+and its final report links their listings. Adapting it in place would leave a
+skill that half-targets two accounts, so it keeps its flow intact behind a
+banner (a future decision to publish under our own publisher can adapt it), and
+the local path got its own skill. `/install-local` does what a release flow
+does minus the upload: compile, run the tests, package, install with `--force`
+(without which a same-version reinstall is refused), verify what actually
+landed, and smoke-test `init → preset apply ai-native → validate` in a throwaway
+directory. It reports a dirty tree rather than blocking on one — a local install
+is not a release — and it refuses to uninstall a clashing extension on its own.
+
+**Both artifacts, per Q5 commitment 3.** The Q5 lock said W4 publishes two
+artifacts, because a `.vsix` alone makes the unattended path unreachable. The
+local form of that commitment is that `pnpm bundle && npm link` is a documented,
+tested step of its own — `aidlc maintain --signal` has to be runnable from a
+terminal on a machine where VS Code is never opened, and after this it is.
+
+**Verification:** `pnpm -r compile` clean; core 275/275, extension 22/22;
+`pnpm package:extension` produces `aidlc-3.5.0.vsix` under the new publisher.
+
+**Not built, by decision:** no marketplace or npm release (the user's call — run
+it locally first); no command-namespace rename (above); no CI workflow to build
+the `.vsix` on push, which would only matter once there is somewhere to send it.

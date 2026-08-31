@@ -1,16 +1,15 @@
 {
   "name": "aidlc",
-  "version": "3.0.0",
+  "version": "3.5.0",
   "description": "AIDLC terminal CLI — AI-driven SDLC pipeline runner. Plan → Prototype → Design ∥ Test → Implement → Release with discovery gates, prototype phase, requirements traceability, and Spec Kit support.",
   "license": "MIT",
-  "funding": "https://github.com/sponsors/hueanmy",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aidlc-io/aidlc"
+    "url": "https://github.com/delete101020/ai-native-sdlc"
   },
-  "homepage": "https://github.com/aidlc-io/aidlc#readme",
+  "homepage": "https://github.com/delete101020/ai-native-sdlc#readme",
   "bugs": {
-    "url": "https://github.com/aidlc-io/aidlc/issues"
+    "url": "https://github.com/delete101020/ai-native-sdlc/issues"
   },
   "keywords": [
     "aidlc",
