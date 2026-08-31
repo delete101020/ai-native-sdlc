@@ -164,12 +164,51 @@ workflow, and neither `aidlc-workflow` nor `speckit-pipeline` regresses.
 - [ ] W2.2 `PhaseDef` for `review`: persona `native-reviewer`, `dependsOn: ['verify']`, `humanReview: true`
 - [ ] W2.3 Write `agents/native-reviewer.md` and `skills/native-review.md` — read the diff/PR, check against the policies in CLAUDE.md and the loaded skills
 - [ ] W2.4 Hooks as approval gates: add a sample hook under `.claude/hooks/` that blocks out-of-policy actions
-- [ ] W2.5 Wire `@claude` into the PR loop — investigate first, then decide between a GitHub Action and an MCP server (Q2)
+- [ ] W2.5 Declare `capabilities: ['github']` on the `review` phase (declarative permission only — inert until an MCP server is configured)
+- [ ] ~~W2.5b Wire `@claude` into the PR loop via a GitHub Action~~ — **deferred**, see §W2 decisions
 - [ ] W2.6 Update recipes so the full recipe inserts `review` after `verify`
 - [ ] W2.7 Tests, plus `.github/workflows/ci.yml` if review is to run in CI
 
 **Acceptance:** `/review <epic>` produces `review.md` with findings traced to policy,
 and the hook demonstrably blocks at least one violating action.
+
+#### W2 decisions (Q2, locked 2026-08-31)
+
+**Chosen: (c) local CLI.** The `review` phase reads the diff locally, checks it
+against the policies in `CLAUDE.md` and the loaded skills, and writes `review.md`.
+No CI credentials, no GitHub remote required, runs offline.
+
+This is not merely the cheapest option — it is the mandatory core. `review.md` is the
+artifact the pipeline gates on, exactly like every other phase's artifact, so the
+phase has to work without any external integration. Options (a) and (b) are ways to
+*surface* a review that this phase produces regardless.
+
+Context: our projects have no AI in the review step today, so there is nothing for a
+PR-loop integration to plug into yet.
+
+**(b) MCP server — pre-staged, effectively free.** `capabilities` in workspace.yaml
+are *declarative permissions*, not runtime wiring: declaring `github` on the review
+phase says "this agent may read GitHub" and does nothing until the user configures a
+github MCP server. One array entry, inert by default, ready when wanted.
+
+**(a) GitHub Action — deliberately NOT pre-staged.** The YAML is the easy half and
+the half that rots; the hard half cannot be pre-staged in the repo at all:
+
+| Needed | Can it be prepared ahead? |
+|---|---|
+| Workflow file responding to `@claude` on PR comments | Yes — and it can ship disabled, gated on a repo variable |
+| `ANTHROPIC_API_KEY` repo secret | No — account-level |
+| Billing for per-PR agent runs | No — account-level |
+| GitHub app permissions / branch protection | No — repo settings |
+
+A committed workflow that reacts to PR comments is also a security surface: anyone
+who can comment on a PR can trigger a job holding repo write access. It must ship
+gated off, and turning it on is a deliberate act — which is precisely the moment to
+write it, against the action's then-current inputs.
+
+**Decision:** record what (a) requires (this table), implement it when a project
+actually needs AI in its PR review step. Not blocked on anything — it is additive
+to the phase built in W2.1-W2.4.
 
 ---
 
@@ -207,7 +246,7 @@ with a valid `intent.md`, and the next phase on that epic can read it.
 | # | Question | Impact | Status |
 |---|---|---|---|
 | Q1 | Playbook artifact names or existing repo names? | Every template | ✅ **Locked: playbook names** (§W0) |
-| Q2 | `@claude` in the PR loop: GitHub Action, MCP server, or local CLI only? | Blocks W2.5 | ⬜ Open |
+| Q2 | `@claude` in the PR loop: GitHub Action, MCP server, or local CLI only? | W2.5 | ✅ **Locked: local CLI (c)** — see §W2 decisions |
 | Q3 | Where do production signals come from (existing OTel, Sentry, manual webhook)? | Blocks W3.6 | ⬜ Open |
 | Q4 | Replace the existing workflow or run alongside it? | W1.7 and `preset.ts:80` | ✅ **Locked: alongside, third workflow** |
 | Q5 | Do we drop the VS Code extension for a CLI/CI-first tool? | Would invert the whole plan | ⬜ Open |
@@ -260,3 +299,4 @@ shortcut command file had never been written; the generator simply filled the ga
 **Not done in W1, by design:** stage 5 (`review`) and stage 6 (`maintain`) — W2 and W3.
 The `native-reviewer` and `native-operator` personas do not exist yet, so the phase
 map in §W0 lists them as planned rather than shipped.
+| 2026-08-31 | Q2 locked: local CLI for the review phase; MCP capability pre-staged, GitHub Action deferred with its prerequisites recorded | No code yet — W2 not started |
