@@ -255,3 +255,116 @@ export function openFollowUpEpic(args: OpenFollowUpEpicArgs): OpenFollowUpEpicRe
     intentPath: path.join(result.artifactsDir, FOLLOW_UP_ARTIFACT),
   };
 }
+
+// ── Stage 6 itself: registering the signal ───────────────────────────────────
+
+/**
+ * Where the raw signal is parked inside the incident epic.
+ *
+ * The `native-maintain` skill reads `docs/epics/<epic>/signal.json` when no path
+ * is passed to it, so writing the file here is what lets a front door hand an
+ * unattended agent its input without a flag.
+ */
+export const SIGNAL_FILE = 'signal.json';
+
+export interface OpenIncidentEpicArgs {
+  workspaceRoot: string;
+  /** Raw workspace doc (for `state.root`). Pass null to default `docs/epics`. */
+  doc: { state?: unknown } | null;
+  signal: Signal;
+  /** Pipeline the incident epic runs on — normally a single `maintain` step. */
+  pipeline: PipelineConfig;
+  /** Override the derived id. Defaults to {@link followUpEpicId} against the epics on disk. */
+  epicId?: string;
+  /** Id prefix when deriving. Defaults to `INC`. */
+  prefix?: string;
+  /** Override the `.aidlc` dir artifact templates are read from. */
+  aidlcDir?: string;
+}
+
+export interface OpenIncidentEpicResult extends ScaffoldEpicResult {
+  epicId: string;
+  /** Absolute path of the written `signal.json`. */
+  signalPath: string;
+}
+
+/**
+ * Register a production signal as an epic: scaffold it on `pipeline` with the
+ * signal written to `signal.json`, so the Operator has somewhere to write
+ * `incident.md` and something to read when it gets there.
+ *
+ * This deliberately stops at *registering*. Whether the incident is worth a
+ * follow-up epic is a diagnosis, and a diagnosis is the Operator's judgment made
+ * against the code — a front door that decided it from five JSON fields would be
+ * guessing. {@link openFollowUpEpic} is the separate step that runs after.
+ */
+export function openIncidentEpic(args: OpenIncidentEpicArgs): OpenIncidentEpicResult {
+  const { workspaceRoot, doc, signal, pipeline, aidlcDir } = args;
+
+  const steps = Array.isArray(pipeline.steps) ? pipeline.steps : [];
+  const agents = steps.map((s) => stepAgentId(s)).filter(Boolean);
+  if (agents.length === 0) {
+    throw new EpicScaffoldError(`Pipeline "${pipeline.id}" has no steps to run the incident epic on.`);
+  }
+
+  const epicId = args.epicId
+    ?? followUpEpicId(signal, { prefix: args.prefix, taken: existingEpicIds(workspaceRoot, doc) });
+
+  const result = scaffoldEpic({
+    workspaceRoot,
+    doc,
+    epicId,
+    title: signal.symptom,
+    description: `Signal from \`${signal.source}\`, observed ${signal.observedAt}. ${signal.scope}`,
+    target: { kind: 'pipeline', id: pipeline.id },
+    agents,
+    inputs: {
+      signal_source: signal.source,
+      signal_observed_at: signal.observedAt,
+      signal_symptom: signal.symptom,
+      signal_scope: signal.scope,
+    },
+    pipeline,
+    aidlcDir,
+  });
+
+  // The signal, verbatim and re-parseable. Not folded into inputs.json: a later
+  // source (Sentry, OTel, a pager) fills the same five fields, and keeping the
+  // payload as its own file is what makes those reports comparable.
+  const signalPath = path.join(result.epicDir, SIGNAL_FILE);
+  fs.writeFileSync(signalPath, JSON.stringify(signal, null, 2) + '\n', 'utf8');
+
+  return { ...result, epicId, signalPath };
+}
+
+/**
+ * Read a signal back out of an incident epic. Returns null when the epic has
+ * none — a caller that was handed only an epic id can then say so plainly rather
+ * than proceed on an invented signal.
+ */
+export function readEpicSignal(
+  workspaceRoot: string,
+  doc: { state?: unknown } | null,
+  epicId: string,
+): string | null {
+  const file = path.join(epicsRoot(workspaceRoot, doc), epicId, SIGNAL_FILE);
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+}
+
+/**
+ * Derive the follow-up epic's id from the incident's: `<incident>-FIX`, with a
+ * `-2`, `-3`, … suffix when that is taken.
+ *
+ * Deriving rather than re-slugging the symptom keeps the pair adjacent when the
+ * epics are listed, which is the only time anyone reads these ids: the incident
+ * and the work it opened sort next to each other.
+ */
+export function followUpIdFor(incidentEpicId: string, taken: Iterable<string> = []): string {
+  const base = `${incidentEpicId}-FIX`;
+  const used = new Set(taken);
+  if (!used.has(base)) { return base; }
+  for (let n = 2; n < 1000; n++) {
+    if (!used.has(`${base}-${n}`)) { return `${base}-${n}`; }
+  }
+  throw new EpicScaffoldError(`Could not derive a free epic id from "${base}".`);
+}

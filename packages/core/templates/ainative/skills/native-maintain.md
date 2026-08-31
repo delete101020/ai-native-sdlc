@@ -47,10 +47,21 @@ so and stop — do not invent a signal.
    untested path, a policy rule nobody wrote. This is the most valuable line in
    the report — a regression is feedback about the process, not just about code.
 6. Write `docs/epics/$0/artifacts/incident.md`.
-7. **When you opened an epic, close the loop.** Write the follow-up `intent.md`
-   into the new epic's `artifacts/` (the engine seeds it there — see
-   `openFollowUpEpic` in core). It re-enters at stage 1 and is reviewed by a human
-   there, like any other intent.
+7. **When you opened an epic, close the loop.** Run:
+
+   ```
+   aidlc maintain follow-up $0 \
+     --problem "<the problem in the user's terms>" \
+     --who-hurts "<the specific role doing the specific task>" \
+     --done "<the observable condition that says this cannot recur>" \
+     --question "<anything you would have asked a human>"
+   ```
+
+   It scaffolds the new epic with that `intent.md` already written, reading the
+   signal back from `signal.json` so you do not repeat it. Put the id it prints
+   in your decision line. The epic re-enters at stage 1 and is reviewed by a
+   human there, like any other intent. When the diagnosis is better written than
+   flags allow, write the markdown yourself and pass `--intent <file>`.
 
 ## The Intent You Emit
 

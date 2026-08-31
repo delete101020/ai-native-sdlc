@@ -224,6 +224,7 @@ to the phase built in W2.1-W2.4.
 - [x] W3.5 **Engine:** have `maintain` emit the `intent.md` of a *new* epic, closing the loop
 - [x] W3.6 Investigate reusing `otelReceiver.ts` / `observeClient.ts` for production signals (Q3) — **answered: no**, see §W3 decisions
 - [x] W3.7 Test the loop: maintain → intent.md → the next epic's spec phase reads it
+- [x] W3.8 **Front door:** `aidlc maintain --signal <file>` + `aidlc maintain follow-up <epic>` — added after the Q5 lock, which put the CLI entry point ahead of any button (§11)
 
 **Acceptance:** running `maintain` against a simulated signal produces a new epic
 with a valid `intent.md`, and the next phase on that epic can read it — **met**
@@ -338,12 +339,14 @@ unattended, and `maintain` was built with no human gate for exactly that reason.
 3. W4 publishes two artifacts, not one — hence W4.7. A `.vsix` alone would make
    the CI/unattended path unreachable for anyone who is not us.
 
-**Known gap this exposes.** `openFollowUpEpic` and `parseSignal` are exported from
-core but have no caller outside the tests: W3 closed the loop at the library
-layer, which is what its acceptance asked for, but neither front door can trigger
-stage 6 yet. Under (c) the CLI entry point comes first — an `aidlc maintain
---signal <file>` that parses the signal and opens the follow-up epic. Recorded
-here rather than bolted onto W3, whose acceptance is met as written.
+**Known gap this exposed — closed 2026-08-31 (W3.8).** `openFollowUpEpic` and
+`parseSignal` were exported from core with no caller outside the tests: W3 closed
+the loop at the library layer, which is what its acceptance asked for, but neither
+front door could trigger stage 6. Under (c) the CLI entry point came first, and
+it now exists — `aidlc maintain --signal <file>` and `aidlc maintain follow-up
+<epic>`. This is commitment 1 above being honoured on its first test: stage 6 is
+runnable from a terminal, a cron job or a webhook forwarder, and has no button
+anywhere. See §11.
 
 ---
 
@@ -385,6 +388,7 @@ here rather than bolted onto W3, whose acceptance is met as written.
 | 2026-08-31 | Q3 locked: signal file / webhook, with the signal schema as the contract; W3.6 answered "no" — the existing OTel/observe modules measure Claude Code, not production | §W3 decisions. No code — W3.1–W3.5 unblocked |
 | 2026-08-31 | W3 complete: `maintain` phase (persona, skill, artifact template, canonical phase, `native-incident` recipe), `Signal` schema, `IncidentLoop` (`openFollowUpEpic`), `seedArtifacts` in `EpicScaffold`, `/maintain` command, 18 new tests | 269 core + 22 extension tests green; the loop closes end to end |
 | 2026-08-31 | Q5 locked: keep both surfaces, core + CLI is the contract; Q5's original "would invert the whole plan" impact re-scoped — W1–W3 contain no VS Code code. Added W4.7 (publish the CLI too) and recorded the missing `aidlc maintain --signal` entry point | §W4 decisions. No code |
+| 2026-08-31 | W3.8: stage 6's front door — `aidlc maintain --signal` / `aidlc maintain follow-up`, with `openIncidentEpic` / `readEpicSignal` / `followUpIdFor` added to core. Closes the gap the Q5 lock recorded | `cli/src/commands/maintain.ts`, `core/src/maintain/IncidentLoop.ts`, `+6` tests (275/275) |
 
 ---
 
@@ -534,3 +538,62 @@ exact file, the run starts at step 0 behind its human gate, and provenance
 **Not built, by decision:** the Sentry adapter (Q3(b)) and OTel wiring (Q3(a)) —
 both are sources that fill the same five-field schema, and neither changes the
 phase. See §W3 decisions.
+
+---
+
+## 11. W3.8 delivery notes — stage 6's front door
+
+**What shipped**
+
+| Area | Files |
+|---|---|
+| CLI command | `cli/src/commands/maintain.ts` — `maintain --signal`, `maintain follow-up` |
+| Core API | `IncidentLoop.ts` — `openIncidentEpic`, `readEpicSignal`, `followUpIdFor`, `SIGNAL_FILE` |
+| Skill | `native-maintain.md` step 7 now names the command instead of a core function |
+| Docs | `cli/README.md` — a `maintain` section |
+| Tests | 6 new cases in `maintain-loop.test.ts` (22 in the file, 275 in core) |
+
+**Why the door is split in two.** `maintain --signal` registers; `maintain
+follow-up` opens the work. It would have been one flag away to have the first
+command do both, and that would have been wrong: whether a signal deserves five
+stages is a diagnosis, made against the code by the Operator agent that runs
+*between* the two calls. A front door that decided it from five JSON fields would
+be guessing, and `IncidentLoop` already says in its own header that a rendering
+function is a bad place to decide whether to page someone at 3am. So the CLI
+registers, the agent judges, and the CLI is called again — by the agent itself,
+which is why the command had to exist at all: an agent cannot call a TypeScript
+export.
+
+**The layering follows the Q5 lock literally.** Everything the command does that
+touches disk went into `@aidlc/core` (`openIncidentEpic` is the mirror of
+`openFollowUpEpic`); `maintain.ts` is flag parsing, pipeline resolution and
+printing. That is why the six new tests live in core and the CLI package still
+has no test harness — the logic worth testing is not in it.
+
+**`signal.json` is a file, not a field in `inputs.json`.** The `native-maintain`
+skill reads `docs/epics/<epic>/signal.json` when it is handed no path, so writing
+it there is what lets an unattended agent find its own input. Keeping the payload
+whole and re-parseable also keeps later sources comparable: a Sentry adapter fills
+the same five fields, and the report stays diffable against a manual one.
+
+**Ids: `INC-…` and `INC-…-FIX`.** The follow-up id is derived from the incident's
+rather than re-slugged from the symptom, so the incident and the work it opened
+sort adjacent in `aidlc epic list` — the only place these ids are ever read. The
+pipeline is assembled *after* the id is derived, so the epic and its pipeline
+carry the same name, matching what `aidlc epic start` produces.
+
+**Errors assume nobody is watching.** A malformed signal prints every problem at
+once plus the expected shape, because the caller is usually a forwarder and one
+round-trip beats five. A `follow-up` on an epic with no `signal.json` says so and
+stops rather than inventing a signal — the same rule the persona is given.
+
+**Verification:** `pnpm -r compile` clean; core 275/275, extension 22/22. Smoke-run
+end to end against a scratch workspace (`aidlc init` → `preset apply ai-native` →
+`maintain --signal` → `maintain follow-up`): the epics scaffold, `signal.json`
+round-trips through `parseSignal`, the follow-up's `intent.md` is written with the
+supplied prose and the rest as open questions, a recurrence gets `-2` rather than
+a collision, and `aidlc validate` passes on the workspace afterwards.
+
+**Not built, by decision:** no `--open-follow-up` shortcut on `maintain` (it would
+pre-empt the diagnosis), and no extension command — under (c) the button is
+optional and comes second, if at all.

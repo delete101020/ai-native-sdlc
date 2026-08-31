@@ -72,13 +72,19 @@ export type {
 export { SignalSchema, parseSignal, isSignal, SignalParseError } from './maintain/Signal';
 export type { Signal } from './maintain/Signal';
 export {
+  openIncidentEpic,
   openFollowUpEpic,
   renderIntentMarkdown,
   followUpEpicId,
+  followUpIdFor,
   existingEpicIds,
+  readEpicSignal,
   FOLLOW_UP_ARTIFACT,
+  SIGNAL_FILE,
 } from './maintain/IncidentLoop';
 export type {
+  OpenIncidentEpicArgs,
+  OpenIncidentEpicResult,
   OpenFollowUpEpicArgs,
   OpenFollowUpEpicResult,
   RenderIntentOptions,

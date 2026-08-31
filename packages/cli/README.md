@@ -218,6 +218,62 @@ without a run, and a run can exist without an epic — `epic` reads the former,
 
 ---
 
+### `maintain` — stage 6, the AI-Native return path
+
+Every other stage is entered by a person already looking at the screen. This one
+is entered by an alert, so it has a door a webhook forwarder, a cron job or a
+shell script can open.
+
+```
+aidlc maintain --signal signal.json          # register the signal as an incident epic
+aidlc maintain --signal -                    # …or read it from stdin
+aidlc maintain follow-up <incidentEpic>      # open the work the diagnosis found
+```
+
+A **signal** is five fields, and the schema is the contract — not the transport.
+A human pasting JSON, a Sentry webhook and an OTel threshold rule all fill the
+same shape, so adding a source later is an adapter, never a schema change:
+
+```json
+{
+  "source": "sentry",
+  "observedAt": "2026-08-30T02:14:00Z",
+  "symptom": "Checkout returns 500 for saved cards",
+  "scope": "~40 users/hour, EU region only",
+  "evidence": "TypeError: cannot read property token of undefined"
+}
+```
+
+`maintain` scaffolds an epic named after the symptom (`INC-CHECKOUT-RETURNS-500`,
+readable on purpose — the id ends up in a branch name and every later reference)
+and writes the payload to `<epic>/signal.json`, where the `native-maintain` skill
+looks for it. Then `/maintain <epic>` in Claude produces `incident.md`.
+
+The split into two commands is not ceremony. Whether a signal deserves five
+stages is a judgment made against the code, and it belongs to the Operator agent
+that runs *between* the two calls — not to the flag that woke it up. When the
+diagnosis does call for work, `follow-up` scaffolds the next epic with its
+`intent.md` already written, reading the signal back from the incident epic:
+
+```
+aidlc maintain follow-up INC-CHECKOUT-RETURNS-500 \
+  --problem "Customers with a saved card cannot complete a purchase." \
+  --who-hurts "Returning EU shoppers paying with a stored card." \
+  --done "A saved-card checkout succeeds under the failing condition." \
+  --question "Did this start with the 2026-08-29 deploy?"
+```
+
+Anything you leave out is written into the artifact as an explicit open question
+rather than filled with a plausible sentence — a gap a human can see gets
+answered, a fabricated line gets believed. The new epic starts at **stage 1
+behind its human gate**: an intent written by an agent at 3am from a single alert
+is exactly the kind of document that deserves a person's eyes. Pass
+`--intent <file>` to supply the markdown yourself, `--json` for machine callers.
+
+Requires the recipes the AI-Native preset ships (`aidlc preset apply ai-native`).
+
+---
+
 ### `analyze` — import requirements
 
 Analyzes a requirements source and scaffolds a task breakdown folder

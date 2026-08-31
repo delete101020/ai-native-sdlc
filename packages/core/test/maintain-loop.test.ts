@@ -17,8 +17,12 @@ import {
   isSignal,
   SignalParseError,
   followUpEpicId,
+  followUpIdFor,
   renderIntentMarkdown,
+  openIncidentEpic,
   openFollowUpEpic,
+  readEpicSignal,
+  SIGNAL_FILE,
   scaffoldEpic,
   type Signal,
   type PipelineConfig,
@@ -212,6 +216,82 @@ describe('the loop closes (W3.5 / W3.7)', () => {
     expect(() => openFollowUpEpic({
       workspaceRoot: root, doc: null, signal: SIGNAL,
       pipeline: { ...PIPELINE, steps: [] },
+    })).toThrow(/no steps/);
+  });
+});
+
+describe('registering a signal (W4 — the CLI entry point)', () => {
+  /**
+   * `aidlc maintain --signal <file>` is stage 6's front door: every other stage
+   * is entered by a person already looking at the screen, this one by an alert.
+   * The engine half of that door is `openIncidentEpic`, and what it must
+   * guarantee is that an unattended agent woken by it can find its input.
+   */
+  const MAINTAIN_PIPELINE: PipelineConfig = {
+    id: 'ai-native-incident',
+    on_failure: 'stop',
+    steps: [
+      { agent: 'aidlc-native-operator', name: 'maintain', requires: [], produces: ['incident.md'], depends_on: [], human_review: false, auto_review: false, enabled: true },
+    ],
+  };
+
+  it('parks the signal where the skill looks for it', () => {
+    const root = tmpRoot();
+    const result = openIncidentEpic({
+      workspaceRoot: root, doc: null, signal: SIGNAL, pipeline: MAINTAIN_PIPELINE,
+    });
+
+    // The `native-maintain` skill reads docs/epics/<epic>/signal.json when no
+    // path is passed. If that file is not there, the phase has no input at all.
+    expect(path.basename(result.signalPath)).toBe(SIGNAL_FILE);
+    expect(path.dirname(result.signalPath)).toBe(result.epicDir);
+    expect(parseSignal(fs.readFileSync(result.signalPath, 'utf8'))).toEqual(SIGNAL);
+  });
+
+  it('reads back round-trip, so follow-up needs only the epic id', () => {
+    const root = tmpRoot();
+    const { epicId } = openIncidentEpic({
+      workspaceRoot: root, doc: null, signal: SIGNAL, pipeline: MAINTAIN_PIPELINE,
+    });
+    expect(parseSignal(readEpicSignal(root, null, epicId)!)).toEqual(SIGNAL);
+    // …and says so plainly rather than inventing one when the epic has none.
+    expect(readEpicSignal(root, null, 'AID-0001')).toBeNull();
+  });
+
+  it('starts unattended — stage 6 has no human gate to wait behind', () => {
+    const root = tmpRoot();
+    const result = openIncidentEpic({
+      workspaceRoot: root, doc: null, signal: SIGNAL, pipeline: MAINTAIN_PIPELINE,
+    });
+    expect(result.runState?.steps[0].agent).toBe('aidlc-native-operator');
+    const inputs = JSON.parse(fs.readFileSync(path.join(result.epicDir, 'inputs.json'), 'utf8'));
+    expect(inputs.signal_symptom).toBe(SIGNAL.symptom);
+    expect(inputs.signal_observed_at).toBe(SIGNAL.observedAt);
+  });
+
+  it('registers without diagnosing — no follow-up epic appears yet', () => {
+    // Whether a signal deserves five stages is the Operator\'s judgment, made
+    // against the code. The door that woke it up does not get to decide.
+    const root = tmpRoot();
+    const result = openIncidentEpic({
+      workspaceRoot: root, doc: null, signal: SIGNAL, pipeline: MAINTAIN_PIPELINE,
+    });
+    const epics = fs.readdirSync(path.dirname(result.epicDir));
+    expect(epics).toEqual([result.epicId]);
+    expect(fs.existsSync(path.join(result.artifactsDir, 'intent.md'))).toBe(false);
+  });
+
+  it('keeps the incident and the work it opened adjacent', () => {
+    // These ids are read in a listing, and only there — the pair sorting next to
+    // each other is the whole point of deriving rather than re-slugging.
+    expect(followUpIdFor('INC-CHECKOUT-RETURNS-500')).toBe('INC-CHECKOUT-RETURNS-500-FIX');
+    expect(followUpIdFor('INC-A', ['INC-A-FIX'])).toBe('INC-A-FIX-2');
+  });
+
+  it('refuses to register onto a pipeline with no steps', () => {
+    expect(() => openIncidentEpic({
+      workspaceRoot: tmpRoot(), doc: null, signal: SIGNAL,
+      pipeline: { ...MAINTAIN_PIPELINE, steps: [] },
     })).toThrow(/no steps/);
   });
 });
