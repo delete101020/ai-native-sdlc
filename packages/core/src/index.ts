@@ -287,6 +287,9 @@ export type {
   ResolveStandardOptions,
 } from './profiles/StandardProfile';
 
+// Path helpers for resolving workspace.yaml-declared paths (`~/` aware).
+export { expandHome, resolveDeclaredPath } from './util/paths';
+
 // Shared help/knowledge content for `ask` + `guide` (CLI + extension).
 export { AIDLC_KNOWLEDGE, AIDLC_CLI_GUIDE_TEXT } from './help/aidlcGuide';
 

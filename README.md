@@ -310,6 +310,12 @@ single-machine. The default file backend is unchanged; git is fully opt-in.
 
 ## Install this build
 
+> **New to this fork, or setting it up for someone else?** Read
+> [`ONBOARDING.md`](ONBOARDING.md) instead — it covers prerequisites, both
+> installs, registering the approval-gate hook (which a clone does **not**
+> get automatically), and how the seven-phase workflow is actually run from
+> the extension and the CLI.
+
 Nothing here is published — no Marketplace listing, no Open VSX entry, no npm
 package. Both artifacts are built from this repo and installed locally.
 

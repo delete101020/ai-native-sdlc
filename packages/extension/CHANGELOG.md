@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- fix(cli): `aidlc doctor` reported every skill declared as `~/.claude/skills/…`
+  as `file not found`, even when the file was installed and runs using it
+  succeeded. It resolved declared paths with `path.resolve(root, declared)`,
+  which treats `~` as an ordinary directory name and yields
+  `<root>/~/.claude/…` — a path that never exists. Since `preset apply
+  ai-native` writes exactly that path form for all seven native skills, a
+  correct install looked broken. The same defect affected `doctor`'s custom
+  runner check and `aidlc skill show` / `skill add --path`.
+
+### Changed
+
+- refactor(core): the `~/` expansion that `SkillLoader` and the extension's
+  workspace webview each carried a private copy of is now one exported helper —
+  `expandHome` / `resolveDeclaredPath` in `@aidlc/core`. Three copies were how
+  the `doctor` path came to be missing one.
+
+### Docs
+
+- docs: **`ONBOARDING.md`** — a setup and workflow guide for a second person on
+  the team: prerequisites, both local installs, registering the approval-gate
+  hook (which a clone does **not** get, since `.claude/settings.json` is
+  gitignored), the seven phases and four recipes, and how the flow is driven
+  from the extension versus the CLI.
+- docs(extension): the Getting Started step still said "install from the VS Code
+  Marketplace or Open VSX", which is not true of this fork; it now gives the
+  `.vsix` build-and-install commands. Requirements gained the `hueanmy.aidlc`
+  clash warning.
+
 ## 3.5.0
 
 First release of this fork. Upstream (`aidlc-io/aidlc`, published as

@@ -187,6 +187,7 @@ import {
   installAnnotationTools,
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
+  expandHome,
 } from '@aidlc/core';
 import { SKILL_TEMPLATES } from './skillTemplates';
 import {
@@ -1022,7 +1023,7 @@ function mergeAgents(doc: YamlDocument | null, root: string, discovered: Discove
       const sid = String(s.id);
       const p = typeof s.path === 'string' ? s.path : '';
       if (!p) { continue; }
-      const expanded = expandHomePath(p);
+      const expanded = expandHome(p);
       skillPathById.set(sid, path.isAbsolute(expanded) ? expanded : path.resolve(root, expanded));
     }
 
@@ -1202,11 +1203,6 @@ function rewriteAgentFrontmatter(
   return `${lines.join('\n')}\n${bodyTrimmed}`;
 }
 
-function expandHomePath(p: string): string {
-  if (p.startsWith('~/')) { return path.join(os.homedir(), p.slice(2)); }
-  return p;
-}
-
 function mergeSkills(
   doc: YamlDocument | null,
   root: string,
@@ -1235,7 +1231,7 @@ function mergeSkills(
         continue;
       }
       const skillPath = typeof s.path === 'string' ? s.path : undefined;
-      const expanded = skillPath ? expandHomePath(skillPath) : '';
+      const expanded = skillPath ? expandHome(skillPath) : '';
       const abs = expanded
         ? (path.isAbsolute(expanded) ? expanded : path.resolve(root, expanded))
         : '';

@@ -10,6 +10,7 @@ import {
   isInsideClaudeCodeSession,
   hasClaudeLogin,
   buildClaudeSpawnEnv,
+  resolveDeclaredPath,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 
@@ -195,7 +196,7 @@ export function registerDoctor(program: Command): void {
             // SkillLoader will validate; for now mark as assumed-ok
             skillChecks.push(ok(`skill "${skill.id}"`, 'builtin'));
           } else if (skill.path) {
-            const absPath = path.resolve(root, skill.path);
+            const absPath = resolveDeclaredPath(root, skill.path);
             if (fs.existsSync(absPath)) {
               skillChecks.push(ok(`skill "${skill.id}"`, skill.path));
             } else {
@@ -210,7 +211,7 @@ export function registerDoctor(program: Command): void {
         // Custom runner paths
         for (const agent of ws.config.agents) {
           if (agent.runner === 'custom' && agent.runner_path) {
-            const absPath = path.resolve(root, agent.runner_path);
+            const absPath = resolveDeclaredPath(root, agent.runner_path);
             if (fs.existsSync(absPath)) {
               skillChecks.push(ok(`runner "${agent.id}"`, agent.runner_path));
             } else {

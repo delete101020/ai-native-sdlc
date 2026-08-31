@@ -81,7 +81,7 @@ Both the extension and the `aidlc` CLI read and write the same files atomically 
 
 ## Getting Started
 
-1. Install **AIDLC** from the VS Code Marketplace or Open VSX.
+1. Install **AIDLC** from a locally built `.vsix` — this fork is published nowhere. Run `pnpm install && pnpm package:extension` in the repo, then `code --install-extension packages/extension/aidlc-<version>.vsix --force` and reload the window. Full walkthrough: [`ONBOARDING.md`](../../ONBOARDING.md).
 2. Open a workspace folder.
 3. The Welcome page auto-opens the **Get started with AIDLC** walkthrough — follow it for a guided tour, or skip ahead with the steps below.
 4. Run **AIDLC: Load Demo Project** — scaffolds a full pipeline plus 6 sample epics under `.aidlc/`.
@@ -119,7 +119,9 @@ All commands are available via `Cmd+Shift+P` (or `Ctrl+Shift+P`):
 - VS Code 1.85.0+ (or compatible: VSCodium, Cursor, Windsurf)
 - A workspace folder (single-file mode is not supported)
 - The Claude CLI on `PATH` for the default runner
-- Node.js 20+ to compile from source
+- Node.js 20+ — required, not optional: this build is installed by compiling it
+- If the upstream `hueanmy.aidlc` is also installed, disable one of them — both
+  contribute the same `aidlc.*` command ids
 
 ## Credit
 
