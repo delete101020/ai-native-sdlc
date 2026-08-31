@@ -2,7 +2,7 @@
 
 **Branch:** `feat/ai-native-sdlc-alignment`
 **Reference:** https://claude.com/blog/the-ai-native-sdlc-playbook
-**Status:** 🟢 Design locked — W1 in progress
+**Status:** 🟢 W1 complete — W2 next
 **Updated:** 2026-08-31
 
 ---
@@ -125,7 +125,7 @@ workflow's own directory and cannot collide.
 
 ---
 
-### W1 — Own preset, stages 1–4 (no engine changes)
+### W1 — Own preset, stages 1–4 (no engine changes) ✅ **Done**
 
 > Goal: a workflow that runs end to end for stages 1–4, with playbook artifact names.
 > Estimate: ~1 day. Markdown plus preset registration only; no runner or schema logic.
@@ -134,14 +134,14 @@ workflow's own directory and cannot collide.
 - [x] W1.0 Lock Q1 and Q4, write the phase map (§W0)
 - [x] W1.1 Create `packages/core/templates/ainative/{agents,skills,artifacts}/`
 - [x] W1.2 Write four personas: `agents/native-{originator,product-owner,engineer,verifier}.md`
-- [ ] W1.3 Write five skills: `skills/native-{intent,spec,build-plan,implement,verify}.md`
-- [ ] W1.4 Write five artifact templates: `artifacts/{intent,spec,build-plan,implement,verify}.md`
-- [ ] W1.5 Add four canonical phases (`intent`, `spec`, `build-plan`, `verify`) to `CANONICAL_PHASES` (`commandModel.ts:57`)
-- [ ] W1.6 Add `AINATIVE_PHASES: PhaseDef[]` and `AINATIVE_RECIPES` to `builtinWorkflows.ts`
-- [ ] W1.7 Register the third entry in `BUILTIN_WORKFLOWS` (`builtinWorkflows.ts:405`)
-- [ ] W1.8 Fix `packages/cli/src/commands/preset.ts:80` — currently hard-codes `BUILTIN_WORKFLOWS[0]`
-- [ ] W1.9 Regenerate `.claude/commands/`; verify `/aidlc <epic> [phase]` dispatches to the right pipeline
-- [ ] W1.10 Tests: `pnpm --filter @aidlc/core test` green; add third-workflow cases to `test/command-model.test.ts`
+- [x] W1.3 Write five skills: `skills/native-{intent,spec,build-plan,implement,verify}.md`
+- [x] W1.4 Write five artifact templates: `artifacts/{intent,spec,build-plan,implement,verify}.md`
+- [x] W1.5 Add four canonical phases (`intent`, `spec`, `build-plan`, `verify`) to `CANONICAL_PHASES` (`commandModel.ts:57`)
+- [x] W1.6 Add `AINATIVE_PHASES: PhaseDef[]` and `AINATIVE_RECIPES` to `builtinWorkflows.ts`
+- [x] W1.7 Register the third entry in `BUILTIN_WORKFLOWS` (`builtinWorkflows.ts:405`)
+- [x] W1.8 Fix `packages/cli/src/commands/preset.ts:80` — currently hard-codes `BUILTIN_WORKFLOWS[0]`
+- [x] W1.9 Regenerate `.claude/commands/`; verify `/aidlc <epic> [phase]` dispatches to the right pipeline
+- [x] W1.10 Tests: `pnpm --filter @aidlc/core test` green; add third-workflow cases to `test/command-model.test.ts`
 
 **Planned recipes:**
 
@@ -219,10 +219,10 @@ with a valid `intent.md`, and the next phase on that epic can read it.
 | Risk | Level | Mitigation |
 |---|---|---|
 | New phases break the two existing workflows | Medium | `CANONICAL_PHASES` is a union — a new phase only appears in pipelines that declare it. Regression-test all three. |
-| `preset.ts:80` hard-codes `BUILTIN_WORKFLOWS[0]` | Low | Verify and change to an id lookup in W1.8 |
+| ~~`preset.ts:80` hard-codes `BUILTIN_WORKFLOWS[0]`~~ | Low | ✅ Resolved in W1.8 — extracted `applyBuiltinWorkflow(id, doc)`, lookup by id |
 | Drift from upstream `aidlc-io/aidlc` | Medium | Keep the new preset in its own directory and minimise edits to shared files, so upstream merges stay easy |
 | Scope creep into W4 too early | Medium | W4 opens only once W1–W3 are done and the workflow has been used for real |
-| Agent/skill filename collisions across workflows (flat `~/.claude` namespace) | **High** | Mandatory `native-` prefix on every agent and skill file — see §W0 |
+| Agent/skill filename collisions across workflows (flat `~/.claude` namespace) | **High** | Mandatory `native-` prefix, now enforced by a regression test in `test/ainative-workflow.test.ts` |
 
 ---
 
@@ -234,3 +234,29 @@ with a valid `intent.md`, and the next phase on that epic can read it.
 | 2026-08-31 | Created branch `feat/ai-native-sdlc-alignment` and this document | No code yet |
 | 2026-08-31 | Locked Q1 (playbook artifact names) and Q4 (parallel workflow); wrote the phase map; found the flat-namespace constraint | §W0 |
 | 2026-08-31 | W1.1–W1.2: template tree plus four personas under `templates/ainative/agents/` | Prefix settled as `native-` so files install as `aidlc-native-*.md` |
+| 2026-08-31 | W1 complete: `ainative` template tree (4 personas, 5 skills, 5 artifact templates), 4 canonical phases, third workflow registered, `preset.ts` id lookup, commands regenerated, 13 new tests | 243 core + 22 extension tests green |
+
+---
+
+## 8. W1 delivery notes
+
+**What shipped**
+
+| Area | Files |
+|---|---|
+| Templates | `packages/core/templates/ainative/{agents,skills,artifacts}/` — 14 markdown files |
+| Canonical phases | `commandModel.ts` — `intent`, `spec`, `build-plan`, `verify` |
+| Workflow | `builtinWorkflows.ts` — `AINATIVE_PHASES`, `AINATIVE_RECIPES`, `ai-native-pipeline` |
+| CLI | `preset.ts` — `applyBuiltinWorkflow(id, doc)` helper plus an `ai-native` preset |
+| Commands | `.claude/commands/{intent,spec,build-plan,verify}.md` |
+| Tests | `packages/core/test/ainative-workflow.test.ts` — 13 cases |
+
+**Verification:** `pnpm -r compile` clean; `@aidlc/core` 243/243 pass; extension 22/22 pass.
+
+**Side effect worth knowing:** regenerating `.claude/commands/` also created the
+missing `prototype.md`. `prototype` has been a canonical phase since GH-77 but its
+shortcut command file had never been written; the generator simply filled the gap.
+
+**Not done in W1, by design:** stage 5 (`review`) and stage 6 (`maintain`) — W2 and W3.
+The `native-reviewer` and `native-operator` personas do not exist yet, so the phase
+map in §W0 lists them as planned rather than shipped.

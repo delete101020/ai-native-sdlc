@@ -400,6 +400,100 @@ const SPECKIT_RECIPES: RecipeDef[] = [
   },
 ];
 
+/**
+ * AI-Native SDLC workflow — the six-stage lifecycle from the AI-Native SDLC
+ * Playbook (https://claude.com/blog/the-ai-native-sdlc-playbook), stages 1-4:
+ *
+ *     intent → spec → build-plan → implement → verify
+ *
+ * Artifact names follow the playbook (`intent.md`, `spec.md`, `plan.md`), which
+ * is why they are lowercase and unprefixed where the other two workflows use
+ * SHOUTING-CASE. Stage 5 (`review`) and stage 6 (`maintain`) are not modeled
+ * yet — see AI_NATIVE_SDLC_ALIGNMENT.md, workstreams W2 and W3.
+ *
+ * Note the phase id `build-plan`: the playbook calls its stage-3 artifact
+ * `plan.md`, but `plan` as a *phase id* is already taken by the AIDLC workflow
+ * with a different meaning (scaffold the epic + write the PRD). Since the
+ * shortcut command description in `CANONICAL_PHASES` is shared across
+ * pipelines, the id differs while the artifact keeps the playbook's name.
+ *
+ * Every agents/ and skills/ filename carries a `native-` prefix because
+ * globalDefaultsInstaller writes all workflows' files into the single flat
+ * `~/.claude/{agents,skills}/aidlc-<file>.md` namespace.
+ */
+const AINATIVE_PHASES: PhaseDef[] = [
+  {
+    id: 'intent', name: 'Intent', persona: 'native-originator', skillFiles: ['native-intent'], model: 'claude-opus-4-7',
+    description: "Capture the originator's problem as intent.md.",
+    inputs: 'A raw idea, a ticket, a support thread',
+    outputs: 'intent.md — problem, who hurts, cost, evidence, done-looks-like',
+    artifact: 'intent.md',
+    humanReview: true, autoReview: false,
+    capabilities: ['jira', 'core-business', 'web'],
+  },
+  {
+    id: 'spec', name: 'Spec', persona: 'native-product-owner', skillFiles: ['native-spec'], model: 'claude-opus-4-7',
+    description: 'Collapse requirements and design into spec.md.',
+    inputs: 'intent.md, CLAUDE.md, project skills, existing product docs',
+    outputs: 'spec.md — testable requirements, acceptance criteria, flagged concerns',
+    artifact: 'spec.md',
+    humanReview: true, autoReview: false,
+    capabilities: ['jira', 'figma', 'core-business', 'web'],
+    dependsOn: ['intent'],
+  },
+  {
+    id: 'build-plan', name: 'Build Plan', persona: 'native-engineer', skillFiles: ['native-build-plan'], model: 'claude-opus-4-7',
+    description: 'Plan the implementation before writing code.',
+    inputs: 'spec.md, CLAUDE.md, the codebase (via ast-graph)',
+    outputs: 'plan.md — files, order, risks, proofs, feedback loop',
+    artifact: 'plan.md',
+    humanReview: true, autoReview: false,
+    capabilities: ['github', 'files'],
+    dependsOn: ['spec'],
+  },
+  {
+    id: 'implement', name: 'Implement', persona: 'native-engineer', skillFiles: ['native-implement'], model: 'claude-sonnet-4-6',
+    description: 'Build the feature against the approved plan.',
+    inputs: 'plan.md, spec.md, CLAUDE.md',
+    outputs: 'Feature branch + PR, implement.md with executed proofs',
+    artifact: 'implement.md',
+    humanReview: true, autoReview: false,
+    capabilities: ['github', 'files'],
+    dependsOn: ['build-plan'],
+  },
+  {
+    id: 'verify', name: 'Verify', persona: 'native-verifier', skillFiles: ['native-verify'], model: 'claude-sonnet-4-6',
+    description: 'Independent verdict on whether the build meets the spec.',
+    inputs: 'spec.md, plan.md, the branch',
+    outputs: 'verify.md — per-criterion verdict with evidence',
+    artifact: 'verify.md',
+    humanReview: true, autoReview: false,
+    capabilities: ['github', 'files'],
+    dependsOn: ['implement'],
+  },
+];
+
+/**
+ * Recipes for the AI-Native SDLC workflow, keyed by task type.
+ */
+const AINATIVE_RECIPES: RecipeDef[] = [
+  {
+    id: 'native-quick',
+    description: 'Small, well-understood change — intent straight to plan, no separate spec.',
+    steps: ['intent', 'build-plan', 'implement', 'verify'],
+  },
+  {
+    id: 'native-full',
+    description: 'Full AI-Native flow: intent → spec → build-plan → implement → verify.',
+    steps: ['intent', 'spec', 'build-plan', 'implement', 'verify'],
+  },
+  {
+    id: 'native-spike',
+    description: 'Capture the problem only — no spec, no code.',
+    steps: ['intent'],
+  },
+];
+
 export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
   {
     id: 'aidlc-workflow',
@@ -420,6 +514,18 @@ export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
       'Spec-driven development (GitHub Spec Kit): Specify → Clarify → Plan → Tasks → Analyze → Implement. Constitution lives in the workspace SDLC standard. Analyst / Tech Lead / QA / Developer.',
     phases: SPECKIT_PHASES,
     recipes: SPECKIT_RECIPES,
+  },
+  {
+    id: 'ai-native-pipeline',
+    pipelineId: 'ai-native-full',
+    name: 'AI-Native SDLC',
+    templatesDir: 'ainative',
+    description:
+      'The AI-Native SDLC Playbook, stages 1-4: Intent → Spec → Build Plan → Implement → Verify. ' +
+      'Artifacts follow the playbook (intent.md, spec.md, plan.md). Originator / Product Owner / Engineer / Verifier, ' +
+      'with verification run by a fresh-context agent rather than the session that wrote the code.',
+    phases: AINATIVE_PHASES,
+    recipes: AINATIVE_RECIPES,
   },
 ];
 

@@ -52,7 +52,13 @@ export interface CanonicalPhase {
  * The canonical phases every pipeline draws from. Mirrors `PHASES` in
  * builtinWorkflows.ts plus two first-class additions from GH-71:
  * `unit-test` (split out of implement's `['implement','unit-test']`) and
- * `benchmark` (performance run, previously unmodeled).
+ * `benchmark` (performance run, previously unmodeled) — and the AI-Native
+ * SDLC phases (`intent`, `spec`, `build-plan`, `verify`) used by the
+ * `ai-native-full` pipeline.
+ *
+ * This is a *union* across pipelines, not one pipeline's step list: a phase
+ * only runs where a pipeline declares it as a step. Appending here adds a
+ * shortcut command and nothing else.
  */
 export const CANONICAL_PHASES: CanonicalPhase[] = [
   { id: 'plan', name: 'Plan', description: 'Scaffold the epic and write the PRD.', artifact: 'PRD.md' },
@@ -64,6 +70,16 @@ export const CANONICAL_PHASES: CanonicalPhase[] = [
   { id: 'benchmark', name: 'Benchmark', description: 'Run performance / benchmark checks.', artifact: 'BENCHMARK-SUMMARY.md' },
   { id: 'generate-test-cases', name: 'Generate Test Cases', description: 'Concrete, executable test cases from the plan.', artifact: 'TEST-CASES.md' },
   { id: 'execute-test', name: 'Execute Test', description: 'Run the test cases and write the report.', artifact: 'TEST-SCRIPT.md' },
+
+  // AI-Native SDLC phases (`ai-native-full`). Artifact names follow the
+  // AI-Native SDLC Playbook, so they are lowercase and unprefixed. `build-plan`
+  // is deliberately NOT called `plan`: that id is already taken above with a
+  // different meaning ("scaffold the epic and write the PRD"), and the
+  // description on a shortcut command is shared across every pipeline.
+  { id: 'intent', name: 'Intent', description: "Capture the originator's problem as intent.md.", artifact: 'intent.md' },
+  { id: 'spec', name: 'Spec', description: 'Collapse requirements and design into spec.md.', artifact: 'spec.md' },
+  { id: 'build-plan', name: 'Build Plan', description: 'Plan the implementation before writing code.', artifact: 'plan.md' },
+  { id: 'verify', name: 'Verify', description: 'Independent verdict on whether the build meets the spec.', artifact: 'verify.md' },
 ];
 
 export const CANONICAL_PHASE_IDS: string[] = CANONICAL_PHASES.map((p) => p.id);
