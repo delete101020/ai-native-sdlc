@@ -222,11 +222,59 @@ to the phase built in W2.1-W2.4.
 - [ ] W3.3 Write `agents/native-operator.md` and `skills/native-maintain.md` — take a signal, write the diagnosis
 - [ ] W3.4 **Engine:** teach `EpicScaffold.ts` to accept `intent.md` as the input to the `plan`/`spec` phase
 - [ ] W3.5 **Engine:** have `maintain` emit the `intent.md` of a *new* epic, closing the loop
-- [ ] W3.6 Investigate reusing `otelReceiver.ts` / `observeClient.ts` for production signals (Q3)
+- [x] W3.6 Investigate reusing `otelReceiver.ts` / `observeClient.ts` for production signals (Q3) — **answered: no**, see §W3 decisions
 - [ ] W3.7 Test the loop: maintain → intent.md → the next epic's spec phase reads it
 
 **Acceptance:** running `maintain` against a simulated signal produces a new epic
 with a valid `intent.md`, and the next phase on that epic can read it.
+
+#### W3 decisions (Q3, locked 2026-08-31)
+
+**Chosen: (c) signal file / webhook.** `maintain` takes a plain JSON signal that
+anything can produce — an alert forwarder, a log line, or a human pasting one in —
+and writes `incident.md`. No credentials, no vendor, runs offline.
+
+Same reasoning as Q2: `incident.md` is the artifact the pipeline gates on, so the
+phase has to work with no integration configured at all. Options (a) and (b) are
+ways to *feed* a phase that must stand on its own either way.
+
+**The signal schema is the actual deliverable.** Define the minimum shape once and
+every later source becomes an adapter that fills it, not a change to the phase:
+
+| Field | Meaning |
+|---|---|
+| `source` | Where it came from (`manual`, `sentry`, `otel`, `pager`) |
+| `observedAt` | When it was seen, ISO-8601 |
+| `symptom` | What is wrong, in one line, as observed — not as diagnosed |
+| `scope` | Who / what is affected, and how much |
+| `evidence` | Stack trace, log excerpt, metric window, request id |
+
+**(a) OTel / existing observability — deliberately NOT reused.** W3.6 asked whether
+`otelReceiver.ts` (231 lines) or `observeClient.ts` (88 lines) could supply the
+signal. They cannot, and it is worth recording why:
+
+| Module | What it actually measures |
+|---|---|
+| `otelReceiver.ts` | OTLP from **Claude Code itself** — tokens, cost, lines added/removed, commits |
+| `observeClient.ts` | agents-observe — session and event counts for **Claude Code** |
+
+Both measure *agent activity*, not the health of the user's system. They know how
+many tokens were burned; they do not know that `/checkout` is returning 500s. The
+HTTP receiver plumbing is reusable in principle, but none of the data semantics
+are. Wiring real OTel means defining which metrics matter and what threshold is
+worth opening an epic over — a separate piece of work, not a reuse.
+
+**(b) Sentry — recorded, not built.** The best-shaped source for this phase: a
+Sentry issue already *is* an incident with a stack trace, a frequency, and a blast
+radius, mapping almost 1:1 onto `incident.md`. But unlike Q2's MCP capability it is
+not free to pre-stage — it needs real credentials and a webhook endpoint, which puts
+it in the same bucket as Q2's GitHub Action: record the requirement, build it when a
+project actually needs it.
+
+**What this does not block.** Q3 gates only W3.6. W3.1–W3.5 — the persona, skill,
+artifact template, and the two engine changes (`EpicScaffold.ts` accepting
+`intent.md`, `maintain` emitting a new epic) — depend on the signal *shape*, not on
+its source, and can be built against the schema above.
 
 ---
 
@@ -247,7 +295,7 @@ with a valid `intent.md`, and the next phase on that epic can read it.
 |---|---|---|---|
 | Q1 | Playbook artifact names or existing repo names? | Every template | ✅ **Locked: playbook names** (§W0) |
 | Q2 | `@claude` in the PR loop: GitHub Action, MCP server, or local CLI only? | W2.5 | ✅ **Locked: local CLI (c)** — see §W2 decisions |
-| Q3 | Where do production signals come from (existing OTel, Sentry, manual webhook)? | Blocks W3.6 | ⬜ Open |
+| Q3 | Where do production signals come from (existing OTel, Sentry, manual webhook)? | W3.6 | ✅ **Locked: signal file / webhook (c)** — see §W3 decisions |
 | Q4 | Replace the existing workflow or run alongside it? | W1.7 and `preset.ts:80` | ✅ **Locked: alongside, third workflow** |
 | Q5 | Do we drop the VS Code extension for a CLI/CI-first tool? | Would invert the whole plan | ⬜ Open |
 
@@ -276,6 +324,7 @@ with a valid `intent.md`, and the next phase on that epic can read it.
 | 2026-08-31 | W1 complete: `ainative` template tree (4 personas, 5 skills, 5 artifact templates), 4 canonical phases, third workflow registered, `preset.ts` id lookup, commands regenerated, 13 new tests | 243 core + 22 extension tests green |
 | 2026-08-31 | Q2 locked: local CLI for the review phase; MCP capability pre-staged, GitHub Action deferred with its prerequisites recorded | §W2 decisions |
 | 2026-08-31 | W2 complete: `review` phase (persona, skill, artifact template, canonical phase, recipe step), `aidlc-approval-gate.py` hook, `/review` command, 8 new tests | 251 core tests green; W2.5b still deferred |
+| 2026-08-31 | Q3 locked: signal file / webhook, with the signal schema as the contract; W3.6 answered "no" — the existing OTel/observe modules measure Claude Code, not production | §W3 decisions. No code — W3.1–W3.5 unblocked |
 
 ---
 
