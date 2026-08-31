@@ -287,6 +287,63 @@ its source, and can be built against the schema above.
 - [ ] W4.4 LICENSE: **keep** the MIT text and the original copyright line, add ours
 - [ ] W4.5 README and CHANGELOG for our build
 - [ ] W4.6 Run the `/publish` skill
+- [ ] W4.7 Publish `@aidlc/core` + the CLI as their own artifact, not only the `.vsix` (Q5)
+
+#### W4 decisions (Q5, locked 2026-08-31)
+
+**Chosen: (c) keep both — core + CLI is the contract, the extension is a client.**
+
+**The question as originally written no longer holds.** Q5 was drafted before W1,
+when its impact line read *"would invert the whole plan"*. After W1–W3 that is
+overstated: every line those three workstreams produced lives in
+`packages/core` and `templates/`, and none of it imports `vscode`.
+
+| What shipped in W1–W3 | Where | VS Code? |
+|---|---|---|
+| 6 personas, 6 skills, 7 artifact templates | `templates/ainative/` | no |
+| `CANONICAL_PHASES`, `AINATIVE_PHASES`, recipes | `core/src/presets/` | no |
+| `Signal.ts`, `IncidentLoop.ts`, `seedArtifacts` | `core/src/` | no |
+| Approval gate | `.claude/hooks/aidlc-approval-gate.py` | no |
+| Slash commands | `.claude/commands/` | no |
+
+So Q5 decides the *front door*, not the engine. Whichever way it went, W1–W3
+stood.
+
+**Q2 and Q3 had already answered half of it.** Stage 5 runs on the local CLI
+(Q2) and stage 6 takes a JSON file (Q3) — both phases were deliberately built to
+run with no IDE present. The decision here mostly ratifies a shape the previous
+two locks already chose.
+
+**Why not (b), CLI-only.** The CLI already carries the full state machine
+(`epic start`, `run done/approve/reject/retry`, `step ...`, `preset apply
+ai-native`, which installs `~/.claude` on its own), so dropping the extension
+would cost nothing structural. What it would cost is everything the extension is
+*actually* made of: `packages/extension/src` is ~34k lines against core's ~9k and
+the CLI's ~5.5k, and that difference is not pipeline code — it is the token/cost
+monitor and OTel receiver, the ast-graph integration, the epic wizard, the
+sidebar / workspace / monitor webviews, the standard picker and the tech-stack
+detector. Deleting a working IDE surface to make a point about architecture is a
+bad trade.
+
+**Why not (a), extension-first.** It would make every future phase reachable only
+by a human clicking, which contradicts what stage 6 is *for*: a signal arrives
+unattended, and `maintain` was built with no human gate for exactly that reason.
+
+**What (c) commits us to, concretely:**
+
+1. Every new phase must be runnable from the CLI **before** it gets a button.
+   This is the rule W2 and W3 already followed; it is now written down.
+2. `@aidlc/core` is the API. The extension and the CLI are both callers, and
+   neither may hold logic the other needs.
+3. W4 publishes two artifacts, not one — hence W4.7. A `.vsix` alone would make
+   the CI/unattended path unreachable for anyone who is not us.
+
+**Known gap this exposes.** `openFollowUpEpic` and `parseSignal` are exported from
+core but have no caller outside the tests: W3 closed the loop at the library
+layer, which is what its acceptance asked for, but neither front door can trigger
+stage 6 yet. Under (c) the CLI entry point comes first — an `aidlc maintain
+--signal <file>` that parses the signal and opens the follow-up epic. Recorded
+here rather than bolted onto W3, whose acceptance is met as written.
 
 ---
 
@@ -298,7 +355,7 @@ its source, and can be built against the schema above.
 | Q2 | `@claude` in the PR loop: GitHub Action, MCP server, or local CLI only? | W2.5 | ✅ **Locked: local CLI (c)** — see §W2 decisions |
 | Q3 | Where do production signals come from (existing OTel, Sentry, manual webhook)? | W3.6 | ✅ **Locked: signal file / webhook (c)** — see §W3 decisions |
 | Q4 | Replace the existing workflow or run alongside it? | W1.7 and `preset.ts:80` | ✅ **Locked: alongside, third workflow** |
-| Q5 | Do we drop the VS Code extension for a CLI/CI-first tool? | Would invert the whole plan | ⬜ Open |
+| Q5 | Do we drop the VS Code extension for a CLI/CI-first tool? | W4, and the shape of every phase after it | ✅ **Locked: keep both, core + CLI is the contract (c)** — see §W4 decisions |
 
 ---
 
@@ -327,6 +384,7 @@ its source, and can be built against the schema above.
 | 2026-08-31 | W2 complete: `review` phase (persona, skill, artifact template, canonical phase, recipe step), `aidlc-approval-gate.py` hook, `/review` command, 8 new tests | 251 core tests green; W2.5b still deferred |
 | 2026-08-31 | Q3 locked: signal file / webhook, with the signal schema as the contract; W3.6 answered "no" — the existing OTel/observe modules measure Claude Code, not production | §W3 decisions. No code — W3.1–W3.5 unblocked |
 | 2026-08-31 | W3 complete: `maintain` phase (persona, skill, artifact template, canonical phase, `native-incident` recipe), `Signal` schema, `IncidentLoop` (`openFollowUpEpic`), `seedArtifacts` in `EpicScaffold`, `/maintain` command, 18 new tests | 269 core + 22 extension tests green; the loop closes end to end |
+| 2026-08-31 | Q5 locked: keep both surfaces, core + CLI is the contract; Q5's original "would invert the whole plan" impact re-scoped — W1–W3 contain no VS Code code. Added W4.7 (publish the CLI too) and recorded the missing `aidlc maintain --signal` entry point | §W4 decisions. No code |
 
 ---
 
