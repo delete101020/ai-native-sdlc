@@ -2,7 +2,7 @@
   "name": "aidlc",
   "displayName": "AIDLC",
   "description": "AI-driven SDLC pipeline runner for VS Code. Plan → Prototype → Design ∥ Test → Implement → Release. Discovery gates for human-in-the-loop questions, prototype phase for visual UI design, requirements traceability, AIDLC Monitor with token usage & live observability. Supports Spec Kit (spec-driven development), recipe-based task classification, multi-pipeline workspaces.",
-  "version": "3.6.1",
+  "version": "3.6.2",
   "publisher": "delete101020",
   "license": "MIT",
   "repository": {
@@ -116,6 +116,11 @@
         "command": "aidlc.openClaudeTerminal",
         "title": "Open Claude CLI Terminal",
         "icon": "$(terminal)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.switchClaudeAccount",
+        "title": "Switch Claude Account",
         "category": "AIDLC"
       },
       {
@@ -296,8 +301,31 @@
         "aidlc.claude.configDir": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Claude Code config directory this window uses \u2014 the account behind `~/.claude`. Leave empty to use `$CLAUDE_CONFIG_DIR` if set, else `~/.claude`. Set it (e.g. `~/.claude-work`) when you keep several Claude accounts and want this workspace pinned to one: workflow agents/skills, the annotation tools, the epic-memory hook, MCP registration, the token monitor and every `claude` terminal AIDLC opens all follow it. Reload the window after changing.",
+          "markdownDescription": "Claude Code config directory this window uses — the account behind `~/.claude`. Leave empty to use `$CLAUDE_CONFIG_DIR` if set, else `~/.claude`. Set it (e.g. `~/.claude-work`) when you keep several Claude accounts and want this workspace pinned to one: workflow agents/skills, the annotation tools, the epic-memory hook, MCP registration, the token monitor and every `claude` terminal AIDLC opens all follow it. Reload the window after changing. Easier than editing this by hand: run **AIDLC: Switch Claude Account** (also on the status bar), which picks from `#aidlc.claude.configDirs#`.",
           "scope": "resource"
+        },
+        "aidlc.claude.configDirs": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Saved Claude accounts offered by **AIDLC: Switch Claude Account**. This list only names the accounts — the one actually in use is `#aidlc.claude.configDir#`, which is per-workspace, so several windows can hold different accounts at the same time. Example: `[{ \"label\": \"Work\", \"path\": \"~/.claude-work\" }]`.",
+          "scope": "resource",
+          "items": {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "type": "string",
+                "description": "Name shown in the picker and the status bar. Defaults to the folder name."
+              },
+              "path": {
+                "type": "string",
+                "description": "Claude config directory, e.g. `~/.claude-work`."
+              }
+            }
+          }
         }
       }
     },

@@ -1,5 +1,46 @@
 # Changelog
 
+## 3.6.2
+
+Switching Claude accounts without editing JSON. `aidlc.claude.configDir` landed
+in 3.6.0 but was findable only by knowing its id — the Settings UI lists it
+under a generic "AIDLC" section, which is indistinguishable from the upstream
+extension's when both are installed. And a user with three accounts had no way
+to keep a shortlist, or to tell at a glance which account the current window
+was talking to.
+
+Claude Code still runs exactly one account per process — it reads a single
+`CLAUDE_CONFIG_DIR` — so this does not make several accounts active at once.
+What it does is make the *one* active account explicit and one click away, and
+`aidlc.claude.configDir` stays `scope: resource`, so three windows on three
+workspaces genuinely hold three accounts in parallel.
+
+### Added
+
+- feat(extension): **AIDLC: Switch Claude Account** — a quick pick over the
+  saved accounts, plus "Enter path…" and "Browse…". Each entry shows the email
+  recorded in that folder's `.claude.json`, so the account is identified by who
+  is signed in rather than by a path the user has to recognise. After picking,
+  it asks whether to apply to this workspace (the default, and how parallel
+  accounts work) or to all windows.
+- feat(extension): `aidlc.claude.configDirs` — the saved list, as
+  `{ label?, path }` entries. It is an address book only; it never changes
+  which account is active. `~/.claude` is always offered even when unlisted, so
+  returning to the default is one pick away.
+- feat(extension): a status bar item showing the active account, which opens
+  the switcher. Hidden for anyone who has configured nothing — it would be pure
+  noise with a single account — and appears as soon as a config dir or a saved
+  list exists.
+
+### Changed
+
+- refactor(extension): the config-dir resolution, the change listener and the
+  reload prompt moved out of `extension.ts` into `v2/claudeAccounts.ts`, beside
+  the new UI. Behaviour is unchanged, including the ordering constraint — it
+  still runs before anything touches the global Claude folder.
+- docs(extension): `aidlc.claude.configDir`'s description now points at the
+  command instead of leaving the setting as the only entry point.
+
 ## 3.6.1
 
 Model defaults stop aging out. Every built-in phase and agent template asked
