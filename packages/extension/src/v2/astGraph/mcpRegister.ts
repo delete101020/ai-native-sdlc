@@ -15,6 +15,8 @@
 
 import { execFile } from 'child_process';
 
+import { claudeConfigEnv } from '@aidlc/core';
+
 export interface McpRegistration {
   ok: boolean;
   /** When false, this string explains why (CLI missing, timeout, error). */
@@ -55,7 +57,7 @@ export function registerMcpServer(opts: RegisterOpts): Promise<McpRegistration> 
     execFile(
       claude,
       args,
-      { timeout: ADD_TIMEOUT_MS, cwd: opts.cwd },
+      { timeout: ADD_TIMEOUT_MS, cwd: opts.cwd, env: { ...process.env, ...claudeConfigEnv() } },
       (err, _stdout, stderr) => {
         if (err) {
           const code = (err as NodeJS.ErrnoException).code;
@@ -89,7 +91,7 @@ export function isAlreadyRegistered(cwd: string, claudeBin = 'claude'): Promise<
     execFile(
       claudeBin,
       ['mcp', 'list'],
-      { timeout: 20_000, cwd, maxBuffer: 4 * 1024 * 1024 },
+      { timeout: 20_000, cwd, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, ...claudeConfigEnv() } },
       (err, stdout) => {
         if (err) { resolve(false); return; }
         const has = stdout

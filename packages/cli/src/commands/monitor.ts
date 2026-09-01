@@ -18,6 +18,7 @@ import { execSync, exec, spawn } from 'child_process';
 import * as readline from 'readline';
 import { Command } from 'commander';
 import chalk from 'chalk';
+import { claudeConfigDir } from '@aidlc/core';
 
 const OBSERVE_PORT = 4981;
 const OBSERVE_HOST = '127.0.0.1';
@@ -33,7 +34,12 @@ function aidlcDataDir(): string {
 }
 
 function settingsPath(): string {
-  return path.join(os.homedir(), '.claude', 'settings.json');
+  return path.join(claudeConfigDir(), 'settings.json');
+}
+
+/** Plugin root of the Claude account currently in use. */
+function pluginsRoot(): string {
+  return path.join(claudeConfigDir(), 'plugins');
 }
 
 interface PluginInfo {
@@ -96,9 +102,8 @@ function detectPlugin(): PluginInfo {
 
   // 2) Fallback: look for the plugin on disk under ~/.claude/plugins.
   //    Disk presence can't tell us if hooks loaded — assume ok.
-  const pluginsRoot = path.join(os.homedir(), '.claude', 'plugins');
   try {
-    const hit = scanForPlugin(pluginsRoot, 3);
+    const hit = scanForPlugin(pluginsRoot(), 3);
     if (hit) return { installed: true, loaded: true, detail: hit };
   } catch {
     /* ignore */
@@ -241,10 +246,10 @@ function collectPluginRoots(dir: string, depth: number, out: string[]): void {
  * marketplace source clone. Returns null if none found.
  */
 function resolvePluginRoot(): string | null {
-  const pluginsRoot = path.join(os.homedir(), '.claude', 'plugins');
+  const root = pluginsRoot();
   const roots: string[] = [];
-  collectPluginRoots(path.join(pluginsRoot, 'cache'), 4, roots);
-  const marketplace = path.join(pluginsRoot, 'marketplaces', 'agents-observe');
+  collectPluginRoots(path.join(root, 'cache'), 4, roots);
+  const marketplace = path.join(root, 'marketplaces', 'agents-observe');
   if (isPluginRoot(marketplace)) roots.push(marketplace);
   if (roots.length === 0) return null;
   // Prefer versioned cache installs over the marketplace clone, and higher

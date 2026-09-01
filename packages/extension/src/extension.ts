@@ -27,7 +27,13 @@ import { registerAidlcMonitor } from './v2/aidlcMonitor';
 import { registerAstGraph } from './v2/astGraph';
 import { installAnnotationTools } from './v2/annotationToolsInstaller';
 import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './v2/epicsDirSync';
-import { WORKSPACE_DIR, WORKSPACE_FILENAME, activateBackendFromWorkspace } from '@aidlc/core';
+import {
+  WORKSPACE_DIR,
+  WORKSPACE_FILENAME,
+  activateBackendFromWorkspace,
+  setClaudeConfigDir,
+  claudeConfigDir,
+} from '@aidlc/core';
 
 /**
  * Select the run-state backend declared in the first workspace folder's
@@ -52,6 +58,40 @@ export function activate(context: vscode.ExtensionContext): void {
   // prompt. Keeps the global Claude folder clean by default. To remove
   // previously-installed files, run `aidlc.uninstallWorkflowGlobals` before
   // uninstalling the extension (VS Code has no reliable on-uninstall hook).
+
+  // Which Claude account this window talks to. Everything AIDLC writes under
+  // the global Claude folder — workflow agents/skills, the annotation tools,
+  // the epic-memory hook — and everything it reads back — the token monitor's
+  // session logs, MCP registration — goes through this one resolution, so a
+  // user running personal + work accounts sees one consistent account per
+  // window. Must run BEFORE the first thing that touches the folder
+  // (installAnnotationTools, immediately below).
+  const CLAUDE_DIR_KEY = 'aidlc.claude.configDir';
+  const applyClaudeConfigDir = (): void => {
+    const dir = (vscode.workspace.getConfiguration().get<string>(CLAUDE_DIR_KEY) ?? '').trim();
+    setClaudeConfigDir(dir || undefined);
+    const source = dir ? 'setting' : process.env.CLAUDE_CONFIG_DIR ? 'CLAUDE_CONFIG_DIR' : 'default';
+    output.appendLine(`Claude config dir: ${claudeConfigDir()} (${source})`);
+  };
+  applyClaudeConfigDir();
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (!e.affectsConfiguration(CLAUDE_DIR_KEY)) { return; }
+      applyClaudeConfigDir();
+      // Long-lived readers (token monitor watchers, open webviews) captured the
+      // old dir; a reload is the honest way to switch accounts mid-session.
+      void vscode.window
+        .showInformationMessage(
+          `AIDLC: Claude config dir is now ${claudeConfigDir()}. Reload the window so every view picks it up.`,
+          'Reload Window',
+        )
+        .then((pick) => {
+          if (pick === 'Reload Window') {
+            void vscode.commands.executeCommand('workbench.action.reloadWindow');
+          }
+        });
+    }),
+  );
 
   // Annotation tooling is the exception: a tiny, self-contained footprint
   // (renderer + vendored annotron + one skill) that makes /annotate-artifact

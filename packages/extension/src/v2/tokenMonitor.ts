@@ -13,8 +13,9 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import * as readline from 'readline';
+
+import { claudeConfigDir } from '@aidlc/core';
 
 import { calcCost, type Usage } from './tokenPricing';
 import { TokenReportWebview } from './tokenReportWebview';
@@ -43,7 +44,7 @@ function emptyTotals(): Totals {
 }
 
 function projectsRoot(): string {
-  return path.join(os.homedir(), '.claude', 'projects');
+  return path.join(claudeConfigDir(), 'projects');
 }
 
 function startOfDay(d: Date): Date {

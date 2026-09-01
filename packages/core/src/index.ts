@@ -222,7 +222,7 @@ export {
 } from './presets/builtinWorkflows';
 export type { BuiltinWorkflow, WorkspacePreset as BuiltinWorkspacePreset, WorkspaceRecipe, ArtifactTemplateOptions } from './presets/builtinWorkflows';
 
-// Global ~/.claude install of built-in agent/skill files (shared by ext + CLI).
+// Global Claude-config-dir install of built-in agent/skill files (ext + CLI).
 export {
   installGlobalDefaults,
   installWorkflowGlobalsByIds,
@@ -289,6 +289,21 @@ export type {
 
 // Path helpers for resolving workspace.yaml-declared paths (`~/` aware).
 export { expandHome, resolveDeclaredPath } from './util/paths';
+
+// Claude account/config dir resolution — `~/.claude` unless the user separates
+// accounts with `CLAUDE_CONFIG_DIR` / the `aidlc.claude.configDir` setting.
+export {
+  setClaudeConfigDir,
+  getClaudeConfigDirOverride,
+  defaultClaudeConfigDir,
+  resolveClaudeConfigDir,
+  claudeConfigDir,
+  isDefaultClaudeConfigDir,
+  claudeJsonPath,
+  claudeConfigEnv,
+  remapClaudePath,
+} from './util/claudeHome';
+export type { ClaudeHomeOptions } from './util/claudeHome';
 
 // Shared help/knowledge content for `ask` + `guide` (CLI + extension).
 export { AIDLC_KNOWLEDGE, AIDLC_CLI_GUIDE_TEXT } from './help/aidlcGuide';

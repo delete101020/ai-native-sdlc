@@ -13,6 +13,8 @@
  */
 import { execFile } from 'child_process';
 
+import { claudeConfigEnv } from '@aidlc/core';
+
 export type McpStatus = 'connected' | 'needs_auth' | 'failed' | 'unknown';
 
 export interface McpServerInfo {
@@ -51,7 +53,7 @@ export async function loadMcpServers(
     execFile(
       claudeBin,
       ['mcp', 'list'],
-      { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: process.env },
+      { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, ...claudeConfigEnv() } },
       (err, stdout, stderr) => {
         if (err) {
           resolve(describeSpawnError(err, stdout || '', stderr || '', claudeBin, timeoutMs));

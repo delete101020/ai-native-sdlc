@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import { setTimeout } from 'timers';
 
 import {
+  claudeConfigEnv,
   WorkspaceLoader,
   WorkspaceNotFoundError,
   WorkspaceParseError,
@@ -353,6 +354,9 @@ export function registerV2WorkspaceCommands(
         env: {
           DISABLE_AUTO_UPDATE: 'true',
           DISABLE_UPDATE_PROMPT: 'true',
+          // Pin the Claude account when the user runs more than one; empty
+          // (and so invisible) for a single-account machine.
+          ...claudeConfigEnv(),
         },
       });
       terminal.show(false);
@@ -408,6 +412,8 @@ export function registerV2WorkspaceCommands(
           // terminals.
           DISABLE_AUTO_UPDATE: 'true',
           DISABLE_UPDATE_PROMPT: 'true',
+          // Same account pin as the run-step terminal above.
+          ...claudeConfigEnv(),
         },
       });
       terminal.show(false);

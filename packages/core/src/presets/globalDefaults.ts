@@ -28,9 +28,9 @@
  */
 
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
+import { claudeConfigDir } from '../util/claudeHome';
 import { BUILTIN_WORKFLOWS, type BuiltinWorkflow } from './builtinWorkflows';
 import { renderTemplate } from './templateRenderer';
 
@@ -104,11 +104,11 @@ export function installWorkflowGlobalsByIds(
 export function isWorkflowGloballyInstalled(extensionPath: string, workflowId: string): boolean {
   const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === workflowId);
   if (!workflow) { return false; }
-  const home = os.homedir();
+  const claudeDir = claudeConfigDir();
   const workflowDir = path.join(extensionPath, 'templates', workflow.templatesDir);
   return (
-    kindInstalled('agents', path.join(home, '.claude', 'agents')) &&
-    kindInstalled('skills', path.join(home, '.claude', 'skills'))
+    kindInstalled('agents', path.join(claudeDir, 'agents')) &&
+    kindInstalled('skills', path.join(claudeDir, 'skills'))
   );
 
   function kindInstalled(kind: 'agents' | 'skills', destDir: string): boolean {
@@ -131,11 +131,11 @@ function installWorkflow(
   techStack: readonly string[] | null = null,
 ): InstallReport {
   const report: InstallReport = { workflow: workflow.id, written: [], skipped: [] };
-  const home = os.homedir();
+  const claudeDir = claudeConfigDir();
   const workflowDir = path.join(extensionPath, 'templates', workflow.templatesDir);
 
-  copyKind('agents', path.join(home, '.claude', 'agents'));
-  copyKind('skills', path.join(home, '.claude', 'skills'));
+  copyKind('agents', path.join(claudeDir, 'agents'));
+  copyKind('skills', path.join(claudeDir, 'skills'));
 
   if (log && (report.written.length || report.skipped.length)) {
     const stackTag = techStack && techStack.length ? ` [stack: ${techStack.join(',')}]` : '';
@@ -224,7 +224,7 @@ export function uninstallWorkflowGlobalsByIds(
   preserveWorkflowIds?: readonly string[],
 ): UninstallReport[] {
   const reports: UninstallReport[] = [];
-  const home = os.homedir();
+  const claudeDir = claudeConfigDir();
 
   // Files needed by workflows that should be preserved. Caller drives the
   // set: pass workflows that remain applied in workspace.yaml. Falls back
@@ -256,8 +256,8 @@ export function uninstallWorkflowGlobalsByIds(
       ? expectedSourceFiles(extensionPath, workflow)
       : null;
 
-    removeKind(path.join(home, '.claude', 'agents'), 'agents');
-    removeKind(path.join(home, '.claude', 'skills'), 'skills');
+    removeKind(path.join(claudeDir, 'agents'), 'agents');
+    removeKind(path.join(claudeDir, 'skills'), 'skills');
 
     if (log && (report.removed.length || report.skipped.length)) {
       log(

@@ -57,6 +57,8 @@ function runClaude(
     delete env.CLAUDE_CODE_ENTRYPOINT;
     delete env.CLAUDE_CODE_SESSION_ID;
     delete env.CLAUDE_CODE_EXECPATH;
+    // …and pin the configured Claude account, if the user runs more than one.
+    Object.assign(env, claudeConfigEnv());
     const proc = spawn('claude', args, { cwd: opts.cwd, stdio: ['ignore', 'pipe', 'pipe'], env });
     let out = '';
     let err = '';
@@ -164,6 +166,8 @@ function describeExecError(err: unknown): string {
 import * as jsYaml from 'js-yaml';
 import { readYaml, writeYaml, type YamlDocument } from './yamlIO';
 import {
+  claudeConfigDir,
+  claudeConfigEnv,
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
   stepAgentId,
@@ -273,7 +277,9 @@ function runSlashCommandInClaude(slash: string, root: string): void {
     cwd,
     iconPath: new vscode.ThemeIcon('rocket'),
     location: vscode.TerminalLocation.Panel,
-    env: { DISABLE_AUTO_UPDATE: 'true', DISABLE_UPDATE_PROMPT: 'true' },
+    // `claudeConfigEnv()` pins the Claude account when the user runs more
+    // than one; empty (and so invisible) for a single-account machine.
+    env: { DISABLE_AUTO_UPDATE: 'true', DISABLE_UPDATE_PROMPT: 'true', ...claudeConfigEnv() },
   });
   terminal.show(false);
   let sent = false;
@@ -550,7 +556,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       initialView: 'epics',
       testAgentConfigExists: false,
       testAgentTargets: [],
-      epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
+      epicMemoryHookEnabled: isEpicMemoryHookEnabled(),
       epicsDir: DEFAULT_EPICS_DIR,
     };
   }
@@ -631,7 +637,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       requirementRuns: scanRequirementRuns(root),
       initialView,
       ...(() => { const ta = readTestAgentTargets(root); return { testAgentConfigExists: ta.exists, testAgentTargets: ta.targets }; })(),
-      epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
+      epicMemoryHookEnabled: isEpicMemoryHookEnabled(),
       epicsDir: DEFAULT_EPICS_DIR,
     };
   }
@@ -693,7 +699,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     requirementRuns: scanRequirementRuns(root),
     initialView,
     ...(() => { const ta = readTestAgentTargets(root); return { testAgentConfigExists: ta.exists, testAgentTargets: ta.targets }; })(),
-    epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
+    epicMemoryHookEnabled: isEpicMemoryHookEnabled(),
     epicsDir: epicRoot,
   };
 }
@@ -1519,7 +1525,7 @@ export class WorkspaceWebview {
       void vscode.window.showInformationMessage(`Artifact chưa tồn tại: ${filename}`);
       return;
     }
-    const annotronBin = path.join(os.homedir(), '.claude', 'tools', 'annotron', 'bin', 'annotron');
+    const annotronBin = path.join(claudeConfigDir(), 'tools', 'annotron', 'bin', 'annotron');
     if (!fs.existsSync(annotronBin)) {
       void vscode.window.showWarningMessage(
         'Annotron chưa được cài (~/.claude/tools/annotron). Mở lại project để extension cài lại, hoặc dùng nút Feedback.',
@@ -1944,7 +1950,7 @@ export class WorkspaceWebview {
         if (enabled) {
           try { installAnnotationTools(this.extensionUri.fsPath); } catch { /* best-effort */ }
         }
-        const r = setEpicMemoryHook(enabled, os.homedir());
+        const r = setEpicMemoryHook(enabled);
         void vscode.window.showInformationMessage(
           enabled
             ? 'Epic-memory hook enabled — prompts that mention an epic auto-load its memory.'
@@ -3595,6 +3601,14 @@ export class WorkspaceWebview {
    * the YAML stays portable across machines.
    */
   private relPathFor(root: string, abs: string): string {
+    // A file in the active Claude config dir is written back as `~/.claude/…`
+    // even when that dir is a pinned account (`~/.claude-work`): the YAML then
+    // means "whichever account this window uses", and `expandHome` resolves it
+    // per account. Writing the literal account dir would pin the repo to one.
+    const claudeDir = claudeConfigDir();
+    if (abs === claudeDir || abs.startsWith(claudeDir + path.sep)) {
+      return path.posix.join('~/.claude', abs.slice(claudeDir.length).split(path.sep).join('/'));
+    }
     const home = os.homedir();
     if (abs.startsWith(home)) { return '~' + abs.slice(home.length); }
     const rel = path.relative(root, abs);

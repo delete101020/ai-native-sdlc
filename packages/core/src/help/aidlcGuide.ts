@@ -51,6 +51,14 @@ the other within ~200ms.
   a \`claude login\`, \`ANTHROPIC_API_KEY\`, AWS Bedrock (\`CLAUDE_CODE_USE_BEDROCK=1\`
   + AWS profile/credentials), Google Vertex (\`CLAUDE_CODE_USE_VERTEX=1\`), or a
   gateway \`ANTHROPIC_AUTH_TOKEN\`/\`ANTHROPIC_BASE_URL\`. Run \`aidlc doctor\` to verify.
+- Several Claude accounts (personal / work)? They are separated by *config dir*,
+  not by project: \`~/.claude\` holds one account's agents, skills, settings and
+  session logs. AIDLC follows \`CLAUDE_CONFIG_DIR\`, and the extension adds the
+  \`aidlc.claude.configDir\` setting (workspace scope, so one window = one
+  account) — it pins global installs, the epic-memory hook, MCP registration,
+  the token monitor and every \`claude\` terminal AIDLC opens. \`aidlc doctor\`
+  prints the dir in use. The workspace's own \`.claude/\` is project data and
+  never moves.
 
 ## CLI command surface
 - Bootstrap: \`aidlc init\`, \`aidlc validate\`, \`aidlc doctor\`, \`aidlc list [--json]\`.

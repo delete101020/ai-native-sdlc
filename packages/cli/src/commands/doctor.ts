@@ -11,6 +11,8 @@ import {
   hasClaudeLogin,
   buildClaudeSpawnEnv,
   resolveDeclaredPath,
+  claudeConfigDir,
+  isDefaultClaudeConfigDir,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 
@@ -186,6 +188,17 @@ export function registerDoctor(program: Command): void {
       // `claude login`, so users on AWS Bedrock (etc.) aren't wrongly told
       // they're "Not authenticated" (issue #55).
       claudeChecks.push(detectAuth(claudeBin));
+
+      // Which account's folder AIDLC reads and writes. Worth stating even in
+      // the default case: when a user runs several Claude accounts, "the skills
+      // installed but the session can't see them" is always this line.
+      const configDir = claudeConfigDir();
+      claudeChecks.push(ok('Claude config dir', isDefaultClaudeConfigDir()
+        ? configDir
+        : `${configDir} (from CLAUDE_CONFIG_DIR)`));
+      claudeChecks.push(fs.existsSync(configDir)
+        ? ok('config dir exists')
+        : fail('config dir exists', `${configDir} not found — run \`claude\` once to create it`));
 
       emitSection('Claude', claudeChecks);
 

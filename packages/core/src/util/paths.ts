@@ -11,14 +11,21 @@
 import * as os from 'os';
 import * as path from 'path';
 
+import { remapClaudePath } from './claudeHome';
+
 /**
  * Expand a leading `~/` to the user's home directory. Anything else — a
  * relative path, an absolute path, a bare `~` with no separator — is returned
  * unchanged.
+ *
+ * `~/.claude/...` is special-cased onto the *active Claude config dir*, which
+ * is `<home>/.claude` unless the user separates accounts with
+ * `CLAUDE_CONFIG_DIR` / `aidlc.claude.configDir`. Declared paths stay portable
+ * in the YAML and still land in the account actually in use.
  */
 export function expandHome(p: string, homeDir: string = os.homedir()): string {
-  if (p.startsWith('~/')) { return path.join(homeDir, p.slice(2)); }
-  return p;
+  if (!p.startsWith('~/')) { return p; }
+  return remapClaudePath(p, { homeDir }) ?? path.join(homeDir, p.slice(2));
 }
 
 /**
