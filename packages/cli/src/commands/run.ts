@@ -22,6 +22,7 @@ import {
   type ExecHooks,
   type RunState,
   type PipelineConfig,
+  CODING_MODEL,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { info, setQuiet } from '../output';
@@ -443,7 +444,7 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
 
     onStepStart: (e) => {
       info(chalk.bold(`\n▶  Step ${e.stepIdx}: ${e.agent}`) + chalk.dim(` (rev ${e.revision})`));
-      info(chalk.dim(`   skills: ${e.skills.join(', ')}  model: ${e.model ?? 'claude-sonnet-4-5'}`));
+      info(chalk.dim(`   skills: ${e.skills.join(', ')}  model: ${e.model ?? CODING_MODEL}`));
       if (e.context) { info(chalk.dim(`   context: ${e.context}`)); }
       sep();
     },

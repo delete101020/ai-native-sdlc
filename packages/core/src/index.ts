@@ -222,6 +222,10 @@ export {
 } from './presets/builtinWorkflows';
 export type { BuiltinWorkflow, WorkspacePreset as BuiltinWorkspacePreset, WorkspaceRecipe, ArtifactTemplateOptions } from './presets/builtinWorkflows';
 
+// Model tier the built-in presets, the CLI and the wizards all default to.
+// Aliases, not pinned ids, so a preset does not age out on the next release.
+export { PLANNING_MODEL, CODING_MODEL, FAST_MODEL } from './presets/models';
+
 // Global Claude-config-dir install of built-in agent/skill files (ext + CLI).
 export {
   installGlobalDefaults,

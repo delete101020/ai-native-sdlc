@@ -25,6 +25,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { CODING_MODEL, PLANNING_MODEL } from './models';
 import { renderTemplate } from './templateRenderer';
 
 /**
@@ -101,7 +102,7 @@ const PHASES: PhaseDef[] = [
     // command body) — the Plan phase runs it up front when the gate rule fires
     // (≥3 open questions, or any high-impact one), then writes the confirmed
     // choices into PRD.md's `## Discovery decisions` section. It is NOT a phase.
-    id: 'plan', name: 'Plan', persona: 'po', skillFiles: ['prd', 'discovery-gate'], model: 'claude-opus-4-7',
+    id: 'plan', name: 'Plan', persona: 'po', skillFiles: ['prd', 'discovery-gate'], model: PLANNING_MODEL,
     description: 'Scaffold the epic and write the PRD.',
     inputs: 'Jira ticket, business context, Figma designs',
     outputs: 'Epic doc + PRD with measurable acceptance criteria',
@@ -113,7 +114,7 @@ const PHASES: PhaseDef[] = [
     // GH-77: Prototype phase — propose UI visually (multiple options) before design.
     // Reads PRD (incl. Discovery decisions) to generate UI variants.
     // Uses discovery-gate for method selection + option choice (like #76).
-    id: 'prototype', name: 'Prototype', persona: 'designer', skillFiles: ['prototype', 'discovery-gate'], model: 'claude-opus-4-7',
+    id: 'prototype', name: 'Prototype', persona: 'designer', skillFiles: ['prototype', 'discovery-gate'], model: PLANNING_MODEL,
     description: 'Propose the UI visually with multiple design options.',
     inputs: 'PRD + discovery decisions, user preference for design method',
     outputs: 'UI prototype options (HTML) + PROTOTYPE.md with chosen option',
@@ -127,7 +128,7 @@ const PHASES: PhaseDef[] = [
     // writing the implementation plan (approach, boundaries, which files, edge
     // cases), it runs the gate instead of asking inline, then finishes
     // TECH-DESIGN.md from the answers.
-    id: 'design', name: 'Design', persona: 'tech-lead', skillFiles: ['tech-design', 'discovery-gate'], model: 'claude-opus-4-7',
+    id: 'design', name: 'Design', persona: 'tech-lead', skillFiles: ['tech-design', 'discovery-gate'], model: PLANNING_MODEL,
     description: 'Design the implementation approach.',
     inputs: 'PRD, prototype, existing code, dependency graph',
     outputs: 'Architecture, API contract, DI plan, file impact list',
@@ -137,7 +138,7 @@ const PHASES: PhaseDef[] = [
     dependsOn: ['prototype'],
   },
   {
-    id: 'test-plan', name: 'Test Plan', persona: 'qa', skillFiles: ['test-plan'], model: 'claude-sonnet-4-6',
+    id: 'test-plan', name: 'Test Plan', persona: 'qa', skillFiles: ['test-plan'], model: CODING_MODEL,
     description: 'Plan how the feature will be verified.',
     inputs: 'PRD acceptance criteria, tech design, ITS / device matrix',
     outputs: 'Test cases (UT / UI / integration / performance), device matrix',
@@ -147,7 +148,7 @@ const PHASES: PhaseDef[] = [
     dependsOn: ['prototype'],
   },
   {
-    id: 'implement', name: 'Implement', persona: 'developer', skillFiles: ['implement', 'unit-test'], model: 'claude-sonnet-4-6',
+    id: 'implement', name: 'Implement', persona: 'developer', skillFiles: ['implement', 'unit-test'], model: CODING_MODEL,
     description: 'Build the feature on a feature branch and write its unit tests.',
     inputs: 'Tech design, test plan, project coding rules',
     outputs: 'Code + unit tests on feature branch, PR opened',
@@ -159,7 +160,7 @@ const PHASES: PhaseDef[] = [
   },
   {
     id: 'generate-test-cases', name: 'Generate Test Cases', persona: 'qa',
-    skillFiles: ['generate-test-cases'], model: 'claude-sonnet-4-6',
+    skillFiles: ['generate-test-cases'], model: CODING_MODEL,
     description: 'Concrete, executable test cases derived from the test plan.',
     inputs: 'Test plan, acceptance criteria',
     outputs: 'Executable test cases (UI/IT scripts, fixtures, data) + TEST-CASES.md',
@@ -169,7 +170,7 @@ const PHASES: PhaseDef[] = [
     dependsOn: ['test-plan'],
   },
   {
-    id: 'execute-test', name: 'Execute Test', persona: 'qa', skillFiles: ['execute-test', 'test-report'], model: 'claude-sonnet-4-6',
+    id: 'execute-test', name: 'Execute Test', persona: 'qa', skillFiles: ['execute-test', 'test-report'], model: CODING_MODEL,
     description: 'Run the test cases and write the test report.',
     inputs: 'Feature branch, test plan, test cases, UAT environment',
     outputs: 'Test execution + TEST-REPORT with pass/fail, defects, go/no-go',
@@ -314,7 +315,7 @@ const SDLC_RECIPES: RecipeDef[] = [
  */
 const SPECKIT_PHASES: PhaseDef[] = [
   {
-    id: 'specify', name: 'Specify', persona: 'analyst', skillFiles: ['specify'], model: 'claude-opus-4-7',
+    id: 'specify', name: 'Specify', persona: 'analyst', skillFiles: ['specify'], model: PLANNING_MODEL,
     description: 'Turn a feature description into a structured, testable spec.',
     inputs: 'Feature description, business context, Jira ticket, Figma designs',
     outputs: 'SPEC.md — user scenarios, functional requirements, testable acceptance criteria',
@@ -323,7 +324,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     capabilities: ['jira', 'figma', 'core-business', 'web'],
   },
   {
-    id: 'clarify', name: 'Clarify', persona: 'analyst', skillFiles: ['clarify'], model: 'claude-opus-4-7',
+    id: 'clarify', name: 'Clarify', persona: 'analyst', skillFiles: ['clarify'], model: PLANNING_MODEL,
     description: 'Surface and resolve underspecified areas of the spec.',
     inputs: 'SPEC.md, open questions',
     outputs: 'SPEC.md updated with a Clarifications section (Q/A pairs resolved)',
@@ -337,7 +338,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     // collide with the SDLC bundle's globals (developer/qa/tech-lead/implement).
     // Global install keys files by source filename, so a bare `tech-lead.md`
     // here would overwrite SDLC's when both workflows are installed.
-    id: 'plan', name: 'Plan', persona: 'speckit-tech-lead', skillFiles: ['plan'], model: 'claude-opus-4-7',
+    id: 'plan', name: 'Plan', persona: 'speckit-tech-lead', skillFiles: ['plan'], model: PLANNING_MODEL,
     description: 'Derive the technical implementation plan from the spec.',
     inputs: 'SPEC.md, existing code, dependency graph, constitution (workspace standard)',
     outputs: 'PLAN.md — architecture, data model, contracts, tech choices honoring the constitution',
@@ -347,7 +348,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     dependsOn: ['clarify'],
   },
   {
-    id: 'tasks', name: 'Tasks', persona: 'speckit-tech-lead', skillFiles: ['tasks'], model: 'claude-sonnet-4-6',
+    id: 'tasks', name: 'Tasks', persona: 'speckit-tech-lead', skillFiles: ['tasks'], model: CODING_MODEL,
     description: 'Break the plan into an ordered, dependency-aware task list.',
     inputs: 'PLAN.md, SPEC.md acceptance criteria',
     outputs: 'TASKS.md — numbered tasks with dependencies, each traceable to a requirement',
@@ -357,7 +358,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     dependsOn: ['plan'],
   },
   {
-    id: 'analyze', name: 'Analyze', persona: 'speckit-qa', skillFiles: ['analyze'], model: 'claude-sonnet-4-6',
+    id: 'analyze', name: 'Analyze', persona: 'speckit-qa', skillFiles: ['analyze'], model: CODING_MODEL,
     description: 'Cross-check spec ↔ plan ↔ tasks for consistency and coverage before build.',
     inputs: 'SPEC.md, PLAN.md, TASKS.md',
     outputs: 'ANALYSIS.md — coverage matrix, gaps, contradictions, go/no-go',
@@ -367,7 +368,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     dependsOn: ['tasks'],
   },
   {
-    id: 'implement', name: 'Implement', persona: 'speckit-developer', skillFiles: ['speckit-implement'], model: 'claude-sonnet-4-6',
+    id: 'implement', name: 'Implement', persona: 'speckit-developer', skillFiles: ['speckit-implement'], model: CODING_MODEL,
     description: 'Execute the task list on a feature branch.',
     inputs: 'TASKS.md, PLAN.md, SPEC.md, project coding rules',
     outputs: 'Code on feature branch, PR opened, tasks checked off',
@@ -428,7 +429,7 @@ const SPECKIT_RECIPES: RecipeDef[] = [
  */
 const AINATIVE_PHASES: PhaseDef[] = [
   {
-    id: 'intent', name: 'Intent', persona: 'native-originator', skillFiles: ['native-intent'], model: 'claude-opus-4-7',
+    id: 'intent', name: 'Intent', persona: 'native-originator', skillFiles: ['native-intent'], model: PLANNING_MODEL,
     description: "Capture the originator's problem as intent.md.",
     inputs: 'A raw idea, a ticket, a support thread',
     outputs: 'intent.md — problem, who hurts, cost, evidence, done-looks-like',
@@ -437,7 +438,7 @@ const AINATIVE_PHASES: PhaseDef[] = [
     capabilities: ['jira', 'core-business', 'web'],
   },
   {
-    id: 'spec', name: 'Spec', persona: 'native-product-owner', skillFiles: ['native-spec'], model: 'claude-opus-4-7',
+    id: 'spec', name: 'Spec', persona: 'native-product-owner', skillFiles: ['native-spec'], model: PLANNING_MODEL,
     description: 'Collapse requirements and design into spec.md.',
     inputs: 'intent.md, CLAUDE.md, project skills, existing product docs',
     outputs: 'spec.md — testable requirements, acceptance criteria, flagged concerns',
@@ -447,7 +448,7 @@ const AINATIVE_PHASES: PhaseDef[] = [
     dependsOn: ['intent'],
   },
   {
-    id: 'build-plan', name: 'Build Plan', persona: 'native-engineer', skillFiles: ['native-build-plan'], model: 'claude-opus-4-7',
+    id: 'build-plan', name: 'Build Plan', persona: 'native-engineer', skillFiles: ['native-build-plan'], model: PLANNING_MODEL,
     description: 'Plan the implementation before writing code.',
     inputs: 'spec.md, CLAUDE.md, the codebase (via ast-graph)',
     outputs: 'plan.md — files, order, risks, proofs, feedback loop',
@@ -457,7 +458,7 @@ const AINATIVE_PHASES: PhaseDef[] = [
     dependsOn: ['spec'],
   },
   {
-    id: 'implement', name: 'Implement', persona: 'native-engineer', skillFiles: ['native-implement'], model: 'claude-sonnet-4-6',
+    id: 'implement', name: 'Implement', persona: 'native-engineer', skillFiles: ['native-implement'], model: CODING_MODEL,
     description: 'Build the feature against the approved plan.',
     inputs: 'plan.md, spec.md, CLAUDE.md',
     outputs: 'Feature branch + PR, implement.md with executed proofs',
@@ -467,7 +468,7 @@ const AINATIVE_PHASES: PhaseDef[] = [
     dependsOn: ['build-plan'],
   },
   {
-    id: 'verify', name: 'Verify', persona: 'native-verifier', skillFiles: ['native-verify'], model: 'claude-sonnet-4-6',
+    id: 'verify', name: 'Verify', persona: 'native-verifier', skillFiles: ['native-verify'], model: CODING_MODEL,
     description: 'Independent verdict on whether the build meets the spec.',
     inputs: 'spec.md, plan.md, the branch',
     outputs: 'verify.md — per-criterion verdict with evidence',
@@ -477,7 +478,7 @@ const AINATIVE_PHASES: PhaseDef[] = [
     dependsOn: ['implement'],
   },
   {
-    id: 'review', name: 'Review', persona: 'native-reviewer', skillFiles: ['native-review'], model: 'claude-sonnet-4-6',
+    id: 'review', name: 'Review', persona: 'native-reviewer', skillFiles: ['native-review'], model: CODING_MODEL,
     description: 'Review the diff against policy before it ships.',
     inputs: 'The diff, CLAUDE.md, the loaded skills, spec.md, verify.md',
     outputs: 'review.md — findings traced to the policy line they violate, plus a ship/hold verdict',
@@ -491,7 +492,7 @@ const AINATIVE_PHASES: PhaseDef[] = [
     dependsOn: ['verify'],
   },
   {
-    id: 'maintain', name: 'Maintain', persona: 'native-operator', skillFiles: ['native-maintain'], model: 'claude-sonnet-4-6',
+    id: 'maintain', name: 'Maintain', persona: 'native-operator', skillFiles: ['native-maintain'], model: CODING_MODEL,
     description: 'Turn a production signal into a diagnosis, and into the next epic.',
     inputs: 'A signal (source, observedAt, symptom, scope, evidence), the shipped code, spec.md',
     outputs: 'incident.md — what happened, why, and the intent.md of the follow-up epic',

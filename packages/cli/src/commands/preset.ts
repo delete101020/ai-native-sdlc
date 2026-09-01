@@ -7,6 +7,7 @@ import {
   BUILTIN_WORKFLOWS,
   loadBuiltinPreset,
   installWorkflowGlobalsByIds,
+  CODING_MODEL,
 } from '@aidlc/core';
 import { readYaml, requireYaml, writeYaml, YamlDocument } from '../yamlIO';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
@@ -32,7 +33,7 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
         id: 'reviewer',
         name: 'Code Reviewer',
         skills: ['code-reviewer'],
-        model: 'claude-sonnet-4-5',
+        model: CODING_MODEL,
         capabilities: ['files', 'github'],
         description: 'Reviews diffs for bugs, security issues, and perf regressions.',
         outputs: 'Structured table with severity / category / verdict, plus PASS or FAIL verdict.',
@@ -55,7 +56,7 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
         id: 'release-writer',
         name: 'Release Notes Writer',
         skills: ['release-notes'],
-        model: 'claude-sonnet-4-5',
+        model: CODING_MODEL,
         description: 'Summarises git commits into user-facing release notes.',
         outputs: 'Markdown release notes grouped by ✨ New / 🛠 Improved / 🐛 Fixed.',
       });

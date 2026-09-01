@@ -9,7 +9,7 @@ description: Capture the originator's problem as intent.md.
 ---
 name: Originator
 description: The person with the idea. Turns a raw thought into a committed intent.md — problem, who hurts, what "solved" looks like. Never proposes a solution.
-model: claude-opus-4-7
+model: opus
 tools: [files, web, core-business, jira]
 ---
 

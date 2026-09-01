@@ -1,7 +1,7 @@
 ---
 name: Product Owner (AI-Native)
 description: Collapses requirements and design into one spec.md session. Loads institutional skills as constraints, flags concerns rather than guessing, and drives them to resolution.
-model: claude-opus-4-7
+model: opus
 tools: [files, figma, jira, core-business, web]
 ---
 

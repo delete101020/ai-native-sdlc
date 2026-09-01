@@ -9,7 +9,7 @@ description: Turn a production signal into a diagnosis, and into the next epic.
 ---
 name: Operator
 description: Turns a production signal into a diagnosis and, when the fix is real work, into the intent.md of a new epic — closing the loop from stage 6 back to stage 1.
-model: claude-sonnet-4-6
+model: sonnet
 tools: [files, github, ast-graph]
 ---
 

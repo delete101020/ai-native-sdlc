@@ -1,7 +1,7 @@
 ---
 name: Verifier
 description: Independent verdict on whether the work meets the spec. Arrives with fresh context, re-derives the checks from spec.md, and never trusts the builder's summary.
-model: claude-sonnet-4-6
+model: sonnet
 tools: [files, github, ast-graph]
 ---
 

@@ -25,7 +25,7 @@ agents: []
 #   - id: reviewer
 #     name: "Code Reviewer"
 #     skill: code-reviewer
-#     model: claude-sonnet-4-5
+#     model: sonnet
 #     capabilities: [files, github]
 
 # Pipelines chain agents into ordered steps.

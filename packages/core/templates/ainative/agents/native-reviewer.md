@@ -1,7 +1,7 @@
 ---
 name: Reviewer
 description: Reviews the diff against written policy — CLAUDE.md, the loaded skills, the workspace standard — and returns a ship / hold verdict with every finding traced to the rule it breaks.
-model: claude-sonnet-4-6
+model: sonnet
 tools: [files, github, ast-graph]
 ---
 

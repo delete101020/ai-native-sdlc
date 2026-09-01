@@ -1121,12 +1121,12 @@ agents:
   - id: hello
     name: "Hello World Agent"
     skill: hello-skill
-    model: claude-sonnet-4-5
+    model: sonnet
 
   - id: demo-plan
     name: "Plan"
     skill: demo-plan-skill
-    model: claude-sonnet-4-5
+    model: sonnet
     description: "Draft the PRD with goals, scope, acceptance criteria."
     inputs: "User request, existing docs, jira ticket"
     outputs: "PRD with goals, non-goals, AC"
@@ -1136,7 +1136,7 @@ agents:
   - id: demo-design
     name: "Design"
     skill: demo-design-skill
-    model: claude-sonnet-4-5
+    model: sonnet
     description: "Design the implementation approach."
     inputs: "PRD, existing code, dependency graph"
     outputs: "Architecture, API contract, file impact list"
@@ -1146,7 +1146,7 @@ agents:
   - id: demo-implement
     name: "Implement"
     skill: demo-implement-skill
-    model: claude-sonnet-4-5
+    model: sonnet
     description: "Land the code change against the design."
     inputs: "Tech design, source tree"
     outputs: "Diff, summary of changes"
@@ -1156,7 +1156,7 @@ agents:
   - id: demo-review
     name: "Review"
     skill: demo-review-skill
-    model: claude-sonnet-4-5
+    model: sonnet
     description: "Review correctness, style, edge cases."
     inputs: "Diff, design, PRD"
     outputs: "Review report"
@@ -1166,7 +1166,7 @@ agents:
   - id: demo-release
     name: "Release"
     skill: demo-release-skill
-    model: claude-sonnet-4-5
+    model: sonnet
     description: "Cut the release and announce."
     inputs: "Approved diff, changelog"
     outputs: "Release notes"

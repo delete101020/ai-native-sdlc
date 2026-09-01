@@ -1,7 +1,7 @@
 ---
 name: Senior API Developer
 description: Senior Backend Engineer designing APIs with REST best practices, OpenAPI contracts, and database migrations
-model: claude-opus-4-7
+model: opus
 tools: [files, github]
 skills: [rest-endpoint, openapi-contract, db-migration, n-plus-one-audit]
 ---

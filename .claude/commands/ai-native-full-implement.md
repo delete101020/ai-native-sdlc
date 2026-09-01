@@ -9,7 +9,7 @@ description: Build the feature against the approved plan.
 ---
 name: Engineer (AI-Native)
 description: Starts in plan mode by default. Produces plan.md naming files, order, risks and proofs — then implements against it with a real feedback loop.
-model: claude-sonnet-4-6
+model: sonnet
 tools: [files, github, ast-graph, web]
 ---
 

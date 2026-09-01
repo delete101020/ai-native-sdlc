@@ -1,7 +1,7 @@
 ---
 name: Orchestrator
 description: Coordinator agent that runs the SDLC loop — dispatches workers, handles human gates, and manages phase context. Used by the /advance-epic skill.
-model: claude-opus-4-7
+model: opus
 tools: [files]
 ---
 
