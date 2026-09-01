@@ -1,4 +1,4 @@
-# AIDLC v3.5 🚀
+# AIDLC v3.6 🚀
 
 **AI-driven SDLC pipeline runner. Plan → Prototype → Design ∥ Test → Implement → Release, plus the six-stage AI-Native SDLC Playbook. See what Claude is building, control every step, track every token.**
 
@@ -23,6 +23,14 @@ observability, and a native session-insights dashboard built from the Claude
 Code transcript.
 
 ![aidlc demo](packages/extension/media/demo.gif)
+
+## ✨ What's New in v3.6 — multi-account Claude, living model defaults (this fork)
+
+- **👥 One window, one Claude account** — on a machine with a personal and a work account, the two are separated by *config dir*, and AIDLC used to hardcode `~/.claude` in ~18 places: `aidlc globals install` wrote files the running session could not see, and the token monitor read an empty `projects/`, both without an error. Every global path now resolves through one function. Pin an account per workspace with `aidlc.claude.configDir`, switch it from **AIDLC: Switch Claude Account** (a quick pick that shows each account's signed-in email) or the status bar item, and `aidlc doctor` prints the config dir in use.
+- **🧠 Model defaults stop aging out** — built-in phases and agent templates now ask for Claude Code's aliases (`opus` · `sonnet` · `haiku`) instead of pinned ids, and the three defaults live in one module (`@aidlc/core` → `PLANNING_MODEL` / `CODING_MODEL` / `FAST_MODEL`). A workspace created today needs no editing after the next model release; tests fail if a pinned `claude-*` id reappears in a preset.
+- **🔢 Sidebar counts match the Builder** — a preset installs each asset twice by design (a `workspace.yaml` declaration *and* a `.md` file under `~/.claude/`), and the sidebar added the two lists instead of merging them, advertising 12 agents for 6. Both surfaces now count distinct ids across all three scopes.
+
+---
 
 ## ✨ What's New in v3.5 — the AI-Native SDLC Playbook (this fork)
 
@@ -323,8 +331,8 @@ package. Both artifacts are built from this repo and installed locally.
 
 ```sh
 pnpm install
-pnpm package:extension                                  # → packages/extension/aidlc-3.5.1.vsix
-code --install-extension packages/extension/aidlc-3.5.1.vsix
+pnpm package:extension                                  # → packages/extension/aidlc-3.6.3.vsix
+code --install-extension packages/extension/aidlc-3.6.3.vsix
 ```
 
 Reload the window afterwards. The extension installs as `delete101020.aidlc`;
@@ -336,7 +344,7 @@ they contribute the same `aidlc.*` command ids.
 ```sh
 pnpm -r compile
 cd packages/cli && pnpm bundle && npm link               # `aidlc` on your PATH
-aidlc --version                                          # 3.5.1
+aidlc --version                                          # 3.6.3
 ```
 
 To pick up later changes, re-run the same two commands — `npm link` points at

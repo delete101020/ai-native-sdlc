@@ -16,6 +16,12 @@ Drive Claude through any pipeline you declare in a single `workspace.yaml` — v
 
 ![aidlc demo](https://raw.githubusercontent.com/aidlc-io/aidlc/main/packages/extension/media/demo.gif)
 
+### New in 3.6 — multi-account Claude, living model defaults
+
+- 👥 **One window, one Claude account** — every global path AIDLC touches (globals install, annotation tools, asset discovery, MCP registration, the token monitor) now follows the active Claude config dir instead of a hardcoded `~/.claude`. Pin one per workspace with `aidlc.claude.configDir`, or switch with **AIDLC: Switch Claude Account**, which lists each saved account by the email signed in to it and offers a status bar shortcut.
+- 🧠 **Model defaults that don't age out** — presets, agent templates and all three model pickers offer Claude Code's aliases (`opus` · `sonnet` · `haiku`) first, so a workspace created today survives the next model release.
+- 🔢 **Sidebar counts match the Builder** — `AGENTS` / `SKILLS` count distinct ids across the aidlc, project and global scopes instead of summing an asset that is deliberately present in two of them.
+
 ### New in 3.5 — the AI-Native SDLC Playbook
 
 - 🧭 **`ai-native-pipeline`**, a third built-in workflow: Intent → Spec → Plan → Build → Test → Deploy → Maintain, with `intent.md` / `spec.md` / `plan.md` / `verify.md` / `review.md` / `incident.md` as its artifacts. Apply it from the Builder or with `aidlc preset apply ai-native`.
