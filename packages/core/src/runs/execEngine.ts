@@ -25,6 +25,9 @@ import { runAutoReview } from './AutoReviewer';
 import { checkBudget } from './budget';
 import type { RunState } from './RunState';
 import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
+import { composeAgentPrompt, type ComposedPrompt } from '../loader/promptComposer';
+import { findProjectInstructions } from '../loader/projectInstructions';
+import { harnessCapabilities, type AidlcRunner } from '../runner/types';
 
 /**
  * Why the loop stopped. Callers map this to an exit code (CLI) or a final
@@ -102,6 +105,8 @@ export interface ExecHooks {
   onDryRunPreview?(e: {
     skills: string; skillText: string; userMessage: string;
     env: Record<string, string>;
+    /** Which layers the composer inlined for this runner's harness. */
+    inlined: { persona: boolean; instructions: boolean };
   }): void;
 }
 
@@ -228,6 +233,34 @@ function loadAgentSkills(ws: ReturnType<typeof WorkspaceLoader.load>, agent: Age
   return agent.skills.map((id) => ws.skills.load(id)).join('\n\n---\n\n');
 }
 
+/**
+ * Full system prompt for a step: persona + project instructions + skills, minus
+ * whatever the runner's own harness already supplies.
+ *
+ * The skills alone used to be the whole prompt, with the persona and the
+ * project's conventions reaching the model only as *file paths written in prose*
+ * — which assumes a harness that has a read tool and Claude's directory layout.
+ * Composing them here makes the prompt self-contained, and makes "which agent
+ * runs this phase" a wiring question instead of a quality question.
+ * See MULTI_PROVIDER_ALIGNMENT.md §4c.
+ */
+function buildStepPrompt(
+  ws: ReturnType<typeof WorkspaceLoader.load>,
+  agent: AgentConfig,
+  runner: AidlcRunner,
+  root: string,
+): ComposedPrompt {
+  const harness = harnessCapabilities(runner);
+  return composeAgentPrompt({
+    skills: loadAgentSkills(ws, agent),
+    persona: ws.personas.load(agent.id),
+    instructions: harness.projectInstructions
+      ? null
+      : findProjectInstructions(root, harness.instructionFile),
+    harness,
+  });
+}
+
 /** Execute one `awaiting_work` step: spawn the runner, then mark it done. */
 async function execStep(
   root: string,
@@ -260,13 +293,23 @@ async function execStep(
     return false;
   }
 
-  let skillText: string;
+  // Resolved before the prompt because the prompt depends on what this
+  // runner's harness already supplies.
+  let runner: AidlcRunner;
+  let prompt: ComposedPrompt;
   try {
-    skillText = loadAgentSkills(ws, agent);
+    runner = ws.runners.resolve(agent);
+  } catch (err) {
+    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to resolve runner for agent "${agentId}": ${errMsg(err)}` });
+    return false;
+  }
+  try {
+    prompt = buildStepPrompt(ws, agent, runner, root);
   } catch (err) {
     hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to load skills for agent "${agentId}": ${errMsg(err)}` });
     return false;
   }
+  const skillText = prompt.text;
 
   const env = ws.envResolver.resolveLayered(ws.config.environment ?? {}, agent.env ?? {});
 
@@ -281,6 +324,7 @@ async function execStep(
       skillText,
       userMessage,
       env,
+      inlined: prompt.included,
     });
     return true;
   }
@@ -290,7 +334,6 @@ async function execStep(
     skills: agent.skills, model: agent.model, context: userMessage,
   });
 
-  const runner = ws.runners.resolve(agent);
   const result = await runner.run({
     skill: skillText,
     env,

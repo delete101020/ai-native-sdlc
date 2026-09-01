@@ -10,7 +10,7 @@
  */
 
 import { spawn } from 'child_process';
-import type { AidlcRunner, RunnerContext, RunnerResult } from './types';
+import type { AidlcRunner, HarnessCapabilities, RunnerContext, RunnerResult } from './types';
 import { buildClaudeSpawnEnv } from './claudeEnv';
 
 export interface DefaultRunnerOptions {
@@ -27,6 +27,25 @@ export interface DefaultRunnerOptions {
 }
 
 export class DefaultRunner implements AidlcRunner {
+  /**
+   * What Claude Code brings on its own.
+   *
+   * - `projectInstructions: true` — Claude Code reads `CLAUDE.md` for the cwd
+   *   before the first turn. Inlining it as well would send the same document
+   *   twice, which is a change to the prompt, not an improvement to it.
+   * - `astGraph: true` — the extension registers the server with
+   *   `claude mcp add --scope local`, so a `--print` run in this workspace has it.
+   * - `persona: false` — this is *not* a subagent invocation. Nothing loads
+   *   `.claude/agents/<id>.md`; the skill body used to ask Claude to go and read
+   *   it. The prompt composer inlines it instead.
+   */
+  readonly capabilities: HarnessCapabilities = {
+    persona: false,
+    projectInstructions: true,
+    astGraph: true,
+    instructionFile: 'CLAUDE.md',
+  };
+
   constructor(private readonly opts: DefaultRunnerOptions = {}) {}
 
   async run(ctx: RunnerContext): Promise<RunnerResult> {

@@ -24,6 +24,7 @@ import {
 } from '../schema/WorkspaceSchema';
 import { EnvResolver } from './EnvResolver';
 import { SkillLoader } from './SkillLoader';
+import { PersonaLoader } from './PersonaLoader';
 import { RunnerRegistry } from '../runner/RunnerRegistry';
 import { resolveStandard } from '../profiles/StandardProfile';
 
@@ -55,6 +56,8 @@ export interface LoadedWorkspace {
   envResolver: EnvResolver;
   /** Skill loader pre-wired to this workspace's skill list. */
   skills: SkillLoader;
+  /** Persona loader — resolves `.claude/agents/<agent-id>.md` across all scopes. */
+  personas: PersonaLoader;
   /** Runner registry pre-wired to this workspace root. */
   runners: RunnerRegistry;
 }
@@ -64,6 +67,8 @@ export interface WorkspaceLoaderOptions {
   osEnv?: NodeJS.ProcessEnv;
   /** Override builtin skill paths. See SkillLoader. */
   builtins?: Record<string, string>;
+  /** Override the home dir used to resolve global-scope personas. Tests pin this. */
+  homeDir?: string;
   /**
    * What to do when `${env:VAR}` references an unset OS var.
    * Defaults to 'empty' (matches shell). Use 'throw' for strict CI.
@@ -131,6 +136,7 @@ export class WorkspaceLoader {
       skills: new SkillLoader(workspaceRoot, config.skills, {
         builtins: opts.builtins,
       }),
+      personas: new PersonaLoader(workspaceRoot, opts.homeDir),
       runners: new RunnerRegistry(workspaceRoot),
     };
   }

@@ -2,7 +2,7 @@
 
 **Branch:** `feat/ai-native-sdlc-alignment` (a `feat/multi-provider` branch splits off at P1)
 **Sibling doc:** `AI_NATIVE_SDLC_ALIGNMENT.md` — same format, same gating discipline
-**Status:** 🟢 P0 locked — P1a (harness parity) is the next build, on go-ahead
+**Status:** 🟢 P0 locked · P1a shipped (G2, G3, parity check) — P1 (Codex runner) is the next build, on go-ahead
 **Updated:** 2026-09-02
 
 ---
@@ -224,6 +224,9 @@ writes files, `DefaultRunner` already proves the spawn pattern. Three things bre
 that, and all three are silent — the step succeeds, the artifact appears, and the
 quality is quietly lower.
 
+> **Status after P1a (2026-09-02):** G2 and G3 are closed — see P1a below. G1
+> remains open and ships with the first provider runner in P1.
+
 **G1 — ast-graph is registered with the Claude CLI specifically.**
 `packages/extension/src/v2/astGraph/mcpRegister.ts:37` shells out to
 `claude mcp add ast-graph --scope local -- <bin> mcp --db <db>`. Codex and the
@@ -251,7 +254,9 @@ it, or generate the sibling filename during `init`.
 Until G1–G3 are closed, a Codex run is not "Codex instead of Claude" — it is
 Codex with no graph, no persona and no project constraints. Under §1a that
 disqualifies shape A as much as it disqualifies shape B, which is why parity is
-now P1a and comes first.
+now P1a and comes first. With G2 and G3 closed, a provider runner now inherits
+the persona and the project's conventions the moment it is registered; the graph
+is the one thing it still has to earn.
 
 ---
 
@@ -328,34 +333,65 @@ keeps its current aliases, so nothing shifts for existing workspaces.
   and calls it for `{ decision, reason }`; it is deterministic JavaScript, not an
   LLM call, so no provider work touches it.
 
-### P1a — Harness parity (§4c) — **build first**
+### P1a — Harness parity (§4c) ✅ **Shipped 2026-09-02**
 
 Close G1–G3 so that "which provider" is the only variable left. Every item here is
 quality-neutral by construction: it either adds a capability a provider was
 missing, or moves an existing capability from a filesystem path into the prompt.
 
-- **G2 first** — inline the persona into `ctx.skill`. `loadAgentSkills`
-  (`execEngine.ts:227-229`) joins skills only; add the agent's persona markdown
-  ahead of them. Strip the now-redundant *"Load your full persona from
-  `.claude/agents/…`"* line from the skill templates. Verify against Claude before
-  and after: same artifacts, no path dependency.
-- **G3** — resolve the project-instruction file per provider and inline it, rather
-  than naming `CLAUDE.md` inside the skill prose.
-- **G1** — teach `mcpRegister.ts` to register the ast-graph stdio server through
-  each supported CLI's own config, not only `claude mcp add`. Report unregistered
-  providers in `aidlc doctor`.
-- Add a parity check to `doctor`: for every agent, does its provider actually have
-  the graph, the persona and the instructions? An agent that would run blind is a
-  warning before the run, not a mystery after it.
+**The mechanism.** A runner now declares `HarnessCapabilities` — what its harness
+supplies *without* AIDLC saying anything (`persona`, `projectInstructions`,
+`astGraph`, plus the `instructionFile` it reads natively). `composeAgentPrompt`
+inlines exactly the layers that are false. So the composed prompt differs per
+harness while the information reaching the model does not: Claude Code declares
+`projectInstructions: true` and is not handed `CLAUDE.md` twice; a runner that
+declares nothing is handed everything. Omitting the field is legal and means
+`NO_HARNESS_CAPABILITIES` — the conservative reading, so every custom runner
+written against the Phase 1 SPI keeps working and simply starts receiving a
+fuller prompt.
 
-**Done when:** the same epic run under Claude produces byte-comparable prompt input
-(persona + skills + instructions) whether the runner is `default` or a stub, and
-`doctor` names any provider missing ast-graph.
+- **G2 — persona ✅.** `PersonaLoader` resolves `<agent-id>.md` across the same
+  three scopes as `AssetDiscovery` (project › `.aidlc` › global), strips the
+  frontmatter and the install marker, and caches. `execEngine` resolves the
+  runner *before* the prompt (the prompt depends on the harness) and composes
+  persona + instructions + skills into `ctx.skill`.
+- **G3 — project instructions ✅.** `findProjectInstructions` reads whichever of
+  `CLAUDE.md`, `.claude/CLAUDE.md`, `AGENTS.md`, `GEMINI.md` the repository
+  already has, honouring a per-provider preference so a repo keeping two files
+  gives each harness the one written for it. AIDLC still never **writes** one
+  (P0, D-locked).
+- **G1 — ast-graph ⏭ moved into P1.** Registering the stdio server through
+  another CLI's own config cannot be written, let alone verified, before that
+  CLI has a runner: the command shape is guesswork today. Under §1a that is the
+  textbook "implementable but unverifiable" case, so it ships *with* `CodexRunner`
+  rather than ahead of it. `astGraph` is already a declared capability, so the
+  wiring it will hang off exists.
+- **Parity check in `doctor` ✅.** A new **Harness parity** section names the
+  instruction file in force, and per agent whether its persona was found, from
+  which scope, and whether it is inlined or harness-loaded. Missing layers print
+  as `⚠` and do **not** fail the exit code — an agent with no persona is a
+  legitimate configuration, not a broken one. `doctor` also says plainly that it
+  does *not* verify MCP registration rather than implying it did (D5).
+
+**Deviation from the plan, deliberate.** The plan said to strip the *"Load your
+full persona from `.claude/agents/…`"* line from the skill templates. It is
+stripped from the **composed prompt** instead, at the moment the persona is
+actually inlined, reusing `composeSkill`'s own regex. Editing 47 template
+occurrences would have broken those skills for anyone invoking them directly in
+Claude Code outside AIDLC, where the line is the only thing that loads the
+persona — and R2 says not to rewrite templates per vendor. Composing gets the
+same result with no path dependency in the prompt and no loss anywhere else.
+
+**Done when** ✅: the same step composes a persona-bearing prompt with `CLAUDE.md`
+inlined for a capability-less runner and *not* inlined for `DefaultRunner`,
+verified end to end through `aidlc run exec --dry-run`; `doctor` reports the
+parity of every agent. 21 new tests, 322 core + 25 extension green.
 
 ### P1 — Provider SPI + the first shape A runner (Codex)
 
 The goal is to prove the seam with one real non-Claude provider end to end.
-**Blocked on P1a** — without parity this ships a known regression.
+P1a has cleared the way; G1 (ast-graph registration for the provider's own CLI)
+now ships here, where it can be verified against a CLI that exists.
 
 - Widen the `runner` enum; add `provider`-specific optional fields to
   `AgentSchema` only if unavoidable (prefer `env` + `model`).
@@ -366,7 +402,12 @@ The goal is to prove the seam with one real non-Claude provider end to end.
   helper so a second CLI runner is argument shaping, not a rewrite.
 - Add `CodexRunner`: spawn `codex exec`, stream stdout through `onOutput`, map
   exit code to `success`, parse usage if the CLI emits it.
-- Register it in `RunnerRegistry`'s constructor.
+- Register it in `RunnerRegistry`'s constructor, with `capabilities` declared
+  honestly — `persona: false`, `projectInstructions: false` until proven
+  otherwise, `astGraph` only once registration works.
+- **G1, carried from P1a**: register the ast-graph stdio server through the
+  Codex CLI's own MCP config, and drop the "not verified here" caveat from
+  `doctor` for the providers that can be checked.
 - Tests: fake `child_process` exactly as the `DefaultRunner` tests do.
 
 **Done when:** a workspace with one agent on `runner: codex` completes `/spec` for
@@ -496,4 +537,5 @@ they are not rediscovered painfully later:
 | 2026-09-01 | Plan written. Gap analysis measured against `22442ae`. Nothing implemented — awaiting go-ahead per workstream. |
 | 2026-09-02 | P0 locked: eight decisions, D1 narrowed to `codex`/`gemini` (no `openai-compat` — shape B is shelved, and an enum member is a promise), D3/D4 recorded void. Three open questions closed: Codex first then Gemini; G3 by inlining, never by writing `AGENTS.md` into the user's repo; `auto_review_runner` unaffected (`AutoReviewer.ts` runs deterministic JS, not an LLM). |
 | 2026-09-02 | Owner locked the acceptance rule (§1a): build only what is certainly quality-neutral. Consequences: added §4c (three parity gaps that make even shape A non-neutral today), added P1a and moved it ahead of P1, shelved P2 and with it DeepSeek and local models. |
+| 2026-09-02 | P1a shipped: `HarnessCapabilities` on the runner SPI, `PersonaLoader`, `findProjectInstructions`, `composeAgentPrompt`, `execEngine` composing all three layers, `doctor` **Harness parity** section, 21 tests. Two deliberate deviations: the persona directive is stripped at compose time rather than from 47 templates (R2), and G1 moves into P1 because another CLI's MCP config cannot be verified before that CLI has a runner (§1a). |
 | 2026-09-02 | Added §4b, the per-step verdict, after walking every `AINATIVE_PHASES` entry and skill body. Corrects P2's refusal list: the blocked pair is `implement` + `verify`, not `implement` + `review` — `review` is read-only by design. |

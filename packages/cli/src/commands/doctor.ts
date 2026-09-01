@@ -13,6 +13,11 @@ import {
   resolveDeclaredPath,
   claudeConfigDir,
   isDefaultClaudeConfigDir,
+  PersonaLoader,
+  findProjectInstructions,
+  DefaultRunner,
+  NO_HARNESS_CAPABILITIES,
+  type HarnessCapabilities,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 
@@ -20,10 +25,17 @@ interface Check {
   label: string;
   pass: boolean;
   info?: string;
+  /**
+   * Advisory rather than broken. Printed yellow and excluded from the exit
+   * code — a phase that will run without a persona is worth saying out loud,
+   * but it is a legitimate configuration, not a failure.
+   */
+  warn?: boolean;
 }
 
 function ok(label: string, info?: string): Check   { return { label, pass: true,  info }; }
 function fail(label: string, info?: string): Check  { return { label, pass: false, info }; }
+function warn(label: string, info?: string): Check  { return { label, pass: true,  info, warn: true }; }
 
 /** Claude Code reads flags like CLAUDE_CODE_USE_BEDROCK=1 as truthy on presence. */
 function envTruthy(v: string | undefined): boolean {
@@ -102,10 +114,70 @@ function detectAuth(claudeBin: string): Check {
 function printSection(title: string, checks: Check[]): void {
   console.log(chalk.bold(`\n${title}`));
   for (const c of checks) {
-    const icon   = c.pass ? chalk.green('✔') : chalk.red('✘');
+    const icon   = !c.pass ? chalk.red('✘') : c.warn ? chalk.yellow('⚠') : chalk.green('✔');
     const detail = c.info ? chalk.dim(`  ${c.info}`) : '';
     console.log(`  ${icon}  ${c.label}${detail}`);
   }
+}
+
+/**
+ * Harness parity — what each agent will actually receive in its prompt.
+ *
+ * A step's prompt is composed of three layers (persona, project instructions,
+ * skills) plus the ast-graph MCP server, and a harness supplies some of them
+ * natively while AIDLC inlines the rest. When a layer is supplied by neither,
+ * the phase runs blind: it still produces an artifact, just a worse one, and
+ * nothing in the run output says why. This section is that warning, before the
+ * run rather than after it. See MULTI_PROVIDER_ALIGNMENT.md §4c.
+ */
+function parityChecks(
+  root: string,
+  ws: NonNullable<Awaited<ReturnType<typeof WorkspaceLoader.load>>>,
+): Check[] {
+  const checks: Check[] = [];
+  const personas = new PersonaLoader(root);
+
+  // Runner capabilities, resolved statically. A custom runner is not loaded
+  // here — running a user's module during a diagnostic would be a surprise —
+  // so it is reported under the same conservative assumption the composer
+  // makes: the harness supplies nothing and every layer gets inlined.
+  const capsFor = (runner: string): HarnessCapabilities =>
+    runner === 'default' ? new DefaultRunner().capabilities : NO_HARNESS_CAPABILITIES;
+
+  const instructions = findProjectInstructions(root);
+  checks.push(instructions
+    ? ok('project instructions', instructions.relPath)
+    : warn('project instructions',
+        `none of ${['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'].join(' / ')} found — phases run without the repo's conventions`));
+
+  for (const agent of ws.config.agents) {
+    const caps = capsFor(agent.runner);
+    const persona = personas.load(agent.id);
+
+    if (persona) {
+      const via = caps.persona ? 'loaded by the harness' : 'inlined into the prompt';
+      checks.push(ok(`persona "${agent.id}"`, `${persona.scope} scope, ${via}`));
+    } else if (caps.persona) {
+      checks.push(warn(`persona "${agent.id}"`, 'no persona file — the harness will find nothing to load'));
+    } else {
+      checks.push(warn(`persona "${agent.id}"`,
+        `no persona file in ${personas.searchPaths().length} scopes — this agent runs with skills only`));
+    }
+  }
+
+  // ast-graph. Verifying registration means shelling out to a provider CLI per
+  // agent, which doctor should not do; report what is knowable and say so.
+  const graphDb = path.join(root, '.ast-graph', 'graph.db');
+  const anyDefault = ws.config.agents.some((a) => a.runner === 'default');
+  if (!fs.existsSync(graphDb)) {
+    checks.push(warn('ast-graph', 'no .ast-graph/graph.db — run "AIDLC: Rescan AST Graph" to build it'));
+  } else if (anyDefault) {
+    checks.push(ok('ast-graph', 'graph built; registration verified by `claude mcp list`, not here'));
+  } else {
+    checks.push(warn('ast-graph', 'graph built, but no agent runs on a harness known to expose it'));
+  }
+
+  return checks;
 }
 
 export function registerDoctor(program: Command): void {
@@ -237,6 +309,11 @@ export function registerDoctor(program: Command): void {
         if (skillChecks.length > 0) {
           emitSection('Skills & runners', skillChecks);
         }
+      }
+
+      // ── Harness parity ───────────────────────────────────────────────────
+      if (ws) {
+        emitSection('Harness parity', parityChecks(root, ws));
       }
 
       // ── Run state ────────────────────────────────────────────────────────

@@ -124,6 +124,18 @@ export {
 } from './loader/SkillLoader';
 export type { SkillLoaderOptions } from './loader/SkillLoader';
 
+export { PersonaLoader, stripPersonaMetadata } from './loader/PersonaLoader';
+export type { LoadedPersona } from './loader/PersonaLoader';
+
+export {
+  findProjectInstructions,
+  PROJECT_INSTRUCTION_FILES,
+} from './loader/projectInstructions';
+export type { ProjectInstructions } from './loader/projectInstructions';
+
+export { composeAgentPrompt, stripPersonaDirectives } from './loader/promptComposer';
+export type { ComposeInput, ComposedPrompt } from './loader/promptComposer';
+
 export {
   discoverAssets,
   scopePaths,
@@ -146,12 +158,15 @@ export {
 } from './runner/CustomRunnerLoader';
 export {
   RunnerValidationError,
+  NO_HARNESS_CAPABILITIES,
+  harnessCapabilities,
 } from './runner/types';
 export type {
   AidlcRunner,
   RunnerContext,
   RunnerResult,
   ClaudeCliWrapper,
+  HarnessCapabilities,
 } from './runner/types';
 
 // ── Pipeline runs (phase 1) ────────────────────────────────────────

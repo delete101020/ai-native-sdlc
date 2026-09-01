@@ -60,8 +60,58 @@ export interface RunnerResult {
   data?: unknown;
 }
 
+/**
+ * What a runner's harness already supplies on its own, without AIDLC putting it
+ * in the prompt. Each flag means "the model will see this even if we say
+ * nothing" — so the prompt composer inlines exactly the flags that are false.
+ *
+ * The point is that the *composed prompt* differs per harness while the
+ * *information reaching the model* does not. Claude Code loads `CLAUDE.md`
+ * itself, so inlining it there would duplicate a document, not add one; it does
+ * not load `.claude/agents/<id>.md` for a `--print` invocation, so the persona
+ * has to be inlined even for Claude.
+ *
+ * See MULTI_PROVIDER_ALIGNMENT.md §4c (gaps G1–G3).
+ */
+export interface HarnessCapabilities {
+  /** The harness loads the agent's persona file by itself. */
+  persona: boolean;
+  /** The harness loads the repository's instruction file (CLAUDE.md / AGENTS.md / …). */
+  projectInstructions: boolean;
+  /** The harness can reach the `ast-graph` MCP server. */
+  astGraph: boolean;
+  /**
+   * Instruction filename this harness reads natively, when it reads one. Used
+   * to pick which file to inline for harnesses that read none — a repo keeping
+   * both `CLAUDE.md` and `AGENTS.md` should give Codex the latter.
+   */
+  instructionFile?: string;
+}
+
+/**
+ * What we assume when a runner declares nothing — a custom runner written
+ * against the Phase 1 SPI, whose harness we cannot inspect. Assume it supplies
+ * nothing and inline everything: an unnecessary inline costs tokens, a missing
+ * one costs the phase its persona or the project's conventions.
+ */
+export const NO_HARNESS_CAPABILITIES: HarnessCapabilities = {
+  persona: false,
+  projectInstructions: false,
+  astGraph: false,
+};
+
 export interface AidlcRunner {
   run(ctx: RunnerContext): Promise<RunnerResult>;
+  /**
+   * Optional. Omitted ⇒ `NO_HARNESS_CAPABILITIES`, so existing custom runners
+   * keep working and simply start receiving a fuller prompt.
+   */
+  readonly capabilities?: HarnessCapabilities;
+}
+
+/** Capabilities of a runner, with the conservative default applied. */
+export function harnessCapabilities(runner: AidlcRunner): HarnessCapabilities {
+  return runner.capabilities ?? NO_HARNESS_CAPABILITIES;
 }
 
 /** Thrown by CustomRunnerLoader when a user's runner_path file is malformed. */

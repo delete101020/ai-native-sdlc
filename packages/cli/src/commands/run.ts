@@ -506,7 +506,12 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
     onUntilStop: (e) => info(chalk.dim(`\nStopped at step ${e.untilIdx} as requested.`)),
 
     onDryRunPreview: (e) => {
-      info(chalk.bold(`\n── System prompt (skills: ${e.skills}) ──`));
+      const layers = [
+        e.inlined.persona ? 'persona' : null,
+        e.inlined.instructions ? 'project instructions' : null,
+        `skills: ${e.skills}`,
+      ].filter(Boolean).join(' + ');
+      info(chalk.bold(`\n── System prompt (${layers}) ──`));
       info(chalk.dim(e.skillText));
       info(chalk.bold('\n── User message ───────────────────────────────────────'));
       info(e.userMessage || chalk.dim('(empty)'));

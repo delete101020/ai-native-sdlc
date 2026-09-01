@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+Every phase now receives its persona and the repository's own conventions *in
+the prompt*, instead of as file paths it was told to go and read.
+
+A step's system prompt was the agent's skills and nothing else. The persona
+reached the model only because each skill body opens with "Load your full
+persona from `.claude/agents/aidlc-native-originator.md`", and the project's
+rules only because Claude Code loads `CLAUDE.md` on its own. Both assume
+Claude's directory layout, which is why swapping in another CLI was a quality
+question rather than a wiring one — and it cost Claude a tool round-trip for a
+file AIDLC could already resolve.
+
+Runners now declare what their harness supplies natively, and the prompt
+composer inlines exactly the rest. Claude is not handed `CLAUDE.md` twice; a
+runner that declares nothing is handed everything. A custom runner that
+declares no capabilities keeps working and simply receives a fuller prompt.
+
+### Added
+
+- Persona resolution across all three asset scopes (project › `.aidlc` ›
+  global), with frontmatter and install markers stripped before inlining.
+- Project instructions are resolved from whichever of `CLAUDE.md`,
+  `.claude/CLAUDE.md`, `AGENTS.md` or `GEMINI.md` the repository already keeps —
+  AIDLC never creates one.
+- `aidlc doctor` gains a **Harness parity** section: the instruction file in
+  force, and per agent whether its persona was found, from which scope, and
+  whether it is inlined or loaded by the harness. Advisory findings print as
+  `⚠` and do not fail the exit code.
+- `aidlc run exec --dry-run` names which layers were inlined.
+
 ## 3.6.3
 
 Fixed the Agents / Skills counters in the sidebar. A preset installs each asset
