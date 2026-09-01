@@ -1,5 +1,59 @@
 # Changelog
 
+## 3.6.0
+
+Multi-account support. On a machine with more than one Claude account
+(personal / work), the accounts are separated by *config dir* — `~/.claude`
+holds one account's agents, skills, settings, plugins and session logs, and
+`~/.claude.json` its login. AIDLC hardcoded `~/.claude` in ~18 places, so it
+always read and wrote the default account no matter which one the session was
+actually using: `aidlc globals install` wrote seven `aidlc-native-*.md` files
+the running session could not see, and the token monitor read an empty
+`projects/` — both with no error.
+
+### Added
+
+- feat(core): `claudeConfigDir` and friends in `@aidlc/core` — one resolution of
+  the active Claude config dir, from (in order) an explicit argument, the
+  process-wide override the extension installs from its setting,
+  `$CLAUDE_CONFIG_DIR` (what the CLI itself reads), then `~/.claude`. Every
+  global path AIDLC touches now goes through it: workflow agents/skills
+  (`globals install` / `uninstall`), the annotation tools and the epic-memory
+  hook, global-scope asset discovery, MCP registration, the token monitor and
+  epic token attribution, the OTel receiver, and the agents-observe plugin
+  lookup.
+- feat(extension): `aidlc.claude.configDir` setting, **workspace**-scoped, so
+  one window is pinned to one account — the repo you open decides which Claude
+  account the phases run under, rather than which terminal you launched from.
+  Changing it offers a window reload, since long-lived watchers hold the old dir.
+- feat(extension): every `claude` AIDLC starts carries the account with it —
+  `CLAUDE_CONFIG_DIR` is injected into the four `claude` terminals, the
+  `buildClaudeSpawnEnv` spawn path (so `ask`, the runner and `claude mcp list`
+  follow too), and the ast-graph MCP registration. Nothing is injected on a
+  single-account machine, so the environment stays clean by default.
+- feat(cli): `aidlc doctor` reports the config dir in use and whether it exists.
+  When skills "installed but the session can't see them", this is the line.
+
+### Fixed
+
+- fix(core): `hasClaudeLogin` probed `~/.claude.json` unconditionally. With a
+  pinned account it would report "no login", `buildClaudeSpawnEnv` would then
+  keep an inherited `ANTHROPIC_API_KEY` instead of stripping it, and the spawned
+  CLI would fail with "Invalid API key" — the exact failure that module exists
+  to prevent. It now follows the active dir. Note the asymmetry, verified
+  against the CLI rather than assumed: `.claude.json` sits *beside* the default
+  `~/.claude` but *inside* a custom `CLAUDE_CONFIG_DIR`.
+
+### Changed
+
+- refactor(core): `expandHome` resolves a declared `~/.claude/…` onto the active
+  config dir, so `workspace.yaml` keeps the portable `~/.claude/skills/<f>.md`
+  form and still resolves per account. Other `~/` paths — including AIDLC's own
+  `~/.aidlc/observe-data` — are untouched, and the workspace's `.claude/` is
+  project data that never moves.
+- refactor(core): `isEpicMemoryHookEnabled` / `setEpicMemoryHook` take an
+  optional config dir instead of a required home dir; callers pass nothing.
+
 ## 3.5.1
 
 A patch on top of 3.5.0: one real bug in `aidlc doctor`, and the onboarding
