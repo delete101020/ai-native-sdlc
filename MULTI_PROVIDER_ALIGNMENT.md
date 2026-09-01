@@ -2,7 +2,7 @@
 
 **Branch:** `feat/ai-native-sdlc-alignment` (a `feat/multi-provider` branch splits off at P1)
 **Sibling doc:** `AI_NATIVE_SDLC_ALIGNMENT.md` — same format, same gating discipline
-**Status:** 🔵 Planning — scope cut to harness-neutral work only (see §1a)
+**Status:** 🟢 P0 locked — P1a (harness parity) is the next build, on go-ahead
 **Updated:** 2026-09-02
 
 ---
@@ -264,35 +264,69 @@ gaps would ship a guaranteed quality regression, which §1a forbids. P1a is also
 only workstream that improves the Claude path as a side effect, so it carries value
 even if no second provider is ever added.
 
-### P0 — Locked design decisions
+### P0 — Locked design decisions ✅ **Locked 2026-09-02**
 
-Decide these before writing code; changing them later is expensive.
+Eight decisions, settled. Changing any of them later is expensive, so each carries
+its reason. D3 and D4 are recorded as void rather than deleted — they were live in
+the first draft and their reasoning still applies if P2 is ever revived.
 
-1. **`runner` stays a closed enum, widened.** `z.enum(['default','custom'])` becomes
-   `z.enum(['default','custom','codex','gemini','openai-compat'])`. A closed enum
-   keeps `aidlc validate` able to reject typos. `default` keeps meaning Claude.
-2. **Provider runners are builtins, not `runner_path` files.** They ship compiled
-   inside `@aidlc/core` and register in `RunnerRegistry`'s constructor. Rationale:
-   `runner_path` modules are unsandboxed `require()`s, and the loader rejects `.ts`
-   — shipping our providers that way would mean hand-maintained JS in the repo.
-   `runner: custom` remains for genuine user extensions.
-3. ~~One OpenAI-compatible runner, not one per vendor.~~ **Void** — shape B is
-   shelved (P2). If it is ever revived, this decision stands as written.
-4. ~~Shape B runners write the artifact.~~ **Void** with P2. Shape A runners need
-   no write-back: the CLI writes its own files, exactly as `claude` does today.
-5. **Cost is per-provider and best-effort.** `costUsd` stays optional. A shape B
-   runner computes it from token usage × a rate table; a shape A runner parses
-   whatever the CLI reports. A provider that reports nothing keeps summing as 0,
-   and `doctor` warns that the budget guard is blind for that agent.
-6. **No auto-fallback between providers.** If Gemini fails, the step fails. Silent
-   substitution would make a run's provenance unreproducible, which defeats the
-   point of gates.
-7. **Parity before providers.** No provider ships until §4c's G1–G3 are closed for
-   it. A provider that runs without the graph, the persona or the project
-   instructions is not a provider option, it is a regression with a config flag.
-8. **`agent.model` becomes load-bearing.** It stops being display-only and is passed
-   to the runner. `models.ts` grows a per-provider tier map so `sonnet` /
-   `gpt-5-codex` / `gemini-2.5-pro` / `deepseek-reasoner` can all be reached by tier.
+**D1 — `runner` stays a closed enum, widened to agentic CLIs only.**
+`z.enum(['default','custom'])` becomes `z.enum(['default','custom','codex','gemini'])`.
+`openai-compat` is *not* included: shape B is shelved, and an enum member is a
+promise. A closed enum keeps `aidlc validate` able to reject a typo. `default`
+keeps meaning Claude — renaming it to `claude` would invalidate every
+`workspace.yaml` already on disk, and the migration buys nothing.
+
+**D2 — Provider runners ship as builtins, not `runner_path` files.** They compile
+into `@aidlc/core` and register in `RunnerRegistry`'s constructor beside
+`DefaultRunner`. Rationale: `CustomRunnerLoader` `require()`s user modules into the
+host process unsandboxed and rejects `.ts` outright, so shipping our own providers
+that way would mean hand-maintained JavaScript in the repo. `runner: custom` stays
+exactly as it is, for genuine user extensions.
+
+**D3 — ~~One OpenAI-compatible runner, not one per vendor.~~ Void.** Shape B is
+shelved (P2). The reasoning stands if it returns: DeepSeek, OpenAI direct and
+Ollama differ only by base URL, model id and auth header — config, not code.
+
+**D4 — ~~Shape B runners write the artifact.~~ Void** with P2. Shape A needs no
+write-back at all: the CLI writes its own files, exactly as `claude` does today.
+This is the single largest reason shape A is cheap and shape B is not.
+
+**D5 — Cost is per-provider and best-effort.** `costUsd` stays optional on
+`RunnerResult`; a runner parses whatever its CLI reports. A provider that reports
+nothing keeps summing as 0 — the budget guard is then blind for that agent, and
+`aidlc doctor` must say so out loud rather than presenting a confident wrong total.
+No estimating from token counts we did not measure.
+
+**D6 — No auto-fallback between providers.** If Codex fails, the step fails. Silent
+substitution would make a run's provenance unreproducible, which is precisely what
+gates exist to prevent. Retry-same-provider is allowed; switch-provider is not.
+
+**D7 — Parity before providers.** No provider ships until §4c's G1–G3 are closed
+for it. A provider running without the graph, the persona, or the project
+instructions is not an option in a picker — it is a regression behind a config
+flag. This is the §1a acceptance rule applied to the one place it is easiest to
+ignore.
+
+**D8 — `agent.model` becomes load-bearing.** It stops being display-only (today
+`DefaultRunner` never passes `--model`, per the comment in `presets/models.ts`) and
+is handed to the runner. `models.ts` grows a per-provider tier map so `sonnet`,
+`gpt-5-codex` and `gemini-2.5-pro` are all reachable by tier. The Claude entry
+keeps its current aliases, so nothing shifts for existing workspaces.
+
+**Also settled while locking, folded out of §6:**
+
+- **Providers in scope: Codex first, Gemini second.** Both go in the D1 enum;
+  only Codex gets a runner in P1. Gemini follows once its non-interactive
+  behaviour is confirmed stable.
+- **G3 is solved by inlining, not by generating files.** AIDLC resolves the
+  project-instruction file and puts its content in the prompt. It does **not**
+  write `AGENTS.md` or `GEMINI.md` into the user's repository — creating files
+  the user did not ask for, in a repo we do not own, is out of scope for a
+  provider switch.
+- **`auto_review_runner` is unaffected.** `AutoReviewer.ts` loads a local module
+  and calls it for `{ decision, reason }`; it is deterministic JavaScript, not an
+  LLM call, so no provider work touches it.
 
 ### P1a — Harness parity (§4c) — **build first**
 
@@ -412,19 +446,13 @@ and let demand decide whether (b) is worth the UX regression.
 
 ## 6. Open questions
 
-1. **Which providers actually earn a runner in v1?** With shape B shelved, the
-   field is agentic CLIs only: Codex first, Gemini second if its non-interactive
-   story proves stable. Is one enough to justify P1a, or does P1a stand on its own
-   merit for the Claude path?
-2. **Do we pin provider CLI versions?** A `codex exec` flag change breaks
+*Three of the original five were answered while locking P0 — see the end of that
+section. What remains:*
+
+1. **Do we pin provider CLI versions?** A `codex exec` flag change breaks
    `CodexRunner` silently. A version probe in `doctor` mitigates; pinning does not
    fit a tool the user installs themselves.
-3. **How far does G3 go?** Inlining the project instructions is safe. Generating a
-   sibling `AGENTS.md` / `GEMINI.md` during `init` writes files into the user's repo
-   that they did not ask for. Inlining is preferred; confirm before P1a closes.
-4. **Does `auto_review_runner` need the same treatment?** It is a JS validator
-   module today, not an LLM call, so probably not — confirm before P1 closes.
-5. **Where do provider API keys live for CI?** `${env:VAR}` works locally; CI needs
+2. **Where do provider API keys live for CI?** `${env:VAR}` works locally; CI needs
    the same names documented in one place.
 
 ---
@@ -466,5 +494,6 @@ they are not rediscovered painfully later:
 | Date | Entry |
 |---|---|
 | 2026-09-01 | Plan written. Gap analysis measured against `22442ae`. Nothing implemented — awaiting go-ahead per workstream. |
+| 2026-09-02 | P0 locked: eight decisions, D1 narrowed to `codex`/`gemini` (no `openai-compat` — shape B is shelved, and an enum member is a promise), D3/D4 recorded void. Three open questions closed: Codex first then Gemini; G3 by inlining, never by writing `AGENTS.md` into the user's repo; `auto_review_runner` unaffected (`AutoReviewer.ts` runs deterministic JS, not an LLM). |
 | 2026-09-02 | Owner locked the acceptance rule (§1a): build only what is certainly quality-neutral. Consequences: added §4c (three parity gaps that make even shape A non-neutral today), added P1a and moved it ahead of P1, shelved P2 and with it DeepSeek and local models. |
 | 2026-09-02 | Added §4b, the per-step verdict, after walking every `AINATIVE_PHASES` entry and skill body. Corrects P2's refusal list: the blocked pair is `implement` + `verify`, not `implement` + `review` — `review` is read-only by design. |
