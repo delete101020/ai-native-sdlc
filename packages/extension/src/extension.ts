@@ -26,13 +26,12 @@ import { registerTokenMonitor } from './v2/tokenMonitor';
 import { registerAidlcMonitor } from './v2/aidlcMonitor';
 import { registerAstGraph } from './v2/astGraph';
 import { installAnnotationTools } from './v2/annotationToolsInstaller';
+import { registerClaudeAccounts } from './v2/claudeAccounts';
 import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './v2/epicsDirSync';
 import {
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
   activateBackendFromWorkspace,
-  setClaudeConfigDir,
-  claudeConfigDir,
 } from '@aidlc/core';
 
 /**
@@ -66,32 +65,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // user running personal + work accounts sees one consistent account per
   // window. Must run BEFORE the first thing that touches the folder
   // (installAnnotationTools, immediately below).
-  const CLAUDE_DIR_KEY = 'aidlc.claude.configDir';
-  const applyClaudeConfigDir = (): void => {
-    const dir = (vscode.workspace.getConfiguration().get<string>(CLAUDE_DIR_KEY) ?? '').trim();
-    setClaudeConfigDir(dir || undefined);
-    const source = dir ? 'setting' : process.env.CLAUDE_CONFIG_DIR ? 'CLAUDE_CONFIG_DIR' : 'default';
-    output.appendLine(`Claude config dir: ${claudeConfigDir()} (${source})`);
-  };
-  applyClaudeConfigDir();
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (!e.affectsConfiguration(CLAUDE_DIR_KEY)) { return; }
-      applyClaudeConfigDir();
-      // Long-lived readers (token monitor watchers, open webviews) captured the
-      // old dir; a reload is the honest way to switch accounts mid-session.
-      void vscode.window
-        .showInformationMessage(
-          `AIDLC: Claude config dir is now ${claudeConfigDir()}. Reload the window so every view picks it up.`,
-          'Reload Window',
-        )
-        .then((pick) => {
-          if (pick === 'Reload Window') {
-            void vscode.commands.executeCommand('workbench.action.reloadWindow');
-          }
-        });
-    }),
-  );
+  registerClaudeAccounts(context, output);
 
   // Annotation tooling is the exception: a tiny, self-contained footprint
   // (renderer + vendored annotron + one skill) that makes /annotate-artifact
