@@ -28,7 +28,7 @@ import {
   resolvePath,
   discoverAssets,
 } from '@aidlc/core';
-import type { PipelineConfig } from '@aidlc/core';
+import type { PipelineConfig, DiscoveredAsset } from '@aidlc/core';
 import { listEpics } from './epicsList';
 import type { PresetStore } from './presetStore';
 import { themeManager } from './themeManager';
@@ -141,6 +141,23 @@ interface McpSnapshot {
   error: string | null;
 }
 
+/**
+ * How many distinct agents (or skills) this project actually has.
+ *
+ * The same asset is normally present twice: declared in `workspace.yaml` AND
+ * installed as a `.md` file under `~/.claude/` or `.claude/` — that is how a
+ * preset works, the YAML entry and the file on disk are two halves of one
+ * asset. Adding the two lists produced doubled numbers in the stat row (12
+ * agents for 6, 19 skills for 12) that disagreed with the Builder tab, which
+ * has always deduplicated by id (`mergeAgents` / `mergeSkills`). Count ids,
+ * not rows, so both surfaces tell the user the same thing.
+ */
+function countDistinct(declaredIds: string[], discovered: DiscoveredAsset[]): number {
+  const ids = new Set(declaredIds);
+  for (const a of discovered) { ids.add(a.id); }
+  return ids.size;
+}
+
 function buildState(
   presetStore: PresetStore | null,
   mcp: McpSnapshot,
@@ -218,8 +235,8 @@ function buildState(
       hasFolder: true,
       workspaceName: folder.name,
       configExists: false,
-      agentsCount: claudeAgents.length,
-      skillsCount: claudeSkills.length,
+      agentsCount: countDistinct([], claudeAgents),
+      skillsCount: countDistinct([], claudeSkills),
       pipelinesCount: 0,
       epicsCount: allEpics.length, recentEpics,
       slashCommands: [],
@@ -249,9 +266,10 @@ function buildState(
     workspaceName: folder.name,
     configExists: true,
     // Counts span all 3 scopes: workspace.yaml entries (aidlc) + .claude/
-    // (project) + ~/.claude/ (global). Same total the Builder tab shows.
-    agentsCount: doc.agents.length + claudeAgents.length,
-    skillsCount: doc.skills.length + claudeSkills.length,
+    // (project) + ~/.claude/ (global), deduplicated by id — the same total
+    // the Builder tab shows.
+    agentsCount: countDistinct(doc.agents.map((a) => String(a.id)), claudeAgents),
+    skillsCount: countDistinct(doc.skills.map((s) => String(s.id)), claudeSkills),
     pipelinesCount: doc.pipelines.length,
     epicsCount: allEpics.length,
     recentEpics,
