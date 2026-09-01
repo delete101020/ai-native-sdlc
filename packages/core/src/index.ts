@@ -151,6 +151,19 @@ export type {
 export { RunnerRegistry } from './runner/RunnerRegistry';
 export { DefaultRunner } from './runner/DefaultRunner';
 export type { DefaultRunnerOptions } from './runner/DefaultRunner';
+export { CodexRunner } from './runner/CodexRunner';
+export type { CodexRunnerOptions } from './runner/CodexRunner';
+export {
+  claudeMcpRegistrar,
+  codexMcpRegistrar,
+  mcpRegistrarFor,
+  readProjectMcpServer,
+  codexConfigPath,
+  isCodexMcpConfigured,
+} from './runner/mcp';
+export type { McpRegistrar, McpCommand, StdioMcpServer } from './runner/mcp';
+export { createLineSink, createJsonSink } from './runner/ndjson';
+export type { LineSink } from './runner/ndjson';
 export { isInsideClaudeCodeSession, hasClaudeLogin, buildClaudeSpawnEnv } from './runner/claudeEnv';
 export {
   CustomRunnerLoader,
@@ -165,6 +178,7 @@ export type {
   AidlcRunner,
   RunnerContext,
   RunnerResult,
+  AgentCliWrapper,
   ClaudeCliWrapper,
   HarnessCapabilities,
 } from './runner/types';
@@ -239,7 +253,10 @@ export type { BuiltinWorkflow, WorkspacePreset as BuiltinWorkspacePreset, Worksp
 
 // Model tier the built-in presets, the CLI and the wizards all default to.
 // Aliases, not pinned ids, so a preset does not age out on the next release.
-export { PLANNING_MODEL, CODING_MODEL, FAST_MODEL } from './presets/models';
+export {
+  PLANNING_MODEL, CODING_MODEL, FAST_MODEL,
+  CLAUDE_TIER_ALIASES, isClaudeTierAlias, resolveProviderModel,
+} from './presets/models';
 
 // Global Claude-config-dir install of built-in agent/skill files (ext + CLI).
 export {

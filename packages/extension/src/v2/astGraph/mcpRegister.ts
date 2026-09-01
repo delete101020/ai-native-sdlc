@@ -3,6 +3,10 @@
  * via the `claude mcp` CLI. Local scope = scoped to one project dir,
  * which matches our per-workspace db.
  *
+ * The per-CLI argv lives in `@aidlc/core`'s registrars, so the same spawn code
+ * serves any agentic CLI (gap G1) and the flag knowledge stays unit-testable
+ * without that CLI installed.
+ *
  * We re-run `claude mcp add` whenever the binary path or db path change
  * (e.g. version bump, workspace switch). `claude mcp` is idempotent —
  * it overwrites an existing entry with the same name.
@@ -15,7 +19,8 @@
 
 import { execFile } from 'child_process';
 
-import { claudeConfigEnv } from '@aidlc/core';
+import { claudeConfigEnv, claudeMcpRegistrar } from '@aidlc/core';
+import type { McpRegistrar } from '@aidlc/core';
 
 export interface McpRegistration {
   ok: boolean;
@@ -23,7 +28,7 @@ export interface McpRegistration {
   reason: string;
 }
 
-const MCP_NAME = 'ast-graph';
+export const MCP_NAME = 'ast-graph';
 const ADD_TIMEOUT_MS = 15_000;
 
 interface RegisterOpts {
@@ -31,6 +36,14 @@ interface RegisterOpts {
   dbPath: string;
   cwd: string;
   claudeBin?: string;
+  /**
+   * Which CLI's config to write. Defaults to Claude, which is the only one the
+   * extension registers automatically: Claude's `--scope local` is per-project,
+   * so a registration cannot leak into the user's other workspaces. Codex keeps
+   * MCP servers per-user, so it is registered only on explicit request —
+   * `aidlc mcp register --runner codex`. See MULTI_PROVIDER_ALIGNMENT.md §4c G1.
+   */
+  registrar?: McpRegistrar;
 }
 
 /**
@@ -39,34 +52,28 @@ interface RegisterOpts {
  * decide whether to surface the failure to the user.
  */
 export function registerMcpServer(opts: RegisterOpts): Promise<McpRegistration> {
-  const claude = opts.claudeBin ?? 'claude';
-  const args = [
-    'mcp',
-    'add',
-    MCP_NAME,
-    '--scope',
-    'local',
-    '--',
-    opts.binPath,
-    'mcp',
-    '--db',
-    opts.dbPath,
-  ];
+  const registrar = opts.registrar ?? claudeMcpRegistrar;
+  const cmd = registrar.add({
+    name: MCP_NAME,
+    command: opts.binPath,
+    args: ['mcp', '--db', opts.dbPath],
+  });
+  const claude = opts.claudeBin ?? cmd.bin;
 
   return new Promise((resolve) => {
     execFile(
       claude,
-      args,
+      cmd.args,
       { timeout: ADD_TIMEOUT_MS, cwd: opts.cwd, env: { ...process.env, ...claudeConfigEnv() } },
       (err, _stdout, stderr) => {
         if (err) {
           const code = (err as NodeJS.ErrnoException).code;
           if (code === 'ENOENT') {
-            resolve({ ok: false, reason: `\`${claude}\` not found on PATH — install Claude Code CLI to enable MCP.` });
+            resolve({ ok: false, reason: `\`${claude}\` not found on PATH — install that CLI to enable MCP.` });
             return;
           }
           if (code === 'ETIMEDOUT') {
-            resolve({ ok: false, reason: 'claude mcp add timed out (>15s).' });
+            resolve({ ok: false, reason: `${claude} mcp add timed out (>15s).` });
             return;
           }
           resolve({
@@ -86,18 +93,20 @@ export function registerMcpServer(opts: RegisterOpts): Promise<McpRegistration> 
  * Reads `claude mcp list` and looks for our name. Failure = "unknown",
  * we still attempt to register in that case.
  */
-export function isAlreadyRegistered(cwd: string, claudeBin = 'claude'): Promise<boolean> {
+export function isAlreadyRegistered(
+  cwd: string,
+  claudeBin?: string,
+  registrar: McpRegistrar = claudeMcpRegistrar,
+): Promise<boolean> {
+  const cmd = registrar.list();
   return new Promise((resolve) => {
     execFile(
-      claudeBin,
-      ['mcp', 'list'],
+      claudeBin ?? cmd.bin,
+      cmd.args,
       { timeout: 20_000, cwd, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, ...claudeConfigEnv() } },
       (err, stdout) => {
         if (err) { resolve(false); return; }
-        const has = stdout
-          .split(/\r?\n/)
-          .some((line) => line.trim().toLowerCase().startsWith(`${MCP_NAME}:`));
-        resolve(has);
+        resolve(registrar.isRegistered(stdout, MCP_NAME));
       },
     );
   });

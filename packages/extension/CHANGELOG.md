@@ -30,6 +30,29 @@ declares no capabilities keeps working and simply receives a fuller prompt.
   whether it is inlined or loaded by the harness. Advisory findings print as
   `⚠` and do not fail the exit code.
 - `aidlc run exec --dry-run` names which layers were inlined.
+- **`runner: codex`** — a bundled runner for `codex exec`, the first non-Claude
+  harness. It receives the same composed prompt every other harness does, so
+  which provider runs a phase is a wiring choice. Two honest limits, both
+  reported by `doctor` rather than hidden: `model:` tier aliases (`opus` /
+  `sonnet` / `haiku`) mean nothing to another CLI, so no `--model` is passed and
+  Codex applies its own default; and Codex reports tokens rather than dollars,
+  so its steps count as $0 against `budget.max_usd`.
+- **`aidlc mcp status` / `aidlc mcp register`** — give another CLI the same
+  `ast-graph` server Claude has. The extension registers Claude automatically
+  because `--scope local` is per-project; Codex stores MCP servers per user, so
+  registering it stays an explicit command. `register` copies the binary and db
+  path out of Claude's existing registration rather than rediscovering them.
+- `gemini` is accepted by the schema but has no runner yet, and says so when a
+  step tries to resolve it — never a silent fallback to Claude.
+
+### Changed
+
+- `aidlc doctor` now *verifies* MCP registration against each CLI's own config
+  file instead of noting that it does not check. It also reports the instruction
+  file per runner, since a repo carrying both `CLAUDE.md` and `AGENTS.md` binds
+  each harness to a different one.
+- `ClaudeCliWrapper` is now `AgentCliWrapper`. The old name remains exported as
+  a deprecated alias, so existing custom runners keep compiling.
 
 ## 3.6.3
 

@@ -12,6 +12,8 @@
 import { spawn } from 'child_process';
 import type { AidlcRunner, HarnessCapabilities, RunnerContext, RunnerResult } from './types';
 import { buildClaudeSpawnEnv } from './claudeEnv';
+import { claudeMcpRegistrar } from './mcp';
+import { createJsonSink } from './ndjson';
 
 export interface DefaultRunnerOptions {
   /**
@@ -46,6 +48,9 @@ export class DefaultRunner implements AidlcRunner {
     instructionFile: 'CLAUDE.md',
   };
 
+  /** `claude mcp add ast-graph --scope local -- …` — project-scoped, per workspace. */
+  readonly mcp = claudeMcpRegistrar;
+
   constructor(private readonly opts: DefaultRunnerOptions = {}) {}
 
   async run(ctx: RunnerContext): Promise<RunnerResult> {
@@ -75,8 +80,6 @@ export class DefaultRunner implements AidlcRunner {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    // NDJSON is line-delimited — buffer partial lines across data chunks.
-    let buf = '';
     let finalText = '';
     let costUsd: number | undefined;
 
@@ -94,25 +97,12 @@ export class DefaultRunner implements AidlcRunner {
       }
     };
 
-    const consume = (line: string): void => {
-      const trimmed = line.trim();
-      if (!trimmed) { return; }
-      try {
-        handleEvent(JSON.parse(trimmed) as StreamEvent);
-      } catch {
-        // Not JSON (e.g. a stray log line) — surface it raw rather than drop it.
-        ctx.onOutput(line);
-      }
-    };
+    // NDJSON is line-delimited — the shared sink buffers partial lines across
+    // data chunks and hands a non-JSON line straight to the terminal rather
+    // than dropping it.
+    const sink = createJsonSink<StreamEvent>(handleEvent, (line) => ctx.onOutput(line));
 
-    proc.stdout.on('data', (d: Buffer) => {
-      buf += d.toString('utf8');
-      let nl: number;
-      while ((nl = buf.indexOf('\n')) >= 0) {
-        consume(buf.slice(0, nl));
-        buf = buf.slice(nl + 1);
-      }
-    });
+    proc.stdout.on('data', (d: Buffer) => sink.push(d.toString('utf8')));
     proc.stderr.on('data', (d: Buffer) => {
       ctx.onError(d.toString('utf8'));
     });
@@ -123,7 +113,7 @@ export class DefaultRunner implements AidlcRunner {
         resolve({ success: false, output: finalText, costUsd });
       });
       proc.on('close', (code) => {
-        if (buf.length) { consume(buf); } // flush any trailing partial line
+        sink.flush(); // dispatch any trailing partial line
         resolve({ success: code === 0, output: finalText, costUsd });
       });
     });

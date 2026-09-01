@@ -29,3 +29,37 @@ export const CODING_MODEL = 'sonnet';
 
 /** Cheap and fast: mechanical passes where judgement is not the bottleneck. */
 export const FAST_MODEL = 'haiku';
+
+// ── Cross-provider model resolution (MULTI_PROVIDER_ALIGNMENT.md §P1) ───────
+
+/**
+ * The three aliases above are Claude Code's own vocabulary. They mean nothing
+ * to `codex` or the Gemini CLI, and every existing workspace.yaml is full of
+ * them because until now `model` was display-only.
+ */
+export const CLAUDE_TIER_ALIASES: readonly string[] = [PLANNING_MODEL, CODING_MODEL, FAST_MODEL];
+
+/** Whether a `model:` value is one of Claude Code's tier aliases. */
+export function isClaudeTierAlias(model?: string): boolean {
+  return !!model && CLAUDE_TIER_ALIASES.includes(model.trim().toLowerCase());
+}
+
+/**
+ * The model a provider runner should be told to use, or `undefined` for "say
+ * nothing and let the CLI pick its own default".
+ *
+ * Deliberately *not* a tier translation table. Mapping `sonnet` onto some
+ * provider's mid-tier model would be us inventing an equivalence we have not
+ * measured, and quietly downgrading a phase the user believed was on its best
+ * model — precisely the silent quality change §1a exists to prevent. So a
+ * Claude alias resolves to nothing, the provider CLI applies its own default,
+ * and `aidlc doctor` points out that this agent's `model:` is not portable.
+ * Anything else is passed through verbatim: a user who writes
+ * `model: gpt-5-codex` means it.
+ */
+export function resolveProviderModel(provider: string, model?: string): string | undefined {
+  const trimmed = model?.trim();
+  if (!trimmed) { return undefined; }
+  if (provider === 'default') { return undefined; } // Claude Code resolves tiers itself.
+  return isClaudeTierAlias(trimmed) ? undefined : trimmed;
+}

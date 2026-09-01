@@ -114,6 +114,20 @@ run-state JSON files are parseable. Exit 1 on any failure (including skill /
 runner / runtime checks). `--json` emits every section as
 `{ ok, failures, sections }` — a parseable CI preflight.
 
+### `mcp` — give another CLI the ast-graph server
+
+```
+aidlc mcp status
+aidlc mcp register [--runner codex] [--dry-run]
+```
+
+The VS Code extension registers the `ast-graph` MCP server with Claude
+automatically, project-scoped. Codex keeps MCP servers in `~/.codex/config.toml`,
+which is per-user: registering there points every Codex session on the machine
+at this workspace's graph, so it stays an explicit command. `register` copies
+the binary and db path out of the registration Claude already has — run
+**AIDLC: Rescan AST Graph** in VS Code once first.
+
 ### `validate` — schema + cross-reference check
 
 ```
@@ -158,7 +172,7 @@ aidlc agent add --id <id> --name <n> --skill <skillId>
                 [--model claude-sonnet-4-5]
                 [--capabilities files,github,jira]
                 [--description "…"]
-                [--runner default|custom] [--runner-path .aidlc/runners/foo.js]
+                [--runner default|codex|custom] [--runner-path .aidlc/runners/foo.js]
 aidlc agent list [--json]
 aidlc agent show <id>
 aidlc agent remove <id>
@@ -168,6 +182,20 @@ aidlc agent run <id> [--message "…"] [--context k=v,…] [--dry-run]
 `agent run` is one-shot — spawns `claude` with the agent's skill + your
 message, streams to stdout, no run state created. Useful for quick checks and
 piping into shell scripts.
+
+**Runners.** `default` shells out to `claude`; `codex` shells out to
+`codex exec`; `custom` loads your own `runner_path` module. AIDLC composes the
+same three layers — persona, project instructions, skills — into whichever
+prompt that harness needs, so the phase is the same work either way. What
+differs is what the harness supplies by itself: Claude Code reads `CLAUDE.md`
+and gets it once, Codex is handed `AGENTS.md` (or `CLAUDE.md` when the repo has
+no `AGENTS.md`) inline. `aidlc doctor` prints the resolved layers per agent.
+
+Two things do *not* carry across: `model:` tier aliases (`opus` / `sonnet` /
+`haiku`) mean nothing to another CLI, so a provider runner passes no `--model`
+and the CLI applies its own default — set an explicit model id if that matters.
+And Codex reports tokens rather than dollars, so its steps count as $0 against
+`budget.max_usd`; doctor says so rather than showing a confident wrong total.
 
 ### Pipelines
 
@@ -597,6 +625,7 @@ Runs and presets are local-only — gitignore `.aidlc/runs/` and
 | `aidlc run exec` fails with "missing artifacts" | The agent didn't produce the files declared in `pipeline.steps[].produces`. Check the paths or fix the agent's skill. |
 | `aidlc run start` rejects the runId | RunIds must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`. No spaces, no leading dashes. |
 | Pipeline step appears as a string in YAML, but I edited it as an object | Both forms are valid. The CLI writes string form when there's no metadata, object form when there's `human_review` or `produces`. |
+| A phase on `runner: codex` answers without the graph | Its MCP server is per-user and separate from Claude's. Run `aidlc mcp register --runner codex`, then `aidlc mcp status` to confirm. |
 | Custom runner not loading | `runner_path` must be `.js` / `.cjs` / `.mjs` (no TypeScript yet). Run `aidlc doctor` to check the file resolves. |
 
 ## Credit

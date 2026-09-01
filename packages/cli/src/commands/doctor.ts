@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { Command } from 'commander';
@@ -16,7 +17,12 @@ import {
   PersonaLoader,
   findProjectInstructions,
   DefaultRunner,
+  CodexRunner,
   NO_HARNESS_CAPABILITIES,
+  claudeJsonPath,
+  readProjectMcpServer,
+  isCodexMcpConfigured,
+  isClaudeTierAlias,
   type HarnessCapabilities,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
@@ -141,14 +147,30 @@ function parityChecks(
   // here — running a user's module during a diagnostic would be a surprise —
   // so it is reported under the same conservative assumption the composer
   // makes: the harness supplies nothing and every layer gets inlined.
-  const capsFor = (runner: string): HarnessCapabilities =>
-    runner === 'default' ? new DefaultRunner().capabilities : NO_HARNESS_CAPABILITIES;
+  const capsFor = (runner: string): HarnessCapabilities => {
+    if (runner === 'default') { return new DefaultRunner().capabilities; }
+    if (runner === 'codex') { return new CodexRunner().capabilities; }
+    return NO_HARNESS_CAPABILITIES;
+  };
 
-  const instructions = findProjectInstructions(root);
-  checks.push(instructions
-    ? ok('project instructions', instructions.relPath)
-    : warn('project instructions',
-        `none of ${['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'].join(' / ')} found — phases run without the repo's conventions`));
+  // Which instruction file each harness ends up bound by. Reported per runner
+  // rather than once, because the answer genuinely differs: a repo carrying both
+  // CLAUDE.md and AGENTS.md gives each harness the file written for it, and a
+  // single line here would name one of them and quietly mislead about the other.
+  const runners = [...new Set(ws.config.agents.map((a) => a.runner))];
+  for (const runner of runners) {
+    const caps = capsFor(runner);
+    const label = runners.length > 1 ? `project instructions (${runner})` : 'project instructions';
+    if (caps.projectInstructions) {
+      checks.push(ok(label, `${caps.instructionFile ?? 'its own file'}, read by the harness`));
+      continue;
+    }
+    const instructions = findProjectInstructions(root, caps.instructionFile);
+    checks.push(instructions
+      ? ok(label, `${instructions.relPath}, inlined into the prompt`)
+      : warn(label,
+          `none of ${['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'].join(' / ')} found — phases run without the repo's conventions`));
+  }
 
   for (const agent of ws.config.agents) {
     const caps = capsFor(agent.runner);
@@ -165,16 +187,43 @@ function parityChecks(
     }
   }
 
-  // ast-graph. Verifying registration means shelling out to a provider CLI per
-  // agent, which doctor should not do; report what is knowable and say so.
+  // A model that is not portable across harnesses. `sonnet` means nothing to
+  // `codex`, so the runner passes no --model and the provider CLI picks its own
+  // default — defensible, but the user should hear it from doctor rather than
+  // infer it from a bill (MULTI_PROVIDER_ALIGNMENT.md P0/D8).
+  for (const agent of ws.config.agents) {
+    if (agent.runner !== 'default' && agent.runner !== 'custom' && isClaudeTierAlias(agent.model)) {
+      checks.push(warn(`model "${agent.id}"`,
+        `"${agent.model}" is a Claude tier alias — ${agent.runner} will use its own default model instead`));
+    }
+  }
+
+  // ast-graph. Registration is now checked against each CLI's own config, which
+  // is a file read rather than a subprocess, so doctor stays offline and still
+  // stops implying that a graph on disk means a harness can reach it (G1).
   const graphDb = path.join(root, '.ast-graph', 'graph.db');
-  const anyDefault = ws.config.agents.some((a) => a.runner === 'default');
   if (!fs.existsSync(graphDb)) {
     checks.push(warn('ast-graph', 'no .ast-graph/graph.db — run "AIDLC: Rescan AST Graph" to build it'));
-  } else if (anyDefault) {
-    checks.push(ok('ast-graph', 'graph built; registration verified by `claude mcp list`, not here'));
-  } else {
-    checks.push(warn('ast-graph', 'graph built, but no agent runs on a harness known to expose it'));
+    return checks;
+  }
+  checks.push(ok('ast-graph', 'graph built'));
+
+  for (const runner of runners) {
+    if (runner === 'default') {
+      const server = readProjectMcpServer(root, 'ast-graph', claudeJsonPath());
+      checks.push(server
+        ? ok('ast-graph via claude', 'registered for this project')
+        : warn('ast-graph via claude',
+            'not in this project\'s MCP config — run "AIDLC: Rescan AST Graph" in VS Code'));
+    } else if (runner === 'codex') {
+      checks.push(isCodexMcpConfigured('ast-graph', os.homedir())
+        ? ok('ast-graph via codex', 'declared in ~/.codex/config.toml (per-user, not per-project)')
+        : warn('ast-graph via codex',
+            'not in ~/.codex/config.toml — run "aidlc mcp register --runner codex"'));
+    } else {
+      checks.push(warn(`ast-graph via ${runner}`,
+        'AIDLC has no MCP registration for this runner — its phases run without the graph'));
+    }
   }
 
   return checks;

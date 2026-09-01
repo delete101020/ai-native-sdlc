@@ -59,7 +59,11 @@ const AgentSchema = z.preprocess(
   /** Skill ids — every entry must reference a skill in the workspace `skills` list. */
   skills: z.array(z.string().min(1)).min(1, 'Agent must reference at least one skill'),
   model: z.string().optional(),
-  runner: z.enum(['default', 'custom']).default('default'),
+  // `default` keeps meaning Claude Code: renaming it to `claude` would
+  // invalidate every workspace.yaml already on disk and buy nothing
+  // (MULTI_PROVIDER_ALIGNMENT.md P0/D1). A closed enum is what lets
+  // `aidlc validate` reject a typo instead of failing at spawn time.
+  runner: z.enum(['default', 'custom', 'codex', 'gemini']).default('default'),
   /** Required when runner === 'custom'. Relative path to .js or .ts file. */
   runner_path: z.string().optional(),
   /** Per-agent env overrides (layered over workspace.environment). */

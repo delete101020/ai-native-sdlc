@@ -2,7 +2,7 @@
 
 **Branch:** `feat/ai-native-sdlc-alignment` (a `feat/multi-provider` branch splits off at P1)
 **Sibling doc:** `AI_NATIVE_SDLC_ALIGNMENT.md` — same format, same gating discipline
-**Status:** 🟢 P0 locked · P1a shipped (G2, G3, parity check) — P1 (Codex runner) is the next build, on go-ahead
+**Status:** 🟢 P0 locked · P1a shipped (G2, G3, parity check) · P1 shipped (Codex runner, G1) — pending live verification against an installed `codex`. P3 is the next build, on go-ahead
 **Updated:** 2026-09-02
 
 ---
@@ -224,8 +224,10 @@ writes files, `DefaultRunner` already proves the spawn pattern. Three things bre
 that, and all three are silent — the step succeeds, the artifact appears, and the
 quality is quietly lower.
 
-> **Status after P1a (2026-09-02):** G2 and G3 are closed — see P1a below. G1
-> remains open and ships with the first provider runner in P1.
+> **Status after P1 (2026-09-02):** all three gaps are closed. G2 and G3 shipped
+> with P1a; G1 shipped with `CodexRunner` — `aidlc mcp register` gives another
+> CLI the same `ast-graph` server, and `aidlc doctor` now checks each CLI's own
+> config instead of assuming a graph on disk means a harness can reach it.
 
 **G1 — ast-graph is registered with the Claude CLI specifically.**
 `packages/extension/src/v2/astGraph/mcpRegister.ts:37` shells out to
@@ -262,7 +264,8 @@ is the one thing it still has to earn.
 
 ## 5. Workstreams
 
-Order: **P0 → P1a → P1 → P3**. P2 is **shelved** under §1a and P4/P5 stay optional.
+Order: **P0 ✅ → P1a ✅ → P1 ✅ → P3**. P2 is **shelved** under §1a and P4/P5 stay
+optional.
 
 P1a comes before P1 deliberately: shipping a Codex runner on top of the §4c parity
 gaps would ship a guaranteed quality regression, which §1a forbids. P1a is also the
@@ -387,32 +390,59 @@ inlined for a capability-less runner and *not* inlined for `DefaultRunner`,
 verified end to end through `aidlc run exec --dry-run`; `doctor` reports the
 parity of every agent. 21 new tests, 322 core + 25 extension green.
 
-### P1 — Provider SPI + the first shape A runner (Codex)
+### P1 — Provider SPI + the first shape A runner (Codex) ✅ **Shipped 2026-09-02**
 
-The goal is to prove the seam with one real non-Claude provider end to end.
-P1a has cleared the way; G1 (ast-graph registration for the provider's own CLI)
-now ships here, where it can be verified against a CLI that exists.
+The seam is proven with one real non-Claude provider. `runner: codex` resolves to
+a bundled `CodexRunner` that receives the same composed prompt every other
+harness does, and G1 closed alongside it.
 
-- Widen the `runner` enum; add `provider`-specific optional fields to
-  `AgentSchema` only if unavoidable (prefer `env` + `model`).
-- Generalize `runner/types.ts`: rename `ClaudeCliWrapper` → `AgentCliWrapper`
-  (keep a deprecated alias export), and extend `RunnerResult` with an optional
-  `usage: { inputTokens, outputTokens }` so P3 can price it.
-- Extract the NDJSON/stream plumbing shared by `DefaultRunner` into a small
-  helper so a second CLI runner is argument shaping, not a rewrite.
-- Add `CodexRunner`: spawn `codex exec`, stream stdout through `onOutput`, map
-  exit code to `success`, parse usage if the CLI emits it.
-- Register it in `RunnerRegistry`'s constructor, with `capabilities` declared
-  honestly — `persona: false`, `projectInstructions: false` until proven
-  otherwise, `astGraph` only once registration works.
-- **G1, carried from P1a**: register the ast-graph stdio server through the
-  Codex CLI's own MCP config, and drop the "not verified here" caveat from
-  `doctor` for the providers that can be checked.
-- Tests: fake `child_process` exactly as the `DefaultRunner` tests do.
+- **Enum widened** to `default | custom | codex | gemini` (D1). No new
+  `AgentSchema` fields were needed — `env` and `model` carried it. `gemini` is in
+  the enum with no runner behind it, so resolving it throws *"which has no
+  implementation yet"* rather than falling back to Claude (D6).
+- **SPI generalized.** `ClaudeCliWrapper` → `AgentCliWrapper` with the old name
+  kept as a deprecated alias; `RunnerResult.usage` added for P3; `RunnerContext`
+  gained `model`. `DefaultRunner` deliberately ignores `model` — passing
+  `--model` where we never passed one would change which model answers.
+- **Transport extracted.** `runner/ndjson.ts` holds the line buffering both CLIs
+  need, so a third runner is argument shaping plus an event mapper. Both runners
+  hand an unparseable stdout line to the terminal rather than dropping it, which
+  is what makes a CLI that changed its output format visible instead of silent.
+- **`CodexRunner`.** Spawns `codex exec --json --sandbox workspace-write`, streams
+  `agent_message` / delta events, maps exit code to `success`, reads token counts.
+  It tolerates both the `msg`-wrapped and the newer top-level `item.*` envelope,
+  because a user upgrading their CLI should not get a blackout.
+- **G1, carried from P1a ✅.** `runner/mcp.ts` holds a per-CLI registrar — pure
+  argv builders and list parsers, no spawning — so the flag knowledge is unit
+  testable without the CLI installed. The extension's `mcpRegister.ts` now takes
+  a registrar instead of hard-coding `claude mcp add`. `aidlc mcp register`
+  copies the server out of Claude's own project config, so the ast-graph binary
+  path has a single source of truth rather than being rediscovered in the CLI.
+- **`doctor` verifies rather than caveats.** Registration is checked against each
+  CLI's own config file (`~/.claude.json` projects entry, `~/.codex/config.toml`
+  table header) — file reads, so doctor stays offline. It also reports the
+  instruction file *per runner*, since a repo carrying both `CLAUDE.md` and
+  `AGENTS.md` binds each harness to a different one.
+- **Tests:** 28 new, fake `child_process` exactly as the `DefaultRunner` tests do.
+  350 core + 25 extension green.
 
-**Done when:** a workspace with one agent on `runner: codex` completes `/spec` for
-a real epic via `aidlc agent run`, and `spec.md` lands on disk with `produces`
-validation passing.
+**Deliberate deviation — no tier translation table.** D8 asked for a per-provider
+model map so `sonnet` and `gpt-5-codex` are both reachable by tier. Building it
+would mean asserting an equivalence we have not measured, and quietly running a
+phase on a model the user did not choose. So `resolveProviderModel` passes an
+explicit model id through verbatim, resolves a Claude tier alias to *nothing* —
+the provider CLI applies its own default — and `doctor` warns that this agent's
+`model:` is not portable. Under §1a an honest gap beats a plausible mapping.
+
+**Done when:** ⚠️ **partially verified.** Verified: `runner: codex` composes
+persona + `AGENTS.md` + skills and previews end to end through
+`aidlc run exec --dry-run`; `aidlc mcp register --dry-run` produces a correct
+`codex mcp add` from this repo's real registration; `aidlc mcp status` confirms
+Claude's; `doctor` reports parity per runner; `gemini` fails with its reason.
+**Not verified:** a live `codex exec` run producing `spec.md`, because the `codex`
+CLI is not installed on this machine. Every flag is therefore an option with a
+documented default, and a wrong one fails loudly at spawn rather than degrading a
+run quietly. This is the one open item; it needs a machine with Codex on PATH.
 
 ### P2 — Shape B runner (OpenAI-compatible) — 🚫 **SHELVED**
 
@@ -490,9 +520,11 @@ and let demand decide whether (b) is worth the UX regression.
 *Three of the original five were answered while locking P0 — see the end of that
 section. What remains:*
 
-1. **Do we pin provider CLI versions?** A `codex exec` flag change breaks
-   `CodexRunner` silently. A version probe in `doctor` mitigates; pinning does not
-   fit a tool the user installs themselves.
+1. **Do we pin provider CLI versions?** Still open, and now narrower. `CodexRunner`
+   keeps its flag surface to four (`exec`, `--json`, `--sandbox`, `--model`), each
+   overridable, and a renamed flag fails at spawn rather than silently — so the
+   failure mode is loud. What is still missing is a `codex --version` probe in
+   `doctor` that says which build the flags were written against.
 2. **Where do provider API keys live for CI?** `${env:VAR}` works locally; CI needs
    the same names documented in one place.
 
@@ -537,5 +569,6 @@ they are not rediscovered painfully later:
 | 2026-09-01 | Plan written. Gap analysis measured against `22442ae`. Nothing implemented — awaiting go-ahead per workstream. |
 | 2026-09-02 | P0 locked: eight decisions, D1 narrowed to `codex`/`gemini` (no `openai-compat` — shape B is shelved, and an enum member is a promise), D3/D4 recorded void. Three open questions closed: Codex first then Gemini; G3 by inlining, never by writing `AGENTS.md` into the user's repo; `auto_review_runner` unaffected (`AutoReviewer.ts` runs deterministic JS, not an LLM). |
 | 2026-09-02 | Owner locked the acceptance rule (§1a): build only what is certainly quality-neutral. Consequences: added §4c (three parity gaps that make even shape A non-neutral today), added P1a and moved it ahead of P1, shelved P2 and with it DeepSeek and local models. |
+| 2026-09-02 | P1 shipped: `runner` enum widened to `codex`/`gemini`, `CodexRunner` on `codex exec --json`, shared NDJSON transport, `AgentCliWrapper` rename with a deprecated alias, `RunnerResult.usage`, `RunnerContext.model`. G1 closed: per-CLI MCP registrars in core, a registrar-driven extension registration, `aidlc mcp register/status`, and a `doctor` that checks each CLI's own config. Deviation: no per-provider tier map — a Claude alias resolves to no `--model` and doctor warns, rather than asserting an unmeasured equivalence (§1a). Live `codex exec` unverified: the CLI is not installed here. 28 tests, 350 core + 25 extension green. |
 | 2026-09-02 | P1a shipped: `HarnessCapabilities` on the runner SPI, `PersonaLoader`, `findProjectInstructions`, `composeAgentPrompt`, `execEngine` composing all three layers, `doctor` **Harness parity** section, 21 tests. Two deliberate deviations: the persona directive is stripped at compose time rather than from 47 templates (R2), and G1 moves into P1 because another CLI's MCP config cannot be verified before that CLI has a runner (§1a). |
 | 2026-09-02 | Added §4b, the per-step verdict, after walking every `AINATIVE_PHASES` entry and skill body. Corrects P2's refusal list: the blocked pair is `implement` + `verify`, not `implement` + `review` — `review` is read-only by design. |

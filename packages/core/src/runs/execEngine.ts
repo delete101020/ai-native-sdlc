@@ -339,6 +339,7 @@ async function execStep(
     env,
     args: userMessage ? [userMessage] : [],
     workspaceRoot: root,
+    model: agent.model,
     onOutput: (chunk) => hooks.onOutput?.(chunk),
     onError: (chunk) => hooks.onErrorOutput?.(chunk),
     claude: null,
