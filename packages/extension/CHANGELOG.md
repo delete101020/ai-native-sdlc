@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.6.3
+
+Fixed the Agents / Skills counters in the sidebar. A preset installs each asset
+twice by design — once as a `workspace.yaml` declaration, once as a `.md` file
+under `~/.claude/` or `.claude/` — and the sidebar added the two lists instead
+of merging them, so a project with 6 agents and 12 skills was advertised as 12
+and 19. The Builder tab has always deduplicated by id, so the two surfaces
+disagreed with each other.
+
+### Fixed
+
+- Sidebar `AGENTS` / `SKILLS` counts now count distinct ids across all three
+  scopes (aidlc + project + global), matching the Builder tab's totals.
+
 ## 3.6.2
 
 Switching Claude accounts without editing JSON. `aidlc.claude.configDir` landed
