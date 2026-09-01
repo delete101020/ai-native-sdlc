@@ -1,5 +1,41 @@
 # Changelog
 
+## 3.6.1
+
+Model defaults stop aging out. Every built-in phase and agent template asked
+for a pinned model id (`claude-opus-4-7`, `claude-sonnet-4-6`), and three
+places each kept their own copy of the default. That had already failed once:
+the v3.1.0 changelog announced a bump to the then-current generation, but only
+the extension's model picker was updated, so presets and agent templates stayed
+on the previous generation for several releases while the changelog said
+otherwise.
+
+### Changed
+
+- feat(presets): built-in phases and agent templates now ask for Claude Code's
+  model *aliases* — `opus`, `sonnet`, `haiku` — which resolve to the current
+  generation of each tier. A workspace created today does not need editing
+  after the next model release. Aliases and pinned ids are both still accepted
+  in `workspace.yaml`; this only changes what the presets write.
+- feat(core): the three defaults live in one module, `presets/models.ts`
+  (`PLANNING_MODEL` / `CODING_MODEL` / `FAST_MODEL`), exported from
+  `@aidlc/core`. `builtinWorkflows`, `aidlc agent add` and the extension's
+  agent wizard all read from it instead of carrying their own literal —
+  `aidlc agent add` had drifted furthest, still defaulting to an id two
+  generations behind the presets.
+- feat(extension): all three model pickers — the quick-pick wizard and the Add
+  / Edit Agent modals — offer the aliases first (recommended) and keep pinned
+  ids below, refreshed to the current models. The two modals had their own
+  copy-pasted list; it now lives in one `webview/lib/models.ts`.
+
+### Fixed
+
+- fix(presets): agent template frontmatter is copied verbatim into
+  `~/.claude/agents/`, where Claude Code honours `model:` — so a stale id there
+  reached the runtime, unlike the informational `model` field in
+  `workspace.yaml`. New tests fail if a pinned `claude-*` id reappears in a
+  built-in phase or an agent template.
+
 ## 3.6.0
 
 Multi-account support. On a machine with more than one Claude account
