@@ -547,6 +547,43 @@ const SidebarSchema = z.object({
   views: z.array(SidebarViewSchema).default([]),
 });
 
+// ── Providers (MULTI_PROVIDER_ALIGNMENT.md §P3) ────────────────────
+
+/**
+ * What one model costs, in USD per million tokens. Declared by the user, not
+ * shipped by AIDLC: a published rate goes stale silently and the real number
+ * depends on the account's discounts and credits. See `runs/pricing.ts`.
+ */
+const ProviderRateSchema = z.object({
+  input_per_mtok: z.number().nonnegative(),
+  output_per_mtok: z.number().nonnegative(),
+});
+
+/**
+ * Per-provider facts AIDLC cannot know on the user's behalf.
+ *
+ * ```yaml
+ * providers:
+ *   codex:
+ *     model_aliases:
+ *       sonnet: gpt-5-codex        # "when an agent asks for sonnet, run this"
+ *     rates:
+ *       "*": { input_per_mtok: 1.25, output_per_mtok: 10.0 }
+ * ```
+ *
+ * Both maps are opt-in and both are claims only the user can make: one asserts
+ * that two models from different vendors are interchangeable for their work,
+ * the other asserts what they are actually billed. Absent, an agent on that
+ * provider runs on the CLI's own default model with blind cost accounting —
+ * and `aidlc doctor` says exactly that rather than inventing either number.
+ */
+const ProviderSchema = z.object({
+  /** Claude tier alias (or any `model:` value) → concrete model id, lowercased keys. */
+  model_aliases: z.record(z.string(), z.string()).default({}),
+  /** Model id → rate. The key `*` applies to every model of this provider. */
+  rates: z.record(z.string(), ProviderRateSchema).default({}),
+});
+
 // ── Top-level workspace ────────────────────────────────────────────
 
 export const WorkspaceSchema = z.object({
@@ -577,6 +614,12 @@ export const WorkspaceSchema = z.object({
   /** Task-type → pipeline recipes. See {@link RecipeSchema}. */
   recipes: z.array(RecipeSchema).default([]),
 
+  /**
+   * Per-provider model aliases + billing rates, keyed by `runner` id
+   * (`codex`, `gemini`, …). See {@link ProviderSchema}.
+   */
+  providers: z.record(z.string(), ProviderSchema).default({}),
+
   state: StateSchema.optional(),
   /** Where run state is persisted (file | git). Defaults to local file. */
   persistence: PersistenceSchema.optional(),
@@ -589,6 +632,8 @@ export type SkillConfig = z.infer<typeof SkillSchema>;
 export type SlashCommandConfig = z.infer<typeof SlashCommandSchema>;
 export type PipelineConfig = z.infer<typeof PipelineSchema>;
 export type PipelineBudget = z.infer<typeof PipelineBudgetSchema>;
+export type ProviderConfig = z.infer<typeof ProviderSchema>;
+export type ProviderRate = z.infer<typeof ProviderRateSchema>;
 export type RecipeConfig = z.infer<typeof RecipeSchema>;
 export type StateConfig = z.infer<typeof StateSchema>;
 export type SidebarConfig = z.infer<typeof SidebarSchema>;

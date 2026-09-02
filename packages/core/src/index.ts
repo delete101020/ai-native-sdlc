@@ -21,6 +21,8 @@ export type {
   SlashCommandConfig,
   PipelineConfig,
   PipelineBudget,
+  ProviderConfig,
+  ProviderRate,
   PipelineStepConfig,
   RecipeConfig,
   NormalizedStep,
@@ -180,6 +182,7 @@ export type {
   RunnerResult,
   AgentCliWrapper,
   ClaudeCliWrapper,
+  RunnerUsage,
   HarnessCapabilities,
 } from './runner/types';
 
@@ -205,7 +208,15 @@ export {
   PipelineRunError,
 } from './runs/PipelineRunner';
 export { checkBudget } from './runs/budget';
-export type { BudgetCheckArgs, BudgetVerdict } from './runs/budget';
+export type { BudgetCheckArgs, BudgetVerdict, CostAccounting, CostConfidence } from './runs/budget';
+export {
+  BUILTIN_RATES,
+  mergeRates,
+  ratesFromConfig,
+  providerAliases,
+  estimateCostUsd,
+} from './runs/pricing';
+export type { ModelRate, PricingTable, CostEstimate } from './runs/pricing';
 export { runExecLoop } from './runs/execEngine';
 export type { ExecOutcome, ExecOptions, ExecHooks } from './runs/execEngine';
 export { verifyRun } from './runs/verifyRun';

@@ -2,7 +2,7 @@
 
 **Branch:** `feat/ai-native-sdlc-alignment` (a `feat/multi-provider` branch splits off at P1)
 **Sibling doc:** `AI_NATIVE_SDLC_ALIGNMENT.md` — same format, same gating discipline
-**Status:** 🟢 P0 locked · P1a shipped (G2, G3, parity check) · P1 shipped (Codex runner, G1) — pending live verification against an installed `codex`. P3 is the next build, on go-ahead
+**Status:** 🟢 P0 locked · P1a shipped (G2, G3, parity check) · P1 shipped (Codex runner, G1) · P3 shipped (cost honesty, `providers:` block) — both pending live verification against an installed `codex`. P4/P5 stay optional and un-started
 **Updated:** 2026-09-02
 
 ---
@@ -264,7 +264,7 @@ is the one thing it still has to earn.
 
 ## 5. Workstreams
 
-Order: **P0 ✅ → P1a ✅ → P1 ✅ → P3**. P2 is **shelved** under §1a and P4/P5 stay
+Order: **P0 ✅ → P1a ✅ → P1 ✅ → P3 ✅**. P2 is **shelved** under §1a and P4/P5 stay
 optional.
 
 P1a comes before P1 deliberately: shipping a Codex runner on top of the §4c parity
@@ -471,19 +471,58 @@ client) that reaches parity with an agentic CLI. At that point it is no longer
 shape B; it is us writing an agent harness, which is a different project with a
 different justification.
 
-### P3 — Cost, model tiers, and budget honesty
+### P3 — Cost, model tiers, and budget honesty ✅ **Shipped 2026-09-02**
 
-- Per-provider rate table + `usage` → `costUsd`, so the existing budget ceiling
-  works across providers.
-- `models.ts` becomes `{ provider → { planning, coding, fast } }`. Keep the
-  existing Claude aliases as the `default` provider's entry so nothing shifts.
-- Surface the provider next to the model wherever the UI shows a tier today, so a
-  user can see that `/spec` ran on Gemini and `/implement` on Claude.
-- `aidlc doctor`: probe each configured provider (binary on PATH for shape A, key
-  present for shape B) and report which agents have blind cost accounting.
+The workstream turned on one question: what does AIDLC know, and what is it only
+guessing? Both planned tables — rates and model tiers — are facts about a vendor
+and an account that this repo cannot verify. So AIDLC ships the **mechanism and
+the labelling**, and the user supplies the fact, in a new `providers:` block:
 
-**Done when:** a mixed-provider run reports a non-zero, roughly correct total, and
-`doctor` names every misconfigured provider before a run starts rather than during.
+```yaml
+providers:
+  codex:
+    model_aliases:
+      sonnet: gpt-5-codex          # an equivalence only the user can assert
+    rates:
+      "*": { input_per_mtok: 1.25, output_per_mtok: 10.0 }
+```
+
+- ✅ **`usage` → `costUsd`, as an estimate that stays labelled an estimate.**
+  `runs/pricing.ts` prices a turn from a declared rate; `StepRecord.costEstimated`
+  carries the distinction into the state file, the run report and the CLI's
+  budget line. A measured cost from the CLI always wins — Claude Code knows about
+  cache hits and the account's plan, and we do not.
+- ✅ **Blind accounting is named, not zeroed.** `checkBudget` returns
+  `{ measured, estimated, blindSteps }`. A total containing an estimate or a
+  blind step prints as `≥ ~$2.5000 (…)`, never as a bare figure.
+- ⚠️ **`models.ts` is *not* a `{ provider → tier }` table** — deviation, carried
+  forward from P1 and now resolved rather than repeated. `resolveProviderModel`
+  takes the user's `model_aliases` map: a mapped tier resolves to their concrete
+  model, an unmapped one still resolves to *nothing* and lets the CLI default.
+  Reason: naming another vendor's model ids means both asserting an unmeasured
+  equivalence **and** guessing ids for a CLI we cannot query — and a wrong
+  `--model` fails the run outright.
+- ⚠️ **`BUILTIN_RATES` is deliberately empty.** A published price goes stale
+  silently and produces a *plausible* total, which is worse than producing none;
+  and the real number depends on discounts and credits AIDLC cannot see.
+- ✅ **Provider shown next to the model.** `StepRecord` records the runner and
+  the resolved model, the run report gains an **Engine** column, and the Builder's
+  agent card + pipeline modal badge any non-`default` harness. `default` is not
+  badged — it is on nearly every agent, so the signal is "this phase left Claude".
+- ✅ **`doctor` gained a Providers section:** each provider CLI on PATH (a
+  **failure**, since the step will not run without it) and its `--version` — which
+  closes the cheap half of §6 q1 — plus per-provider cost accounting and the
+  concrete model each agent resolves to.
+
+**Done when:** ✅ **verified**, with one substitution. `packages/core/test/exec-cost.test.ts`
+drives `runExecLoop` over a three-step pipeline whose fake runners report,
+respectively, dollars / tokens only / nothing, and asserts the run ends with
+`$0.25` measured, `$2.25` estimated, one step blind, and a report reading
+`≥ ~$2.5000 … 1 step reported no cost`. A fourth case confirms an estimated total
+crossing a `max_usd` ceiling actually pauses the run. The substitution: the
+providers are fake `runner_path` modules rather than a live `codex`, because that
+CLI is still not installed here — but what is under test is AIDLC's arithmetic and
+labelling, which is exactly what a fake exercises honestly.
 
 ### P4 — The interactive path (optional, and the expensive one)
 
@@ -520,11 +559,12 @@ and let demand decide whether (b) is worth the UX regression.
 *Three of the original five were answered while locking P0 — see the end of that
 section. What remains:*
 
-1. **Do we pin provider CLI versions?** Still open, and now narrower. `CodexRunner`
-   keeps its flag surface to four (`exec`, `--json`, `--sandbox`, `--model`), each
-   overridable, and a renamed flag fails at spawn rather than silently — so the
-   failure mode is loud. What is still missing is a `codex --version` probe in
-   `doctor` that says which build the flags were written against.
+1. **Do we pin provider CLI versions?** Narrower again after P3. `doctor` now
+   reports each provider's `--version`, so a bug report carries the build the
+   flags were written against. What remains genuinely open is whether AIDLC
+   should *refuse* a version it does not recognise — which trades a loud spawn
+   failure for a guess about future compatibility, and looks like the wrong
+   trade until a real breakage exists to point at.
 2. **Where do provider API keys live for CI?** `${env:VAR}` works locally; CI needs
    the same names documented in one place.
 
@@ -571,4 +611,5 @@ they are not rediscovered painfully later:
 | 2026-09-02 | Owner locked the acceptance rule (§1a): build only what is certainly quality-neutral. Consequences: added §4c (three parity gaps that make even shape A non-neutral today), added P1a and moved it ahead of P1, shelved P2 and with it DeepSeek and local models. |
 | 2026-09-02 | P1 shipped: `runner` enum widened to `codex`/`gemini`, `CodexRunner` on `codex exec --json`, shared NDJSON transport, `AgentCliWrapper` rename with a deprecated alias, `RunnerResult.usage`, `RunnerContext.model`. G1 closed: per-CLI MCP registrars in core, a registrar-driven extension registration, `aidlc mcp register/status`, and a `doctor` that checks each CLI's own config. Deviation: no per-provider tier map — a Claude alias resolves to no `--model` and doctor warns, rather than asserting an unmeasured equivalence (§1a). Live `codex exec` unverified: the CLI is not installed here. 28 tests, 350 core + 25 extension green. |
 | 2026-09-02 | P1a shipped: `HarnessCapabilities` on the runner SPI, `PersonaLoader`, `findProjectInstructions`, `composeAgentPrompt`, `execEngine` composing all three layers, `doctor` **Harness parity** section, 21 tests. Two deliberate deviations: the persona directive is stripped at compose time rather than from 47 templates (R2), and G1 moves into P1 because another CLI's MCP config cannot be verified before that CLI has a runner (§1a). |
+| 2026-09-02 | P3 shipped: `runs/pricing.ts`, a `providers:` block carrying user-declared `model_aliases` + `rates`, `costEstimated` on `StepRecord`, `checkBudget` returning `{measured, estimated, blindSteps}`, an **Engine** column in the run report, runner badges in the Builder, and a `doctor` **Providers** section (PATH + `--version` + per-provider cost accounting). Deviations, both toward honesty over completeness: `BUILTIN_RATES` ships empty, and there is still no built-in tier map — the user declares both, because a stale price and an invented model id both fail quietly. 27 tests, 377 core + 25 extension green. |
 | 2026-09-02 | Added §4b, the per-step verdict, after walking every `AINATIVE_PHASES` entry and skill body. Corrects P2's refusal list: the blocked pair is `implement` + `verify`, not `implement` + `review` — `review` is read-only by design. |

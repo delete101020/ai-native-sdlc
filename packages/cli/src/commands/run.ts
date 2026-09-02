@@ -492,14 +492,25 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
     onAutoApproved: (e) => info(chalk.green(`✔  Auto-approved "${e.agent}" (--auto-approve)`)),
 
     onBudget: (e) => {
+      // A spend figure that mixes measured cost with an estimate, or that is
+      // missing steps entirely, has to say so — otherwise the user reads a
+      // partial total as the bill (MULTI_PROVIDER_ALIGNMENT.md P0/D5).
+      const caveats: string[] = [];
+      if (e.estimated && e.estimated > 0) { caveats.push(`$${e.estimated.toFixed(4)} estimated`); }
+      if (e.blindSteps && e.blindSteps > 0) {
+        caveats.push(`${e.blindSteps} step${e.blindSteps !== 1 ? 's' : ''} reported no cost`);
+      }
+      const note = caveats.length ? ` (${caveats.join('; ')})` : '';
+      const approx = caveats.length ? '≥ ' : '';
+
       if (!e.ok) {
         const scope = e.exceeded === 'step' ? 'per-step' : 'total';
-        info(chalk.yellow(`\n⚠  Budget exceeded (${scope}): spent $${e.spent.toFixed(4)}, limit $${e.limit.toFixed(2)}.`));
+        info(chalk.yellow(`\n⚠  Budget exceeded (${scope}): spent ${approx}$${e.spent.toFixed(4)}, limit $${e.limit.toFixed(2)}.${note}`));
         if (e.onExceed !== 'fail') {
           info(chalk.dim(`  Paused. Raise the budget in workspace.yaml or resume: aidlc run exec ${e.runId}`));
         }
       } else {
-        info(chalk.dim(`  budget: $${e.spent.toFixed(4)} / $${e.limit.toFixed(2)}`));
+        info(chalk.dim(`  budget: ${approx}$${e.spent.toFixed(4)} / $${e.limit.toFixed(2)}${note}`));
       }
     },
 

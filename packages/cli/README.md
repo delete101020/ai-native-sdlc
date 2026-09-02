@@ -191,11 +191,34 @@ differs is what the harness supplies by itself: Claude Code reads `CLAUDE.md`
 and gets it once, Codex is handed `AGENTS.md` (or `CLAUDE.md` when the repo has
 no `AGENTS.md`) inline. `aidlc doctor` prints the resolved layers per agent.
 
-Two things do *not* carry across: `model:` tier aliases (`opus` / `sonnet` /
-`haiku`) mean nothing to another CLI, so a provider runner passes no `--model`
-and the CLI applies its own default — set an explicit model id if that matters.
-And Codex reports tokens rather than dollars, so its steps count as $0 against
-`budget.max_usd`; doctor says so rather than showing a confident wrong total.
+Two things do *not* carry across on their own — a tier alias and a price — and
+both are settled in one place, the optional `providers:` block:
+
+```yaml
+providers:
+  codex:
+    model_aliases:
+      sonnet: gpt-5-codex                              # tier → concrete model
+    rates:
+      "*": { input_per_mtok: 1.25, output_per_mtok: 10.0 }   # USD per 1M tokens
+```
+
+`model_aliases` translates a `model:` value for one runner. Without it, a Claude
+tier alias (`opus` / `sonnet` / `haiku`) resolves to no `--model` at all and the
+provider CLI applies its own default. AIDLC ships **no** built-in tier map: saying
+`sonnet` equals some other vendor's model is a claim about your work that only you
+can make, and a guessed model id fails the run outright.
+
+`rates` prices the tokens a CLI reports, for the providers that report tokens
+rather than dollars (Codex does; Claude Code reports a measured
+`total_cost_usd`, which always wins). AIDLC ships **no** built-in prices either —
+a stale rate produces a plausible total instead of failing loudly, and your real
+rate depends on your account. Without rates, a Codex step still sums as $0 and
+`aidlc doctor` names it.
+
+Either way the number is labelled: a total containing an estimate prints as
+`≥ ~$2.5000 (includes estimates from declared rates)`, and one missing a step
+entirely says `1 step reported no cost`.
 
 ### Pipelines
 
@@ -391,8 +414,19 @@ resets downstream steps), mirroring the extension's "Request update" action.
 Because `run exec --auto-approve` can drive a whole pipeline unattended (and a
 self-fixing agent loop can quietly escalate spend), a pipeline may declare an
 optional cost ceiling. After each step the autopilot sums the per-step LLM cost
-(claude's reported `total_cost_usd`) and stops once a ceiling is crossed. Manual
-`mark-done` is never gated.
+and stops once a ceiling is crossed. Manual `mark-done` is never gated.
+
+A step's cost is one of three things, and the guard treats them differently:
+
+| | Where it comes from | Counts toward the ceiling |
+|---|---|---|
+| **measured** | the CLI reported dollars (`claude`) | yes |
+| **estimated** | tokens × your `providers.<runner>.rates` | yes, and it says so |
+| **blind** | the CLI reported neither | no — it sums as $0 |
+
+An estimate is counted because the alternative is a provider with no ceiling at
+all. It is never presented as measured: the running line reads
+`budget: ≥ $2.5000 / $5.00 ($2.2500 estimated; 1 step reported no cost)`.
 
 ```yaml
 pipelines:
@@ -404,9 +438,8 @@ pipelines:
     steps: [...]
 ```
 
-`run exec` prints a running `budget: $spent / $max` line per step; on `pause` it
-stops and you can raise the budget or resume, on `fail` it exits non-zero (handy
-in CI).
+On `pause` the loop stops and you can raise the budget or resume; on `fail` it
+exits non-zero (handy in CI).
 
 ### `step` — direct step control
 

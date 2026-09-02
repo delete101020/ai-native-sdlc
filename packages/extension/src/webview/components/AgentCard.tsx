@@ -33,6 +33,15 @@ const integrationIcons: Record<string, React.ReactNode> = {
   slack: <MessageSquare className="h-3 w-3" />,
 };
 
+/**
+ * A badge is shown only for a non-Claude harness. `default` is on almost every
+ * agent, so badging it would be noise; the fact worth surfacing is that *this*
+ * phase left Claude (MULTI_PROVIDER_ALIGNMENT.md §P3).
+ */
+function isProviderRunner(runner?: string): boolean {
+  return !!runner && runner !== 'default';
+}
+
 export function AgentCard({
   agent,
   allAgentIds,
@@ -138,7 +147,7 @@ export function AgentCard({
         </div>
       </div>
 
-      {(agent.skill || agent.model) && (
+      {(agent.skill || agent.model || isProviderRunner(agent.runner)) && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {agent.skill && (
             <span className="rounded bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-medium text-primary">
@@ -148,6 +157,11 @@ export function AgentCard({
           {agent.model && (
             <span className="rounded bg-secondary px-2 py-0.5 text-[10px] text-secondary-foreground">
               {agent.model}
+            </span>
+          )}
+          {isProviderRunner(agent.runner) && (
+            <span className="rounded bg-warning/15 px-2 py-0.5 font-mono text-[10px] text-warning">
+              {agent.runner}
             </span>
           )}
         </div>

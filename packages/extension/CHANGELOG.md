@@ -32,11 +32,9 @@ declares no capabilities keeps working and simply receives a fuller prompt.
 - `aidlc run exec --dry-run` names which layers were inlined.
 - **`runner: codex`** — a bundled runner for `codex exec`, the first non-Claude
   harness. It receives the same composed prompt every other harness does, so
-  which provider runs a phase is a wiring choice. Two honest limits, both
-  reported by `doctor` rather than hidden: `model:` tier aliases (`opus` /
-  `sonnet` / `haiku`) mean nothing to another CLI, so no `--model` is passed and
-  Codex applies its own default; and Codex reports tokens rather than dollars,
-  so its steps count as $0 against `budget.max_usd`.
+  which provider runs a phase is a wiring choice. Two things do not carry across
+  a provider boundary by themselves — a `model:` tier alias and a price — and
+  both are declared in the new `providers:` block below.
 - **`aidlc mcp status` / `aidlc mcp register`** — give another CLI the same
   `ast-graph` server Claude has. The extension registers Claude automatically
   because `--scope local` is per-project; Codex stores MCP servers per user, so
@@ -44,6 +42,30 @@ declares no capabilities keeps working and simply receives a fuller prompt.
   path out of Claude's existing registration rather than rediscovering them.
 - `gemini` is accepted by the schema but has no runner yet, and says so when a
   step tries to resolve it — never a silent fallback to Claude.
+- **A `providers:` block in `workspace.yaml`**, carrying the two per-provider
+  facts AIDLC is not entitled to invent:
+
+  ```yaml
+  providers:
+    codex:
+      model_aliases: { sonnet: gpt-5-codex }
+      rates: { "*": { input_per_mtok: 1.25, output_per_mtok: 10.0 } }
+  ```
+
+  `model_aliases` says which concrete model a tier means on that provider.
+  `rates` prices the tokens a CLI reports for the providers that report tokens
+  rather than dollars. Both are optional; without them an agent runs on the
+  CLI's own default model with blind cost accounting, and `doctor` says so.
+
+  AIDLC ships neither table pre-filled, on purpose. A published price goes stale
+  silently and yields a *plausible* total rather than a loud failure, and the
+  real figure depends on discounts we cannot see. A tier map would mean
+  asserting that two vendors' models are interchangeable for your work — and
+  guessing model ids for a CLI we cannot query, where a wrong `--model` fails
+  the run outright.
+- `aidlc doctor` gains a **Providers** section: each provider CLI's presence on
+  `PATH` and `--version`, the concrete model every agent resolves to, and which
+  providers have blind cost accounting.
 
 ### Changed
 
@@ -53,6 +75,15 @@ declares no capabilities keeps working and simply receives a fuller prompt.
   each harness to a different one.
 - `ClaudeCliWrapper` is now `AgentCliWrapper`. The old name remains exported as
   a deprecated alias, so existing custom runners keep compiling.
+- **A cost total now states how well it is known.** A step's cost is measured
+  (the CLI reported dollars), estimated (tokens × your declared rate), or blind
+  (neither). An estimate counts against `budget.max_usd` — the alternative is a
+  provider with no ceiling at all — but never passes itself off as measured: the
+  run report and the autopilot's budget line read `≥ ~$2.5000 (includes
+  estimates from declared rates; 1 step reported no cost)`.
+- The run report gains an **Engine** column naming the runner and resolved model
+  per step, and the Builder badges any agent whose runner is not `default`, so a
+  pipeline that mixes harnesses shows it without opening `workspace.yaml`.
 
 ## 3.6.3
 

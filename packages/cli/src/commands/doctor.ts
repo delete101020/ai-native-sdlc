@@ -23,6 +23,9 @@ import {
   readProjectMcpServer,
   isCodexMcpConfigured,
   isClaudeTierAlias,
+  resolveProviderModel,
+  providerAliases,
+  ratesFromConfig,
   type HarnessCapabilities,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
@@ -187,17 +190,6 @@ function parityChecks(
     }
   }
 
-  // A model that is not portable across harnesses. `sonnet` means nothing to
-  // `codex`, so the runner passes no --model and the provider CLI picks its own
-  // default — defensible, but the user should hear it from doctor rather than
-  // infer it from a bill (MULTI_PROVIDER_ALIGNMENT.md P0/D8).
-  for (const agent of ws.config.agents) {
-    if (agent.runner !== 'default' && agent.runner !== 'custom' && isClaudeTierAlias(agent.model)) {
-      checks.push(warn(`model "${agent.id}"`,
-        `"${agent.model}" is a Claude tier alias — ${agent.runner} will use its own default model instead`));
-    }
-  }
-
   // ast-graph. Registration is now checked against each CLI's own config, which
   // is a file read rather than a subprocess, so doctor stays offline and still
   // stops implying that a graph on disk means a harness can reach it (G1).
@@ -223,6 +215,83 @@ function parityChecks(
     } else {
       checks.push(warn(`ast-graph via ${runner}`,
         'AIDLC has no MCP registration for this runner — its phases run without the graph'));
+    }
+  }
+
+  return checks;
+}
+
+/**
+ * Providers: is each configured CLI actually here, which concrete model will
+ * each agent run on, and do we know what any of it costs
+ * (MULTI_PROVIDER_ALIGNMENT.md §P3).
+ *
+ * The cost lines exist because P0/D5 requires a blind provider to be named out
+ * loud. A budget ceiling that silently sums a Codex step as $0 is not a
+ * ceiling, and the moment to learn that is before a run, not after a bill.
+ */
+function providerChecks(
+  ws: NonNullable<Awaited<ReturnType<typeof WorkspaceLoader.load>>>,
+): Check[] {
+  const checks: Check[] = [];
+  const runners = [...new Set(ws.config.agents.map((a) => a.runner))].sort();
+  const rates = ratesFromConfig(ws.config.providers);
+
+  for (const runner of runners) {
+    if (runner === 'custom') { continue; }
+
+    // `default` is Claude, already probed in its own section above.
+    if (runner !== 'default') {
+      // Pinning provider CLI versions is still open (§6 q1); reporting the
+      // build the flags were written against is the cheap half of the answer.
+      try {
+        const bin = execSync(`which ${runner}`, { encoding: 'utf8', timeout: 5000 }).trim();
+        checks.push(ok(`${runner} binary on PATH`, bin));
+        try {
+          const version = execSync(`${runner} --version`, {
+            encoding: 'utf8', timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'],
+          }).trim();
+          checks.push(ok(`${runner} --version`, version.split('\n')[0]));
+        } catch {
+          checks.push(warn(`${runner} --version`, 'binary present but --version failed'));
+        }
+      } catch {
+        checks.push(fail(`${runner} binary on PATH`,
+          `agents declare runner: ${runner}, but that CLI is not installed`));
+      }
+    }
+
+    // Cost accounting, per provider.
+    if (runner === 'default') {
+      checks.push(ok('cost accounting (default)', 'claude reports total_cost_usd — measured'));
+    } else if (rates[runner]) {
+      const models = Object.keys(rates[runner]).join(', ');
+      checks.push(ok(`cost accounting (${runner})`,
+        `estimated from providers.${runner}.rates (${models}) — not a measured cost`));
+    } else {
+      checks.push(warn(`cost accounting (${runner})`,
+        `no rates declared — steps on ${runner} sum as $0 against the budget. `
+        + `Set providers.${runner}.rates in workspace.yaml to enforce a ceiling.`));
+    }
+  }
+
+  // Which concrete model each agent ends up on, after alias resolution.
+  for (const agent of ws.config.agents) {
+    if (agent.runner === 'custom' || !agent.model) { continue; }
+    const aliases = providerAliases(ws.config.providers, agent.runner);
+    const resolved = resolveProviderModel(agent.runner, agent.model, aliases);
+
+    if (agent.runner === 'default') {
+      checks.push(ok(`model "${agent.id}"`, `${agent.model} — resolved by Claude Code`));
+    } else if (resolved && resolved !== agent.model) {
+      checks.push(ok(`model "${agent.id}"`,
+        `${agent.model} → ${resolved} (providers.${agent.runner}.model_aliases)`));
+    } else if (resolved) {
+      checks.push(ok(`model "${agent.id}"`, `${resolved}, passed to ${agent.runner} verbatim`));
+    } else if (isClaudeTierAlias(agent.model)) {
+      checks.push(warn(`model "${agent.id}"`,
+        `"${agent.model}" is a Claude tier alias — ${agent.runner} will use its own default model. `
+        + `Declare providers.${agent.runner}.model_aliases.${agent.model} to pin one.`));
     }
   }
 
@@ -363,6 +432,7 @@ export function registerDoctor(program: Command): void {
       // ── Harness parity ───────────────────────────────────────────────────
       if (ws) {
         emitSection('Harness parity', parityChecks(root, ws));
+        emitSection('Providers', providerChecks(ws));
       }
 
       // ── Run state ────────────────────────────────────────────────────────

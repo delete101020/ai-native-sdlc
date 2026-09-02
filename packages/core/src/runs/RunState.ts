@@ -57,6 +57,24 @@ export interface StepRecord {
    * runner reported it. Summed across steps by the `run exec` budget guard.
    */
   costUsd?: number;
+  /**
+   * True when `costUsd` came from `usage` × a declared rate rather than from a
+   * cost the CLI itself reported. Carried so the report can print `~$0.12 est.`
+   * instead of `$0.12` — the difference between the two is the difference
+   * between a fact and an arithmetic guess (P0/D5).
+   */
+  costEstimated?: boolean;
+  /** Token counts the CLI reported, when it reported any. */
+  usage?: { inputTokens?: number; outputTokens?: number };
+  /** Runner id this step actually executed on (`default`, `codex`, …). */
+  runner?: string;
+  /**
+   * Concrete model the runner was told to use, after alias resolution. Empty
+   * when the provider CLI was left to pick its own default — which is itself
+   * worth recording, since it is the case where the run's provenance is
+   * incomplete.
+   */
+  model?: string;
   /** Optional human feedback supplied at rerun time. Carried forward. */
   feedback?: string;
   /** Reason supplied with the most recent rejection. Cleared on rerun. */

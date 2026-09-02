@@ -48,18 +48,32 @@ export function isClaudeTierAlias(model?: string): boolean {
  * The model a provider runner should be told to use, or `undefined` for "say
  * nothing and let the CLI pick its own default".
  *
- * Deliberately *not* a tier translation table. Mapping `sonnet` onto some
+ * Resolution order:
+ *   1. `default` (Claude Code) → always `undefined`; it resolves tiers itself.
+ *   2. A user-declared alias for this provider → that concrete model id.
+ *   3. A Claude tier alias with no declaration → `undefined`, and `doctor`
+ *      says so.
+ *   4. Anything else → passed through verbatim; `model: gpt-5-codex` means it.
+ *
+ * Step 3 is why AIDLC ships no built-in tier map. Mapping `sonnet` onto some
  * provider's mid-tier model would be us inventing an equivalence we have not
  * measured, and quietly downgrading a phase the user believed was on its best
- * model — precisely the silent quality change §1a exists to prevent. So a
- * Claude alias resolves to nothing, the provider CLI applies its own default,
- * and `aidlc doctor` points out that this agent's `model:` is not portable.
- * Anything else is passed through verbatim: a user who writes
- * `model: gpt-5-codex` means it.
+ * model — precisely the silent quality change §1a exists to prevent. Worse, we
+ * would have to name model ids for a CLI we cannot query, and a wrong `--model`
+ * fails the run outright. Step 2 puts the same table within reach, authored by
+ * the one person entitled to assert the equivalence (P0/D8).
  */
-export function resolveProviderModel(provider: string, model?: string): string | undefined {
+export function resolveProviderModel(
+  provider: string,
+  model?: string,
+  aliases?: Record<string, string>,
+): string | undefined {
   const trimmed = model?.trim();
   if (!trimmed) { return undefined; }
   if (provider === 'default') { return undefined; } // Claude Code resolves tiers itself.
+
+  const declared = aliases?.[trimmed.toLowerCase()]?.trim();
+  if (declared) { return declared; }
+
   return isClaudeTierAlias(trimmed) ? undefined : trimmed;
 }

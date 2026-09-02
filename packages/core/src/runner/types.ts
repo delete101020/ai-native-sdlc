@@ -37,6 +37,16 @@ export interface RunnerContext {
    * feature. Provider runners need it, because `sonnet` means nothing to them.
    */
   model?: string;
+  /**
+   * The workspace's `providers.<runner>.model_aliases` map, lowercased keys.
+   *
+   * A user-declared translation from a Claude tier alias to a concrete model on
+   * this provider. It lives in `workspace.yaml` rather than in AIDLC because
+   * asserting that `sonnet` and some other vendor's model are equivalent is a
+   * claim about quality, and only the person paying for the run gets to make it
+   * (MULTI_PROVIDER_ALIGNMENT.md P0/D8).
+   */
+  modelAliases?: Record<string, string>;
 }
 
 /** @deprecated Renamed to `AgentCliWrapper`. Kept so existing custom runners compile. */
@@ -63,6 +73,12 @@ export interface AgentCliWrapper {
   }): Promise<{ content: string; exitCode: number }>;
 }
 
+/** Token counts a CLI reported for one invocation. */
+export interface RunnerUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
 export interface RunnerResult {
   success: boolean;
   /** Final assembled output. May be empty if the runner streamed only. */
@@ -76,10 +92,11 @@ export interface RunnerResult {
   /**
    * Token usage, when the CLI reports it. Codex reports tokens but not dollars,
    * so `usage` and `costUsd` are independent: a runner fills in whichever its
-   * CLI actually gives it, and neither is ever derived from the other. Pricing
-   * tokens we did not measure is P3's problem, and only with a real price table.
+   * CLI actually gives it, and neither is ever derived from the other. Turning
+   * these into dollars needs a declared rate — see `runs/pricing.ts`, and note
+   * that the result is carried as an *estimate*, never merged into `costUsd`.
    */
-  usage?: { inputTokens?: number; outputTokens?: number };
+  usage?: RunnerUsage;
   /** Optional structured payload (parsed JSON, file paths produced, etc.). */
   data?: unknown;
 }

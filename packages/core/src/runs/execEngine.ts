@@ -22,7 +22,9 @@ import {
   PipelineRunError,
 } from './PipelineRunner';
 import { runAutoReview } from './AutoReviewer';
-import { checkBudget } from './budget';
+import { checkBudget, type CostAccounting } from './budget';
+import { estimateCostUsd, ratesFromConfig, providerAliases } from './pricing';
+import { resolveProviderModel } from '../presets/models';
 import type { RunState } from './RunState';
 import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
 import { composeAgentPrompt, type ComposedPrompt } from '../loader/promptComposer';
@@ -77,6 +79,9 @@ export interface ExecHooks {
   /** A step finished `markStepDone` and transitioned. */
   onStepResult?(e: {
     stepIdx: number; agent: string; status: string; costUsd?: number;
+    /** True when costUsd came from tokens × a declared rate, not from the CLI. */
+    costEstimated?: boolean;
+    runner?: string; model?: string;
   }): void;
   /** The runner exited non-zero, or `markStepDone` rejected the artifacts. */
   onStepFailed?(e: {
@@ -98,6 +103,8 @@ export interface ExecHooks {
   onBudget?(e: {
     spent: number; limit: number; ok: boolean;
     exceeded?: 'step' | 'total'; onExceed?: string; runId: string;
+    /** How much of `spent` is measured vs. estimated, and how many steps are blind. */
+    measured?: number; estimated?: number; blindSteps?: number;
   }): void;
   /** Stopped at the --until boundary. */
   onUntilStop?(e: { untilIdx: number }): void;
@@ -206,18 +213,30 @@ export async function runExecLoop(
     if (budget) {
       const after = RunStateStore.load(root, runId);
       const stepCosts = after ? after.steps.map((s) => s.costUsd) : [];
+      // Only steps that actually ran can be blind; a step still queued has no
+      // cost because it has no execution, which is not the same thing.
+      const stepAccounting: Array<CostAccounting | undefined> = after
+        ? after.steps.map((s) => {
+            if (typeof s.costUsd === 'number') { return s.costEstimated ? 'estimated' : 'measured'; }
+            return s.startedAt ? 'blind' : undefined;
+          })
+        : [];
       const lastStepCost = after?.steps[state.currentStepIdx]?.costUsd;
-      const verdict = checkBudget({ stepCosts, budget, lastStepCost });
+      const verdict = checkBudget({ stepCosts, stepAccounting, budget, lastStepCost });
       if (!verdict.ok) {
         hooks.onBudget?.({
           spent: verdict.spent, limit: verdict.limit, ok: false,
           exceeded: verdict.exceeded, onExceed: budget.on_exceed, runId,
+          measured: verdict.measured, estimated: verdict.estimated, blindSteps: verdict.blindSteps,
         });
         return budget.on_exceed === 'fail'
           ? { kind: 'error' }
           : { kind: 'budget_pause' };
       }
-      hooks.onBudget?.({ spent: verdict.spent, limit: budget.max_usd, ok: true, runId });
+      hooks.onBudget?.({
+        spent: verdict.spent, limit: budget.max_usd, ok: true, runId,
+        measured: verdict.measured, estimated: verdict.estimated, blindSteps: verdict.blindSteps,
+      });
     }
 
     // --until boundary. `state.currentStepIdx` is the step that just ran.
@@ -334,12 +353,20 @@ async function execStep(
     skills: agent.skills, model: agent.model, context: userMessage,
   });
 
+  // Model + rates are per-provider facts the user declares (P3); resolving the
+  // model here rather than inside the runner means the concrete id can be
+  // recorded on the step, so a finished run says which model wrote each
+  // artifact instead of only which tier was asked for.
+  const aliases = providerAliases(ws.config.providers, agent.runner);
+  const resolvedModel = resolveProviderModel(agent.runner, agent.model, aliases);
+
   const result = await runner.run({
     skill: skillText,
     env,
     args: userMessage ? [userMessage] : [],
     workspaceRoot: root,
     model: agent.model,
+    modelAliases: aliases,
     onOutput: (chunk) => hooks.onOutput?.(chunk),
     onError: (chunk) => hooks.onErrorOutput?.(chunk),
     claude: null,
@@ -356,8 +383,27 @@ async function execStep(
     const freshState = RunStateStore.load(root, runId)!;
     // Record cost before the transition so the budget guard can sum it and it
     // survives the reload-each-iteration loop.
+    // Provenance of the step, recorded whether or not a cost came back.
+    const rec = freshState.steps[stepIdx];
+    rec.runner = agent.runner;
+    rec.model = resolvedModel;
+    rec.usage = result.usage;
     if (typeof result.costUsd === 'number') {
-      freshState.steps[stepIdx].costUsd = result.costUsd;
+      // A cost the CLI reported always wins: it knows about cache hits and the
+      // account's actual plan, and we do not.
+      rec.costUsd = result.costUsd;
+      rec.costEstimated = undefined;
+    } else {
+      const est = estimateCostUsd({
+        table: ratesFromConfig(ws.config.providers),
+        provider: agent.runner,
+        model: resolvedModel ?? agent.model,
+        usage: result.usage,
+      });
+      if (est) {
+        rec.costUsd = est.usd;
+        rec.costEstimated = true;
+      }
     }
     next = markStepDone({ state: freshState, pipeline, workspaceRoot: root });
   } catch (err) {
@@ -373,7 +419,8 @@ async function execStep(
 
   const doneStep = next.steps[stepIdx];
   hooks.onStepResult?.({
-    stepIdx, agent: agentId, status: doneStep.status, costUsd: result.costUsd,
+    stepIdx, agent: agentId, status: doneStep.status, costUsd: doneStep.costUsd,
+    costEstimated: doneStep.costEstimated, runner: agent.runner, model: resolvedModel,
   });
   return true;
 }

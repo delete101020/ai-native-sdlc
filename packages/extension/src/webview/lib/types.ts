@@ -392,6 +392,12 @@ export interface AgentSummary {
   /** All skills the agent can use. */
   skills?: string[];
   model?: string;
+  /**
+   * Which harness executes this agent (`default` = Claude Code, `codex`, …).
+   * Surfaced next to the model so a mixed pipeline shows, at a glance, which
+   * phases left Claude (MULTI_PROVIDER_ALIGNMENT.md §P3).
+   */
+  runner?: string;
   integrations?: string[];
   /** Human label of the built-in preset that contributed this entry (e.g. "SDLC Pipeline"). Absent for user-created entries. */
   builtinFrom?: string;

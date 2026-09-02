@@ -72,7 +72,7 @@ export class CodexRunner implements AidlcRunner {
 
   async run(ctx: RunnerContext): Promise<RunnerResult> {
     const bin = this.opts.codexBin ?? 'codex';
-    const model = resolveProviderModel('codex', ctx.model);
+    const model = resolveProviderModel('codex', ctx.model, ctx.modelAliases);
 
     const args = [
       'exec',

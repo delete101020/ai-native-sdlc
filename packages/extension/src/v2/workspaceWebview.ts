@@ -307,6 +307,12 @@ interface AgentSummary {
   skill?: string;
   skills?: string[];
   model?: string;
+  /**
+   * Which harness executes this agent (`default` = Claude Code, `codex`, …).
+   * Surfaced next to the model so a mixed pipeline shows, at a glance, which
+   * phases left Claude (MULTI_PROVIDER_ALIGNMENT.md §P3).
+   */
+  runner?: string;
   integrations?: string[];
   /** Human label of the built-in preset that contributed this entry (e.g. "SDLC Pipeline"). Absent for user-created entries. */
   builtinFrom?: string;
@@ -974,10 +980,15 @@ function mergeAgents(doc: YamlDocument | null, root: string, discovered: Discove
   // inherit their `skills:` array — the picker hides the AIDLC scope, so
   // without this overlay the per-step skill picker would be empty.
   const yamlSkillsById = new Map<string, string[]>();
+  // Same overlay for `runner`: a discovered `.md` file carries no runner of its
+  // own, but when workspace.yaml binds that id to a provider, the card should
+  // say so rather than implying every agent runs on Claude.
+  const yamlRunnerById = new Map<string, string>();
   if (doc) {
     for (const a of doc.agents) {
       const skills = extractSkillIds(a);
       if (skills.length > 0) { yamlSkillsById.set(String(a.id), skills); }
+      if (typeof a.runner === 'string') { yamlRunnerById.set(String(a.id), a.runner); }
     }
   }
 
@@ -993,6 +1004,7 @@ function mergeAgents(doc: YamlDocument | null, root: string, discovered: Discove
       filePath: a.filePath,
       description: fm.description,
       model: fm.model,
+      runner: yamlRunnerById.get(a.id),
       integrations: fm.tools,
       skill: resolvedSkills?.[0],
       skills: resolvedSkills,
@@ -1012,6 +1024,7 @@ function mergeAgents(doc: YamlDocument | null, root: string, discovered: Discove
       filePath: a.filePath,
       description: fm.description,
       model: fm.model,
+      runner: yamlRunnerById.get(a.id),
       integrations: fm.tools,
       skill: resolvedSkills?.[0],
       skills: resolvedSkills,
@@ -1049,6 +1062,7 @@ function mergeAgents(doc: YamlDocument | null, root: string, discovered: Discove
         skill: skills[0],
         skills,
         model: typeof a.model === 'string' ? a.model : undefined,
+        runner: typeof a.runner === 'string' ? a.runner : undefined,
         integrations: Array.isArray(a.capabilities)
           ? (a.capabilities as unknown[]).map(String)
           : undefined,
