@@ -13,7 +13,12 @@ import { describe, it, expect } from 'vitest';
 
 import { expandHome, resolveDeclaredPath } from '../src/util/paths';
 
-const HOME = '/home/tester';
+// Native absolute fixtures: `path.resolve` anchors a POSIX-looking absolute
+// path onto the current drive on Win32, so a hand-written expectation would
+// disagree with what the helper returns. Resolving the fixtures first gives a
+// root that is already absolute on whichever platform the suite runs.
+const HOME = path.resolve('/home/tester');
+const ROOT = path.resolve('/work/project');
 
 describe('expandHome', () => {
   it('expands a leading ~/', () => {
@@ -40,19 +45,19 @@ describe('expandHome', () => {
 
 describe('resolveDeclaredPath', () => {
   it('resolves a ~ path to the home directory, not under the workspace root', () => {
-    const resolved = resolveDeclaredPath('/work/project', '~/.claude/skills/a.md', HOME);
+    const resolved = resolveDeclaredPath(ROOT, '~/.claude/skills/a.md', HOME);
     expect(resolved).toBe(path.join(HOME, '.claude/skills/a.md'));
-    expect(resolved).not.toContain('/work/project');
+    expect(resolved).not.toContain(ROOT);
     expect(resolved).not.toContain('~');
   });
 
   it('still resolves a relative path against the workspace root', () => {
-    expect(resolveDeclaredPath('/work/project', './.aidlc/skills/a.md', HOME))
-      .toBe('/work/project/.aidlc/skills/a.md');
+    expect(resolveDeclaredPath(ROOT, './.aidlc/skills/a.md', HOME))
+      .toBe(path.join(ROOT, '.aidlc/skills/a.md'));
   });
 
   it('leaves an absolute path absolute', () => {
-    expect(resolveDeclaredPath('/work/project', '/opt/skills/a.md', HOME))
-      .toBe('/opt/skills/a.md');
+    expect(resolveDeclaredPath(ROOT, path.resolve('/opt/skills/a.md'), HOME))
+      .toBe(path.resolve('/opt/skills/a.md'));
   });
 });

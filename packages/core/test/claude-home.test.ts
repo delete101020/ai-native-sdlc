@@ -24,8 +24,12 @@ import {
 } from '../src/util/claudeHome';
 import { expandHome } from '../src/util/paths';
 
-const HOME = '/home/dev';
-const WORK = '/home/dev/.claude-work';
+// Native absolute fixtures: these values flow through `path.resolve`, which on
+// Win32 anchors a POSIX-looking absolute path onto the current drive — a
+// hand-written `/home/dev/...` expectation would never match what comes back.
+const HOME = path.resolve('/home/dev');
+const WORK = path.join(HOME, '.claude-work');
+const PERSONAL = path.resolve('/opt/personal');
 
 afterEach(() => { setClaudeConfigDir(undefined); });
 
@@ -47,10 +51,10 @@ describe('resolveClaudeConfigDir', () => {
 
   it('lets the setting override the environment', () => {
     expect(resolveClaudeConfigDir({
-      configDir: '/opt/personal',
+      configDir: PERSONAL,
       homeDir: HOME,
       env: { CLAUDE_CONFIG_DIR: WORK },
-    })).toBe('/opt/personal');
+    })).toBe(PERSONAL);
   });
 
   it('lets the process-wide override beat the environment', () => {

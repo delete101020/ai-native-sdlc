@@ -199,8 +199,26 @@ describe('approval-gate hook', () => {
    */
   const HOOK = path.join(CORE_ROOT, '..', '..', '.claude', 'hooks', 'aidlc-approval-gate.py');
 
+  /**
+   * Resolve a real Python 3. `python3` is on PATH on Windows but points at the
+   * Microsoft Store alias stub, which prints an install hint and exits 9009
+   * without running the script — so probe each candidate and keep the first
+   * that actually reports a version.
+   */
+  const PYTHON: string[] | null = (() => {
+    for (const cmd of [['python3'], ['python'], ['py', '-3']]) {
+      const probe = spawnSync(cmd[0], [...cmd.slice(1), '--version'], { encoding: 'utf8' });
+      if (probe.status === 0 && /^Python 3/.test(probe.stdout || probe.stderr || '')) { return cmd; }
+    }
+    return null;
+  })();
+
   const run = (payload: unknown): { code: number; stderr: string } => {
-    const r = spawnSync('python3', [HOOK], { input: JSON.stringify(payload), encoding: 'utf8' });
+    if (!PYTHON) { throw new Error('no working Python 3 interpreter on PATH'); }
+    const r = spawnSync(PYTHON[0], [...PYTHON.slice(1), HOOK], {
+      input: JSON.stringify(payload),
+      encoding: 'utf8',
+    });
     return { code: r.status ?? -1, stderr: r.stderr ?? '' };
   };
 
@@ -236,7 +254,7 @@ describe('approval-gate hook', () => {
   });
 
   it('fails open on input it cannot parse', () => {
-    const r = spawnSync('python3', [HOOK], { input: 'not json', encoding: 'utf8' });
+    const r = spawnSync(PYTHON![0], [...PYTHON!.slice(1), HOOK], { input: 'not json', encoding: 'utf8' });
     expect(r.status).toBe(0);
   });
 });

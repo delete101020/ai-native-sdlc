@@ -14,6 +14,9 @@ const IMPLEMENT = 'IMPLEMENT-SUMMARY.md';
 // The plan phase ships no stack variant — used to assert generic fallback.
 const PRD = 'PRD.md';
 
+/** Normalize line endings — a Windows checkout gives template files CRLF. */
+const lf = (s: string): string => s.replace(/\r\n/g, '\n');
+
 describe('resolvePrimaryStack', () => {
   it('prefers the user-facing surface over backend in a fullstack project', () => {
     expect(resolvePrimaryStack(['web', 'backend'])).toBe('web');
@@ -93,6 +96,9 @@ describe('getBuiltinArtifactTemplates — stack-aware lookup + render', () => {
     // plan.web*.md does not exist → generic plan.md (PRD output).
     expect(t[PRD].length).toBeGreaterThan(0);
     const generic = getSdlcArtifactTemplates(ROOT)[PRD];
-    expect(t[PRD]).toBe(generic);
+    // Compare line-ending-insensitively: the no-options path returns the file
+    // body verbatim (CRLF on a Windows checkout) while the rendered path joins
+    // on LF. What this asserts is that the same template was chosen.
+    expect(lf(t[PRD])).toBe(lf(generic));
   });
 });

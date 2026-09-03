@@ -451,7 +451,7 @@
   "scripts": {
     "copy:templates": "rm -rf templates && cp -R ../core/templates templates",
     "copy:tools": "rm -rf tools && cp -R ../../tools tools",
-    "copy:annotron": "rm -rf vendor && mkdir -p vendor && cp -R ../../vendor/annotron vendor/annotron",
+    "copy:annotron": "rm -rf vendor && node -e \"require('fs').mkdirSync('vendor', { recursive: true })\" && cp -R ../../vendor/annotron vendor/annotron",
     "compile": "pnpm copy:templates && pnpm copy:tools && pnpm copy:annotron && tsc -p ./ && vite build",
     "watch": "trap 'kill 0' SIGINT EXIT; pnpm watch:tsc & pnpm watch:webviews & wait",
     "watch:tsc": "tsc -watch -p ./",
