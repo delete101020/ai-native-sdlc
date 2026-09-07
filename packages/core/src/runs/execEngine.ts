@@ -22,6 +22,8 @@ import {
   PipelineRunError,
 } from './PipelineRunner';
 import { runAutoReview } from './AutoReviewer';
+import { commitApprovedArtifacts, resolveArtifactCommitConfig } from './EpicArtifactCommit';
+import { mirrorRunStateToEpic } from './EpicScaffold';
 import { checkBudget, type CostAccounting } from './budget';
 import { estimateCostUsd, ratesFromConfig, providerAliases } from './pricing';
 import { resolveProviderModel } from '../presets/models';
@@ -381,8 +383,11 @@ async function execStep(
 
   // markStepDone validates produces paths, then transitions.
   let next: RunState;
+  // Hoisted out of the try so it is still in scope as the "before" snapshot for
+  // persist(): the mutations below touch cost fields only, never step status.
+  let freshState: RunState;
   try {
-    const freshState = RunStateStore.load(root, runId)!;
+    freshState = RunStateStore.load(root, runId)!;
     // Record cost before the transition so the budget guard can sum it and it
     // survives the reload-each-iteration loop.
     // Provenance of the step, recorded whether or not a cost came back.
@@ -417,7 +422,7 @@ async function execStep(
     return false;
   }
 
-  RunStateStore.save(root, next);
+  persist(root, next, freshState);
 
   const doneStep = next.steps[stepIdx];
   hooks.onStepResult?.({
@@ -460,7 +465,7 @@ async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks):
     return false;
   }
 
-  RunStateStore.save(root, next);
+  persist(root, next, state);
   hooks.onAutoReviewResult?.({
     agent: step.agent, decision: verdict.decision, reason: verdict.reason, runId,
   });
@@ -472,8 +477,36 @@ async function autoApproveStep(root: string, state: RunState, hooks: ExecHooks):
   const ws = WorkspaceLoader.load(root);
   const pipeline = ws.config.pipelines.find((p) => p.id === state.pipelineId)!;
   const next = approveStep({ state, pipeline });
-  RunStateStore.save(root, next);
+  persist(root, next, state);
   hooks.onAutoApproved?.({ agent: state.steps[state.currentStepIdx].agent });
+}
+
+/**
+ * Save a transitioned run, and commit the epic's artifacts when the workspace
+ * asked for that (`artifact_commit: on_approve`).
+ *
+ * The exec loop runs unattended, which is exactly when artifacts are most
+ * likely to be left dirty and unclaimed: nobody is watching the working tree.
+ * Everything here is best-effort — {@link commitApprovedArtifacts} reports
+ * failures rather than throwing, and a git problem must never abort a run whose
+ * state has already been persisted.
+ */
+function persist(root: string, next: RunState, before?: RunState): void {
+  RunStateStore.save(root, next);
+  if (!before) { return; }
+
+  let doc: unknown;
+  try {
+    doc = WorkspaceLoader.load(root).config;
+  } catch {
+    return;
+  }
+  const cfgDoc = doc as { state?: unknown; artifact_commit?: unknown };
+  if (resolveArtifactCommitConfig(cfgDoc).mode !== 'on_approve') { return; }
+
+  // state.json is part of the commit, so it has to carry the approval first.
+  try { mirrorRunStateToEpic(root, next, cfgDoc); } catch { /* snapshot only */ }
+  commitApprovedArtifacts({ workspaceRoot: root, before, after: next, doc: cfgDoc });
 }
 
 function errMsg(err: unknown): string {

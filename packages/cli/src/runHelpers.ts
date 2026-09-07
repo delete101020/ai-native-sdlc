@@ -7,12 +7,73 @@ import chalk from 'chalk';
 import {
   WorkspaceLoader,
   RunStateStore,
+  mirrorRunStateToEpic,
+  commitApprovedArtifacts,
+  resolveArtifactCommitConfig,
   type RunState,
   type StepRecord,
   type PipelineConfig,
   type AgentConfig,
   type SkillLoader,
 } from '@aidlc/core';
+import { readYaml } from './yamlIO';
+
+// ── Run persistence ───────────────────────────────────────────────────────────
+
+/**
+ * Persist a transitioned run, and — when the workspace opted into
+ * `artifact_commit: on_approve` — commit the artifacts of any step that just
+ * reached `approved` onto the epic's own branch.
+ *
+ * Pass `prev` (the state before the transition) at every mutating site; without
+ * it there is nothing to diff and only the save happens.
+ *
+ * The epic's `state.json` is re-mirrored here, but *only* when the feature is
+ * on. The CLI has never mirrored (the extension does), and turning that on
+ * unconditionally would change behaviour for every workspace. It is not
+ * optional for a workspace that did opt in, though: the approval and the
+ * artifact it approves go into one commit, and a stale state.json in that
+ * commit would record the wrong verdict.
+ */
+export function saveRunState(root: string, next: RunState, prev?: RunState): void {
+  RunStateStore.save(root, next);
+  if (!prev) { return; }
+
+  let doc: ReturnType<typeof readYaml> = null;
+  try {
+    doc = readYaml(root);
+  } catch {
+    return; // Unreadable workspace.yaml — the save already succeeded; say nothing.
+  }
+  if (resolveArtifactCommitConfig(doc).mode !== 'on_approve') { return; }
+
+  try {
+    mirrorRunStateToEpic(root, next, doc);
+  } catch (err) {
+    console.error(chalk.yellow('!') + ` Could not mirror run state into epic state.json — ${msg(err)}`);
+  }
+
+  const result = commitApprovedArtifacts({ workspaceRoot: root, before: prev, after: next, doc });
+  if (result.committed) {
+    console.log(
+      chalk.green('✔') +
+      ` Artifacts committed to ${chalk.bold(result.ref!.replace('refs/heads/', ''))} (${result.commit!.slice(0, 8)})`,
+    );
+    for (const f of result.files ?? []) { console.log(chalk.dim(`    ${f}`)); }
+  } else if (result.reason && !isRoutineSkip(result.reason)) {
+    console.error(chalk.yellow('!') + ` Could not commit epic artifacts — ${result.reason}`);
+  }
+}
+
+/** Non-commits that are expected rather than wrong — reported at no volume. */
+function isRoutineSkip(reason: string): boolean {
+  return reason.startsWith('no step reached approved') ||
+         reason.startsWith('artifacts already committed');
+}
+
+function msg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 // ── Run loading ───────────────────────────────────────────────────────────────
 

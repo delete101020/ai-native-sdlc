@@ -32,6 +32,7 @@ import {
   requirePipelineForRun,
   requireStepIdx,
   printRunSummary,
+  saveRunState,
   resolveContext,
   collectOption,
   loadAgentSkills,
@@ -108,7 +109,7 @@ export function registerRun(program: Command): void {
         process.exit(1);
       }
 
-      RunStateStore.save(root, next);
+      saveRunState(root, next, state);
       const prevStatus = state.steps[state.currentStepIdx].status;
       const step = next.steps[state.currentStepIdx];
       if (step.status === prevStatus) {
@@ -147,7 +148,7 @@ export function registerRun(program: Command): void {
         next.steps[state.currentStepIdx].feedback = opts.comment;
       }
 
-      RunStateStore.save(root, next);
+      saveRunState(root, next, state);
       const approvedStep = state.steps[state.currentStepIdx];
       console.log(chalk.green('✔') + ` Approved "${approvedStep.agent}"`);
       printRunSummary(next);
@@ -174,7 +175,7 @@ export function registerRun(program: Command): void {
         process.exit(1);
       }
 
-      RunStateStore.save(root, next);
+      saveRunState(root, next, state);
       const step = state.steps[state.currentStepIdx];
       console.log(chalk.red('✘') + ` Rejected "${step.agent}"`);
       console.log(chalk.dim(`  Reason: ${opts.reason}`));
@@ -198,7 +199,7 @@ export function registerRun(program: Command): void {
         process.exit(1);
       }
 
-      RunStateStore.save(root, next);
+      saveRunState(root, next, state);
       const step = next.steps[next.currentStepIdx];
       console.log(chalk.yellow('↺') + ` Rerunning "${step.agent}" (rev ${step.revision})`);
       if (opts.feedback) { console.log(chalk.dim(`  Feedback: ${opts.feedback}`)); }
@@ -227,7 +228,7 @@ export function registerRun(program: Command): void {
         process.exit(1);
       }
 
-      RunStateStore.save(root, next);
+      saveRunState(root, next, state);
       const target = next.steps[stepIdx];
       console.log(chalk.yellow('↻') + ` Reopened "${target.agent}" for update (rev ${target.revision})`);
       if (opts.feedback) { console.log(chalk.dim(`  Feedback: ${opts.feedback}`)); }

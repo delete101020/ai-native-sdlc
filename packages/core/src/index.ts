@@ -58,6 +58,16 @@ export {
 export type { PhaseCatalogEntry, AdaptationVerdict } from './runs/PipelineAdapter';
 
 export {
+  commitApprovedArtifacts,
+  resolveArtifactCommitConfig,
+} from './runs/EpicArtifactCommit';
+export type {
+  ArtifactCommitConfig,
+  CommitApprovedArtifactsArgs,
+  CommitApprovedArtifactsResult,
+} from './runs/EpicArtifactCommit';
+
+export {
   scaffoldEpic,
   mirrorRunStateToEpic,
   mapStepStatusToEpic,

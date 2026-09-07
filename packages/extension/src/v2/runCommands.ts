@@ -38,6 +38,7 @@ import {
   requestStepUpdate,
   submitAutoReviewVerdict,
   runAutoReview,
+  commitApprovedArtifacts,
   verifyRun,
   renderRunReport,
   PipelineRunError,
@@ -54,16 +55,51 @@ import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
  * stays in sync. Mirror failures don't block the save — runs/ is the
  * authoritative source for the live machine; state.json is a snapshot for
  * git / offline review.
+ *
+ * When `prev` is supplied — every transition site passes it — the epic's
+ * artifacts are also committed to its own branch for each step that just
+ * reached `approved`, provided `artifact_commit.mode` is `on_approve`. The
+ * mirror runs first on purpose: state.json has to carry the approval before it
+ * goes into the commit beside the artifact it approves.
  */
-function saveRun(workspaceRoot: string, next: RunState): void {
+function saveRun(workspaceRoot: string, next: RunState, prev?: RunState): void {
   RunStateStore.save(workspaceRoot, next);
+  const doc = readYaml(workspaceRoot);
   try {
-    mirrorRunStateToEpic(workspaceRoot, next, readYaml(workspaceRoot));
+    mirrorRunStateToEpic(workspaceRoot, next, doc);
   } catch (err) {
     void vscode.window.showWarningMessage(
       `AIDLC: failed to mirror run state into epic state.json — ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+  if (!prev) { return; }
+
+  const result = commitApprovedArtifacts({ workspaceRoot, before: prev, after: next, doc });
+  if (result.committed) {
+    void vscode.window.setStatusBarMessage(
+      `AIDLC: artifacts committed to ${result.ref?.replace('refs/heads/', '')}`,
+      4000,
+    );
+  } else if (isArtifactCommitFailure(result.reason)) {
+    void vscode.window.showWarningMessage(
+      `AIDLC: could not commit epic artifacts — ${result.reason}`,
+    );
+  }
+}
+
+/**
+ * True when a non-commit is worth telling the user about. The helper reports
+ * the ordinary skips (feature off, nothing approved, nothing changed) through
+ * the same `reason` field as real failures, and a toast for those would fire on
+ * every reject and rerun in a workspace that never enabled the feature.
+ */
+function isArtifactCommitFailure(reason: string | undefined): boolean {
+  if (!reason) { return false; }
+  return !(
+    reason.startsWith('artifact_commit is off') ||
+    reason.startsWith('no step reached approved') ||
+    reason.startsWith('artifacts already committed')
+  );
 }
 
 function getRoot(): string | undefined {
@@ -319,7 +355,7 @@ export async function markStepDoneCommand(runIdArg?: string, stepIdxArg?: number
 
   try {
     const next = markStepDone({ state, pipeline, workspaceRoot: root, stepIdx });
-    saveRun(root, next);
+    saveRun(root, next, state);
     notifyStepTransition(root, next, stepIdx);
   } catch (err) {
     surfaceRunError(err);
@@ -356,7 +392,7 @@ export async function runAutoReviewCommand(runIdArg?: string, stepIdxArg?: numbe
       try {
         const verdict = await runAutoReview({ workspaceRoot: root, state, pipeline, stepIdx });
         const next = submitAutoReviewVerdict({ state, pipeline, verdict, stepIdx });
-        saveRun(root, next);
+        saveRun(root, next, state);
 
         const tag = verdict.decision === 'pass' ? '✅ pass' : '❌ reject';
         const followUp = next.steps[next.currentStepIdx];
@@ -405,7 +441,7 @@ export async function approveStepCommand(runIdArg?: string, stepIdxArg?: number)
   const stepIdx = resolveStepIdx(state, stepIdxArg, 'awaiting_review');
   try {
     const next = approveStep({ state, pipeline, stepIdx });
-    saveRun(root, next);
+    saveRun(root, next, state);
     notifyStepTransition(root, next, stepIdx);
   } catch (err) {
     surfaceRunError(err);
@@ -451,7 +487,7 @@ export async function rejectStepCommand(runIdArg?: string, stepIdxArg?: number):
       targetIdx: targetIdx === idx ? undefined : targetIdx,
       pipeline: pipeline ?? undefined,
     });
-    saveRun(root, next);
+    saveRun(root, next, state);
     if (targetIdx === idx) {
       void vscode.window.showInformationMessage(
         `Rejected step "${currentStep.agent}". Click "Rerun" in the sidebar when ready.`,
@@ -497,7 +533,7 @@ export async function rejectStepInlineCommand(
       targetIdx: targetIdx === idx ? undefined : targetIdx,
       pipeline: pipeline ?? undefined,
     });
-    saveRun(root, next);
+    saveRun(root, next, state);
     if (targetIdx === idx) {
       void vscode.window.showInformationMessage(
         `Rejected step "${currentStep.agent}". Click "Rerun" in the sidebar when ready.`,
@@ -578,7 +614,7 @@ export async function rerunStepCommand(runIdArg?: string, stepIdxArg?: number): 
 
   try {
     const next = rerunStep({ state, feedback: feedback.trim() || undefined, stepIdx });
-    saveRun(root, next);
+    saveRun(root, next, state);
     void vscode.window.showInformationMessage(
       `Step "${step.agent}" reset (revision ${next.steps[stepIdx].revision}). Run the slash command again, then "Mark step done".`,
     );
@@ -606,7 +642,7 @@ export async function rerunStepInlineCommand(
 
   try {
     const next = rerunStep({ state, feedback: feedback.trim() || undefined, stepIdx });
-    saveRun(root, next);
+    saveRun(root, next, state);
     void vscode.window.showInformationMessage(
       `Step "${step.agent}" reset (revision ${next.steps[stepIdx].revision}). Run the slash command again, then "Mark step done".`,
     );
@@ -644,7 +680,7 @@ export async function requestStepUpdateInlineCommand(
       stepIdx,
       feedback: feedback.trim() || undefined,
     });
-    saveRun(root, next);
+    saveRun(root, next, state);
     const target = next.steps[stepIdx];
     void vscode.window.showInformationMessage(
       `Step "${target.agent}" reopened (revision ${target.revision}). Downstream steps reset to pending — work them again after this one.`,

@@ -625,6 +625,25 @@ export const WorkspaceSchema = z.object({
    */
   artifact_language: z.string().min(1).optional(),
 
+  /**
+   * Whether an epic's artifacts are committed to a branch of their own as each
+   * step passes its human gate. See `runs/EpicArtifactCommit.ts`.
+   *
+   * `off` (the default) keeps the historical behaviour: artifacts stay dirty in
+   * the working tree until something else commits them. `on_approve` writes a
+   * commit onto `<ref_prefix><runId>` at every approval, using git plumbing —
+   * HEAD, the index and the checkout are never touched, and the branch is
+   * created lazily at the first approval rather than when the epic is created.
+   *
+   * This does not move the artifacts: `docs/epics/` stays tracked on the user's
+   * own branch so they still ship with the PR. The epic branch is a second,
+   * durable home for them.
+   */
+  artifact_commit: z.object({
+    mode: z.enum(['off', 'on_approve']).default('off'),
+    ref_prefix: z.string().min(1).default('epic/'),
+  }).optional(),
+
   agents: z.array(AgentSchema).default([]),
   skills: z.array(SkillSchema).default([]),
   /** Workspace-wide environment, layered under per-agent env. */
