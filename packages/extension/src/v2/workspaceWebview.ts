@@ -1906,6 +1906,27 @@ export class WorkspaceWebview {
         await vscode.window.showTextDocument(doc, { preview: false });
         return;
       }
+      case 'previewArtifactInVsCode': {
+        // VS Code's own Markdown preview. The annotron path below exists for
+        // diagrams — VS Code renders Mermaid only when the user has an
+        // extension for it — so this is offered alongside it, not instead of
+        // it. Unlike `openArtifactFile`, nothing here is editable.
+        //
+        // The fallback mirrors `openGettingStartedGuide`: the built-in
+        // markdown extension can be disabled, and a menu item that silently
+        // does nothing is worse than one that opens the source.
+        const epicDir = String(msg.epicDir ?? '');
+        const filename = String(msg.filename ?? '');
+        if (!epicDir || !filename) { return; }
+        const filePath = path.join(epicDir, 'artifacts', filename);
+        if (!fs.existsSync(filePath)) { return; }
+        const uri = vscode.Uri.file(filePath);
+        void vscode.commands.executeCommand('markdown.showPreview', uri).then(
+          undefined,
+          () => { void vscode.window.showTextDocument(uri, { preview: false }); },
+        );
+        return;
+      }
       case 'viewArtifact': {
         // Read-only preview: open the .md in annotron so diagrams render
         // (annotron renders Markdown itself), without the /annotate-artifact

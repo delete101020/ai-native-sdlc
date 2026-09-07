@@ -20,6 +20,15 @@ declares no capabilities keeps working and simply receives a fuller prompt.
 
 ### Added
 
+- **`Preview (VS Code)` on an epic artifact.** The menu offered a source
+  editor and an annotron preview, and the annotron one costs a terminal
+  running `node …/annotron` plus a browser tab. That price buys diagram
+  rendering, which is worth it for a spec full of Mermaid and nothing at all
+  for one without. The new item renders the artifact in VS Code's own
+  Markdown preview and stays in the editor; annotron remains for diagrams and
+  is the same view the Feedback loop uses. Both are now labelled with where
+  they open.
+
 - **`artifact_language:` in workspace.yaml, so a pipeline stops changing
   language halfway through.** Nothing used to say what language artifacts are
   written in, which left each phase to infer it from the brief on its own — a

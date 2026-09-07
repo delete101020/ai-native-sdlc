@@ -12,6 +12,7 @@ import {
   Bot,
   User,
   ExternalLink,
+  Eye,
   Highlighter,
   Brain,
   Folder,
@@ -694,13 +695,26 @@ function StepDetail({
                       onClick={(e) => {
                         e.stopPropagation();
                         setArtifactMenuOpen(false);
+                        postMessage({ type: 'previewArtifactInVsCode', epicDir: epic.epicDir, filename: artifactName });
+                      }}
+                      className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
+                      title="Render in VS Code's own Markdown preview — no terminal, no browser. Mermaid diagrams need a Markdown-preview extension; use Preview below for those."
+                    >
+                      <Eye className="h-3 w-3 text-muted-foreground" />
+                      <span>Preview (VS Code)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setArtifactMenuOpen(false);
                         postMessage({ type: 'viewArtifact', epicDir: epic.epicDir, filename: artifactName });
                       }}
                       className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
-                      title="Preview in annotron — renders the Markdown with diagrams (read-only; no feedback loop)"
+                      title="Preview in annotron (browser) — renders diagrams as SVG, same view the Feedback loop uses. Read-only; no feedback loop."
                     >
                       <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                      <span>Preview</span>
+                      <span>Preview (annotron)</span>
                     </button>
                     <button
                       type="button"
