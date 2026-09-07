@@ -20,6 +20,16 @@ declares no capabilities keeps working and simply receives a fuller prompt.
 
 ### Added
 
+- **Start epic: pick a recipe by hand.** The Workflow list offered one `Auto`
+  row and the pipelines; every recipe was reachable only through the classifier,
+  so choosing a known-good recipe meant wording the brief until the keywords
+  landed on it. Recipes now list under their own group, each showing its steps,
+  and the classifier’s current pick is badged ★ suggested among them rather
+  than replacing the choice.
+- **Start epic: capability inputs collapse.** They are all optional, and a
+  workflow touching several capabilities pushed the footer out of view. The
+  section folds from its header and reports `n filled` while closed, so folding
+  never hides that values are set. Open by default.
 - Persona resolution across all three asset scopes (project › `.aidlc` ›
   global), with frontmatter and install markers stripped before inlining.
 - Project instructions are resolved from whichever of `CLAUDE.md`,

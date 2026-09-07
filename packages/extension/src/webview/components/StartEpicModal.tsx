@@ -62,11 +62,15 @@ interface Props {
 /**
  * What the user picked in the WORKFLOW section:
  *   - `auto`     → let the classifier suggest a recipe from the task description.
+ *   - `recipe`   → a recipe the user picked by hand, skipping the classifier.
  *   - `pipeline` → a concrete pipeline (user-defined or built-in AIDLC).
  * An `auto` selection resolves to a recipe target at submit time via the
- * current {@link Suggestion}.
+ * current {@link Suggestion}; a `recipe` selection already is one.
  */
-type Selection = { kind: 'auto' } | { kind: 'pipeline'; id: string };
+type Selection =
+  | { kind: 'auto' }
+  | { kind: 'recipe'; id: string }
+  | { kind: 'pipeline'; id: string };
 
 interface Suggestion {
   recipeId: string;
@@ -102,6 +106,10 @@ export function StartEpicModal({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [inputs, setInputs] = useState<Record<string, string>>({});
+  // Capability inputs are all optional (blank = skip), so they're collapsible —
+  // open by default so a required-looking field is never hidden from a first-time
+  // user, but foldable once the list gets long enough to push the footer away.
+  const [capsOpen, setCapsOpen] = useState(true);
   const idInputRef = useRef<HTMLInputElement>(null);
   // Extra projects (GH-67)
   const [extraProjects, setExtraProjects] = useState<ExtraProject[]>([]);
@@ -196,6 +204,12 @@ export function StartEpicModal({
       setSelected({ kind: 'pipeline', id: pipelines[0].id });
     } else if (selected.kind === 'pipeline' && !selected.id && pipelines[0]) {
       setSelected({ kind: 'pipeline', id: pipelines[0].id });
+    } else if (selected.kind === 'recipe' && !recipes.some((r) => r.id === selected.id)) {
+      // The hand-picked recipe vanished (preset swapped) — don't submit a target
+      // the workspace no longer defines.
+      setSelected(recipes.length > 0
+        ? { kind: 'auto' }
+        : pipelines[0] ? { kind: 'pipeline', id: pipelines[0].id } : { kind: 'auto' });
     }
   }, [pipelines, recipes, selected]);
 
@@ -414,7 +428,11 @@ export function StartEpicModal({
     setDuplicateWarning(null);
   };
 
-  const effectiveRecipeId = selected.kind === 'auto' ? suggestion?.recipeId : undefined;
+  // A hand-picked recipe is the target as-is; `auto` resolves through the
+  // classifier's current verdict.
+  const effectiveRecipeId = selected.kind === 'recipe'
+    ? selected.id
+    : selected.kind === 'auto' ? suggestion?.recipeId : undefined;
 
   const selectedAgents = useMemo<string[]>(() => {
     if (selected.kind === 'pipeline') {
@@ -435,6 +453,12 @@ export function StartEpicModal({
     }
     return out;
   }, [selectedAgents, agentMeta]);
+
+  // Shown in the collapsed header so folding never hides that values are set.
+  const filledCapCount = useMemo(
+    () => capabilities.filter((c) => (inputs[c] ?? '').trim()).length,
+    [capabilities, inputs],
+  );
 
   useEffect(() => {
     setInputs((cur) => {
@@ -464,7 +488,7 @@ export function StartEpicModal({
 
   const targetError = selected.kind === 'pipeline'
     ? (!selected.id ? 'Pick a pipeline' : null)
-    : (!effectiveRecipeId ? 'Add a task description and click “Suggest recipe”, or pick a pipeline' : null);
+    : (!effectiveRecipeId ? 'Add a task description for Auto to classify, or pick a recipe / pipeline yourself' : null);
   const projectError = !hasFolder && extraProjects.length === 0
     ? 'Add at least one project to start an epic'
     : null;
@@ -477,9 +501,9 @@ export function StartEpicModal({
       const v = (inputs[cap] ?? '').trim();
       if (v) { cleanInputs[cap] = v; }
     }
-    const target = selected.kind === 'auto'
-      ? { kind: 'recipe' as const, id: effectiveRecipeId! }
-      : { kind: 'pipeline' as const, id: selected.id };
+    const target = selected.kind === 'pipeline'
+      ? { kind: 'pipeline' as const, id: selected.id }
+      : { kind: 'recipe' as const, id: effectiveRecipeId! };
     onSubmit({
       target,
       epicId: effectiveId,
@@ -645,7 +669,7 @@ export function StartEpicModal({
             <ListOrdered className="h-3 w-3" />
             Workflow
           </label>
-          <div className="max-h-56 overflow-y-auto rounded-md border border-border">
+          <div className="max-h-72 overflow-y-auto rounded-md border border-border">
             {!hasFolder && !hasWorkflows && extraProjects.length === 0 ? (
               <div className="px-3 py-4 text-center text-[11px] text-muted-foreground">
                 Add a project above first — pipelines load from the project's workspace.
@@ -666,6 +690,21 @@ export function StartEpicModal({
                     onClick={() => setSelected({ kind: 'auto' })}
                   />
                 )}
+                {recipes.length > 0 && (
+                  <GroupHeader label="Recipes (right-sized)" />
+                )}
+                {recipes.map((r) => (
+                  <WorkflowRow
+                    key={`r:${r.id}`}
+                    id={r.id}
+                    active={selected.kind === 'recipe' && selected.id === r.id}
+                    suggested={suggestion?.recipeId === r.id ? suggestion.confidence : undefined}
+                    stepCount={r.steps.length}
+                    steps={r.steps}
+                    description={r.description}
+                    onClick={() => setSelected({ kind: 'recipe', id: r.id })}
+                  />
+                ))}
                 {userPipelines.length > 0 && (
                   <GroupHeader label="Your pipelines" />
                 )}
@@ -855,15 +894,28 @@ export function StartEpicModal({
 
         {capabilities.length > 0 && (
           <div>
-            <div className="mb-1 flex items-baseline gap-1.5">
+            <button
+              type="button"
+              onClick={() => setCapsOpen((v) => !v)}
+              aria-expanded={capsOpen}
+              className="mb-1 flex w-full items-baseline gap-1.5 text-left"
+              title={capsOpen ? 'Collapse capability inputs' : 'Expand capability inputs'}
+            >
+              <ChevronRight
+                className={cn(
+                  'h-3 w-3 shrink-0 self-center text-muted-foreground transition-transform',
+                  capsOpen && 'rotate-90',
+                )}
+              />
               <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
                 Capability inputs
               </span>
               <span className="text-[10px] text-muted-foreground">
-                ({capabilities.length} from {selected.kind})
+                ({capabilities.length} from {selected.kind}
+                {!capsOpen && filledCapCount > 0 ? ` · ${filledCapCount} filled` : ''})
               </span>
-            </div>
-            <div className="space-y-2">
+            </button>
+            <div className={cn('space-y-2', !capsOpen && 'hidden')}>
               {capabilities.map((cap) => {
                 const meta = CAPABILITY_PROMPTS[cap];
                 return (
