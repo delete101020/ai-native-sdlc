@@ -14,6 +14,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  ARTIFACT_LANGUAGE_HEADING,
   BUILTIN_WORKFLOWS,
   builtinTemplatesRoot,
   loadBuiltinPreset,
@@ -65,13 +66,29 @@ describe('workflow command provisioning', () => {
     const preset = loadBuiltinPreset(templatesRoot, NATIVE);
     writeWorkflowCommands(root, NATIVE, preset);
     const file = path.join(commandsDir(), 'intent.md');
-    fs.writeFileSync(file, 'mine\n', 'utf8');
+    // The section has to survive the edit for the file to read as current —
+    // a body without it is taken for one an older build wrote.
+    const mine = `mine\n\n${ARTIFACT_LANGUAGE_HEADING}\n`;
+    fs.writeFileSync(file, mine, 'utf8');
 
     writeWorkflowCommands(root, NATIVE, preset);
-    expect(fs.readFileSync(file, 'utf8')).toBe('mine\n');
+    expect(fs.readFileSync(file, 'utf8')).toBe(mine);
 
     writeWorkflowCommands(root, NATIVE, preset, { overwrite: true });
-    expect(fs.readFileSync(file, 'utf8')).not.toBe('mine\n');
+    expect(fs.readFileSync(file, 'utf8')).not.toBe(mine);
+  });
+
+  it('refreshes a command body written before artifact_language existed', () => {
+    // The setting is read by the *command body*, not by the runner, so a body
+    // from an older build ignores it forever and the user sees a Vietnamese
+    // intent followed by an English spec with nothing to point at.
+    const preset = loadBuiltinPreset(templatesRoot, NATIVE);
+    writeWorkflowCommands(root, NATIVE, preset);
+    const file = path.join(commandsDir(), 'intent.md');
+    fs.writeFileSync(file, 'stale body, no language section\n', 'utf8');
+
+    writeWorkflowCommands(root, NATIVE, preset);
+    expect(fs.readFileSync(file, 'utf8')).toContain(ARTIFACT_LANGUAGE_HEADING);
   });
 
   it('bakes the workspace epic root into the command body', () => {

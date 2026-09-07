@@ -156,7 +156,12 @@ export type { ProjectInstructions } from './loader/projectInstructions';
 
 export { composeAgentPrompt, stripPersonaDirectives } from './loader/promptComposer';
 // The workspace-wide artifact language, and the prompt section that states it.
-export { artifactLanguageSection, resolveArtifactLanguage } from './loader/artifactLanguage';
+export {
+  ARTIFACT_LANGUAGE_HEADING,
+  artifactLanguageSection,
+  commandBodyPredatesArtifactLanguage,
+  resolveArtifactLanguage,
+} from './loader/artifactLanguage';
 export type { ComposeInput, ComposedPrompt } from './loader/promptComposer';
 
 export {

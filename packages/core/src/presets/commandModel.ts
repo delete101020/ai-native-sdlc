@@ -27,7 +27,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { artifactLanguageSection } from '../loader/artifactLanguage';
+import { artifactLanguageSection, commandBodyPredatesArtifactLanguage } from '../loader/artifactLanguage';
 import type { PipelineConfig, WorkspaceConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, stepDagId } from '../schema/WorkspaceSchema';
 import type { RunState } from '../runs/RunState';
@@ -373,7 +373,14 @@ export function writeTwoLayerCommands(
   const written: string[] = [];
   const skipped: string[] = [];
   const emit = (file: string, body: string): void => {
-    if (fs.existsSync(file) && !overwrite) { skipped.push(file); return; }
+    // A body with no `## Output language` section predates `artifact_language`
+    // and would silently ignore the setting, so it is refreshed even though
+    // `overwrite` is off — see `commandBodyPredatesArtifactLanguage`.
+    if (fs.existsSync(file) && !overwrite
+      && !commandBodyPredatesArtifactLanguage(fs.readFileSync(file, 'utf8'))) {
+      skipped.push(file);
+      return;
+    }
     fs.writeFileSync(file, body, 'utf8');
     written.push(file);
   };

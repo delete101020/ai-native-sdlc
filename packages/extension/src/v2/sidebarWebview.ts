@@ -19,7 +19,7 @@ import * as fs from 'fs';
 
 const DEMO_DIR_NAME = 'aidlc-demo-project';
 
-import { readYaml } from './yamlIO';
+import { readYaml, writeYaml } from './yamlIO';
 import {
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
@@ -27,6 +27,10 @@ import {
   normalizeStep,
   resolvePath,
   discoverAssets,
+  provisionDeclaredWorkflows,
+  relativeEpicRoot,
+  resolveArtifactLanguage,
+  writeTwoLayerCommands,
 } from '@aidlc/core';
 import type { PipelineConfig, DiscoveredAsset } from '@aidlc/core';
 import { listEpics } from './epicsList';
@@ -130,6 +134,12 @@ interface SidebarState {
   mcpError: string | null;
   /** Extra projects from the active/recent epic (GH-67). */
   extraProjects?: Array<{ type: string; ref: string; label: string; mode?: string }>;
+  /** `artifact_language` from workspace.yaml — the language every artifact's
+   * prose is written in, or null when the workspace states no preference.
+   * Surfaced because there was no way to set it short of hand-editing the
+   * YAML, and a workspace that never sets it gets a Vietnamese intent followed
+   * by an English spec. */
+  artifactLanguage: string | null;
   /** `aidlc.autopilot.enabled` setting — drives the AIDLC Autopilot row's
    * "Coming soon" vs "On" state in the Common workflows. */
   autopilotEnabled: boolean;
@@ -182,6 +192,7 @@ function buildState(
       mcpServers: mcp.servers,
       mcpLoading: mcp.loading,
       mcpError: mcp.error,
+      artifactLanguage: null,
       autopilotEnabled,
     };
   }
@@ -249,6 +260,7 @@ function buildState(
       mcpLoading: mcp.loading,
       mcpError: mcp.error,
       extraProjects: sidebarExtraProjects,
+      artifactLanguage: null,
       autopilotEnabled,
     };
   }
@@ -292,6 +304,9 @@ function buildState(
     mcpLoading: mcp.loading,
     mcpError: mcp.error,
     extraProjects: sidebarExtraProjects,
+    // `YamlDocument` models only the keys the sidebar reads; the setting is a
+    // free top-level string the schema knows about and this type does not.
+    artifactLanguage: resolveArtifactLanguage(doc as { artifact_language?: unknown }),
     autopilotEnabled,
   };
 }
@@ -560,6 +575,39 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const yp = path.join(root, WORKSPACE_DIR, WORKSPACE_FILENAME);
         const doc = await vscode.workspace.openTextDocument(yp);
         await vscode.window.showTextDocument(doc, { preview: false });
+        return;
+      }
+      case 'setArtifactLanguage': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) { return; }
+        const doc = readYaml(root);
+        if (!doc) { return; }
+        const next = String(msg.language ?? '').trim();
+        // Empty means "no opinion" — the field is removed rather than set to
+        // '', because `resolveArtifactLanguage` treats blank as unset and a
+        // stray `artifact_language: ""` in the YAML reads like a broken value.
+        if (next) {
+          (doc as { artifact_language?: string }).artifact_language = next;
+        } else {
+          delete (doc as { artifact_language?: string }).artifact_language;
+        }
+        writeYaml(root, doc);
+        // The slash-command bodies resolve the setting at invocation time, so
+        // nothing needs regenerating here — but a workspace set up by a build
+        // that predates `artifact_language` has bodies that never look. This
+        // refreshes exactly those; see `commandBodyPredatesArtifactLanguage`.
+        try {
+          const pipelineIds = (doc.pipelines ?? []).map((p) => String(p.id ?? '')).filter(Boolean);
+          writeTwoLayerCommands(root, { epicRoot: relativeEpicRoot(doc) });
+          provisionDeclaredWorkflows(this.extensionUri.fsPath, root, pipelineIds, {
+            epicRoot: relativeEpicRoot(doc),
+          });
+        } catch (err) {
+          // A refresh that fails leaves the setting written and the old bodies
+          // in place — worth logging, not worth failing the edit over.
+          output.appendLine(`[setArtifactLanguage] command refresh failed: ${String(err)}`);
+        }
+        this.refresh();
         return;
       }
       case 'applyTemplate': {

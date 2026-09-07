@@ -24,6 +24,31 @@
  */
 
 /**
+ * The section heading, which is also the marker for "this command body knows
+ * about `artifact_language`". See {@link commandBodyPredatesArtifactLanguage}.
+ */
+export const ARTIFACT_LANGUAGE_HEADING = '## Output language';
+
+/**
+ * True when an on-disk command body was generated before this feature existed.
+ *
+ * Command bodies are written once and left alone — `writeWorkflowCommands` and
+ * `writeTwoLayerCommands` both skip a file that is already there, so hand edits
+ * survive an upgrade. That courtesy has a cost: a body written by an older
+ * build never mentions `artifact_language`, so setting it in workspace.yaml
+ * changes nothing for any agent launched through a slash command, and the user
+ * gets a Vietnamese intent followed by an English spec with no clue why.
+ *
+ * A missing section is safe to treat as staleness rather than as a hand edit.
+ * The section is emitted unconditionally by every generator, so a body without
+ * it cannot have come from this build; and it carries no project-specific
+ * content anyone would have deliberately deleted.
+ */
+export function commandBodyPredatesArtifactLanguage(existing: string): boolean {
+  return !existing.includes(ARTIFACT_LANGUAGE_HEADING);
+}
+
+/**
  * The rule text, shared by every path that composes a phase prompt so the two
  * cannot drift apart.
  *
@@ -43,7 +68,7 @@ export function artifactLanguageSection(language: string | null): string {
     ].join('\n');
 
   return [
-    '## Output language',
+    ARTIFACT_LANGUAGE_HEADING,
     '',
     opening,
     '',

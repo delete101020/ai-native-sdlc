@@ -374,6 +374,10 @@ export interface SidebarState {
   mcpError: string | null;
   /** Extra projects from any in-progress epic (for sidebar display). */
   extraProjects?: ExtraProject[];
+  /** `artifact_language` from workspace.yaml, or null when unset. Drives the
+   * sidebar's language picker — the setting governs the prose in every
+   * artifact, and without a control the only way to reach it was the YAML. */
+  artifactLanguage: string | null;
   /** Value of the `aidlc.autopilot.enabled` setting. Drives whether the
    * AIDLC Autopilot row in the Common workflows shows "Coming soon"
    * (disabled) or an active "On" state. */

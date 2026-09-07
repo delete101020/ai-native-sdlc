@@ -19,6 +19,7 @@ import {
   HelpCircle,
   ListTree,
   Github,
+  Languages,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -114,6 +115,8 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
               </button>
             )}
 
+            {state.configExists && <ArtifactLanguageRow value={state.artifactLanguage} />}
+
             {!state.configExists && (
               <div className="rounded-md border border-dashed border-border bg-surface/50 p-3 text-[11px] text-muted-foreground leading-relaxed">
                 No <code className="rounded bg-primary/10 px-1 py-0.5 font-mono text-primary">workspace.yaml</code> yet — open the Builder from the title bar to scaffold one.
@@ -180,6 +183,57 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
       <Footer hasFolder={state.hasFolder} />
 
     </aside>
+  );
+}
+
+/**
+ * The languages offered by name. The setting takes free text — the prompt
+ * section quotes whatever is there back at the model — so this list is a
+ * convenience, not a whitelist; a value set by hand in the YAML is preserved
+ * and shown as its own option.
+ */
+const ARTIFACT_LANGUAGES = [
+  'English',
+  'Vietnamese',
+  'Japanese',
+  'Korean',
+  'Chinese',
+  'French',
+  'German',
+  'Spanish',
+];
+
+/**
+ * Picks the language every artifact's prose is written in.
+ *
+ * Unset is a real choice, not a missing one: it means "no opinion", the phase
+ * prompts emit no language section at all, and each agent infers a language
+ * from the epic brief. That inference is per-phase, which is how a workspace
+ * ends up with a Vietnamese intent and an English spec — the pipeline's whole
+ * premise is that phase N+1 reads phase N.
+ */
+function ArtifactLanguageRow({ value }: { value: string | null }) {
+  const current = value ?? '';
+  const known = current === '' || ARTIFACT_LANGUAGES.includes(current);
+  return (
+    <label
+      className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground"
+      title="artifact_language in workspace.yaml — the language agents write artifact prose in. Headings, field labels and identifiers stay English either way."
+    >
+      <Languages className="h-3.5 w-3.5 shrink-0" />
+      <span className="shrink-0">Artifact language</span>
+      <select
+        value={current}
+        onChange={(e) => postMessage({ type: 'setArtifactLanguage', language: e.target.value })}
+        className="ml-auto min-w-0 rounded border border-border bg-surface px-1.5 py-0.5 text-[11px] text-foreground"
+      >
+        <option value="">No preference</option>
+        {!known && <option value={current}>{current}</option>}
+        {ARTIFACT_LANGUAGES.map((lang) => (
+          <option key={lang} value={lang}>{lang}</option>
+        ))}
+      </select>
+    </label>
   );
 }
 

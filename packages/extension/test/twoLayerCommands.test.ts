@@ -14,6 +14,7 @@ import {
   provisionShortcutDocs,
   CANONICAL_PHASE_IDS,
 } from '../src/v2/builtinPresets';
+import { ARTIFACT_LANGUAGE_HEADING } from '@aidlc/core';
 
 function tmpRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-2layer-'));
@@ -62,13 +63,16 @@ describe('GH-71: two-layer command model (extension surface)', () => {
   it('does not overwrite existing command files unless asked', () => {
     writeTwoLayerCommands(root, { epicRoot: 'docs/epics' });
     const planPath = path.join(root, '.claude', 'commands', 'plan.md');
-    fs.writeFileSync(planPath, 'USER EDITED', 'utf8');
+    // Keeps the `## Output language` section: a body without it is treated as
+    // predating `artifact_language` and gets refreshed regardless.
+    const edited = `USER EDITED\n\n${ARTIFACT_LANGUAGE_HEADING}\n`;
+    fs.writeFileSync(planPath, edited, 'utf8');
 
     writeTwoLayerCommands(root, { epicRoot: 'docs/epics' }); // default: no overwrite
-    expect(fs.readFileSync(planPath, 'utf8')).toBe('USER EDITED');
+    expect(fs.readFileSync(planPath, 'utf8')).toBe(edited);
 
     writeTwoLayerCommands(root, { epicRoot: 'docs/epics', overwrite: true });
-    expect(fs.readFileSync(planPath, 'utf8')).not.toBe('USER EDITED');
+    expect(fs.readFileSync(planPath, 'utf8')).not.toBe(edited);
   });
 
   // GH-71-UT05: auto-provision detection for custom (non-canonical) phases.
