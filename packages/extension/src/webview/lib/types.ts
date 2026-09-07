@@ -442,6 +442,13 @@ export interface PipelineSummary {
   derivedFrom?: string;
   /** Human label for built-in pipelines (e.g. "iOS Native Pipeline"). User-defined pipelines leave this undefined. */
   name?: string;
+  /**
+   * Epic id whose run state indexes into this pipeline's steps by position.
+   * Set means the step count and order are load-bearing elsewhere, so the
+   * shape-editing controls are hidden. See `epicPinningPipeline` on the host
+   * for why. Gates and `depends_on` stay editable — they move no step.
+   */
+  pinnedByEpic?: string;
 }
 
 /** A task-type recipe surfaced in the Start-Epic modal (mirrors host RecipeSummary). */

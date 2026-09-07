@@ -20,6 +20,22 @@ declares no capabilities keeps working and simply receives a fuller prompt.
 
 ### Added
 
+- **A running epic's step list can no longer be reshaped by accident.**
+  `aidlc epic start` writes the epic's steps three times — the pipeline in
+  `workspace.yaml`, `stepStates[]` in the epic's `state.json`, and `steps[]`
+  in `.aidlc/runs/<id>.json` — and only the first records a step *name*. The
+  other two, and the run pointer, are positions. The per-epic pipeline shows
+  up in the Pipelines view like any other, so its Add / Delete / Reorder /
+  drag controls were live, and using one moved the pipeline without moving
+  the history: the runner only checks that an index is still inside the
+  array, so a pipeline that got *shorter* kept running against the wrong
+  steps with no error at all. Those controls are now hidden while an epic
+  owns the workflow, with the reason and the `aidlc step skip` alternative
+  on the card. The host refuses the same edits independently — a webview-only
+  guard would not be one, given the failure is silent. Gates and
+  `depends_on` stay editable, and the workflow editor still accepts a save
+  that leaves the agent sequence unchanged.
+
 - **`Preview (VS Code)` on an epic artifact.** The menu offered a source
   editor and an annotron preview, and the annotron one costs a terminal
   running `node …/annotron` plus a browser tab. That price buys diagram

@@ -349,6 +349,33 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
   };
 }
 
+/**
+ * The epic whose materialised state pins a pipeline's step list, or null.
+ *
+ * `aidlc epic start` writes three parallel step arrays: the pipeline's
+ * `steps` in workspace.yaml, `stepStates[]` in the epic's state.json, and
+ * `steps[]` in `.aidlc/runs/<id>.json`. Only the first stores a step *name* —
+ * the other two identify a step by its position, and the run pointer
+ * (`currentStepIdx`) is a bare integer. Adding, removing or reordering a step
+ * in the pipeline therefore does not carry the epic's history with it: it
+ * re-points that history at different steps. The runner only notices when an
+ * index leaves the array, so a pipeline that got *shorter* keeps running
+ * against the wrong steps with no error at all.
+ *
+ * Callers use this to refuse a shape edit while the epic still owns the
+ * pipeline. `aidlc step skip` is the supported way to drop a step: it leaves
+ * the length and every index alone and records a reason.
+ *
+ * An `artifactsOnly` epic has no state.json, so there is nothing to desync.
+ */
+export function epicPinningPipeline<
+  T extends { id: string; pipeline: string | null; artifactsOnly?: boolean },
+>(epics: readonly T[], pipelineId: string): T | null {
+  if (!pipelineId) { return null; }
+  return epics.find(
+    (e) => e.pipeline === pipelineId && e.artifactsOnly !== true,
+  ) ?? null;
+}
 export function listEpics(workspaceRoot: string, doc: YamlDocument | null): EpicSummary[] {
   const dir = epicsRoot(workspaceRoot, doc);
   if (!fs.existsSync(dir)) { return []; }

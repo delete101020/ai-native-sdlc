@@ -226,6 +226,7 @@ import type {
 import { promptStepConfig, type PipelineStepConfigDraft } from './wizards';
 import {
   listEpics,
+  epicPinningPipeline,
   enrichEpicsWithUsage,
   mirrorRunStateToEpic,
   type EpicSummary as CoreEpicSummary,
@@ -655,6 +656,12 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     id: String(p.id),
     on_failure: p.on_failure === 'continue' ? 'continue' : 'stop',
     builtin: BUILTIN_WORKFLOWS.some((w) => w.pipelineId === String(p.id)),
+    // A pipeline an epic is running against cannot have its step list
+    // reshaped — the epic's history is keyed by position, not by name.
+    ...(() => {
+      const owner = epicPinningPipeline(epics, String(p.id));
+      return owner ? { pinnedByEpic: owner.id } : {};
+    })(),
     ...(typeof p.derived_from === 'string' && p.derived_from
       ? { derivedFrom: p.derived_from }
       : {}),
@@ -2382,8 +2389,30 @@ export class WorkspaceWebview {
     }
   }
 
+  /**
+   * Refuse a step-shape edit while an epic's run state indexes into this
+   * pipeline. `epicPinningPipeline` explains why position is load-bearing;
+   * the short version is that the corruption is silent, so the guard has to
+   * live here and not only in the webview. Returns true when the caller
+   * must abort.
+   */
+  private refusePinnedStepEdit(pipelineId: string, verb: string): boolean {
+    const root = this.getRootOrWarn();
+    if (!root) { return true; }
+    const owner = epicPinningPipeline(listEpics(root, readYaml(root)), pipelineId);
+    if (!owner) { return false; }
+    void vscode.window.showWarningMessage(
+      `Cannot ${verb} in "${pipelineId}" — epic ${owner.id} is running against it. ` +
+      'Its recorded history is keyed by step position, so reshaping the list here ' +
+      'would re-point that history at different steps without any error. ' +
+      `To drop a step instead: aidlc step skip ${owner.id} <index>`,
+    );
+    return true;
+  }
+
   private async reorderStep(pipelineId: string, fromIdx: number, toIdx: number): Promise<void> {
     if (!pipelineId || fromIdx < 0 || toIdx < 0) { return; }
+    if (this.refusePinnedStepEdit(pipelineId, 'reorder steps')) { return; }
     this.mutateYaml((doc) => {
       const p = doc.pipelines.find((x) => x.id === pipelineId);
       if (!p || !Array.isArray(p.steps)) { return false; }
@@ -2396,6 +2425,7 @@ export class WorkspaceWebview {
 
   private async deleteStep(pipelineId: string, idx: number): Promise<void> {
     if (!pipelineId || idx < 0) { return; }
+    if (this.refusePinnedStepEdit(pipelineId, 'remove a step')) { return; }
     this.mutateYaml((doc) => {
       const p = doc.pipelines.find((x) => x.id === pipelineId);
       if (!p || !Array.isArray(p.steps)) { return false; }
@@ -3955,6 +3985,23 @@ export class WorkspaceWebview {
       return;
     }
 
+    // The modal always sends the whole step array, so a gate-only edit and a
+    // structural one arrive looking identical. Compare the agent sequence:
+    // when it is unchanged nothing moved, and an epic's positional history is
+    // still valid — let it through rather than making gates uneditable for the
+    // whole life of an epic.
+    const shapeOf = (xs: string[]): string => xs.join('\u0000');
+    const oldShape = shapeOf(
+      (Array.isArray(pipeline.steps) ? (pipeline.steps as PipelineStepConfig[]) : [])
+        .map((raw) => normalizeStep(raw).agent),
+    );
+    const newShape = shapeOf(
+      stepsRaw.map((x) => String((x as { agent?: unknown }).agent ?? '')),
+    );
+    if (oldShape !== newShape && this.refusePinnedStepEdit(id, 'change the step list')) {
+      return;
+    }
+
     // Auto-sync workspace.yaml entries for any file-based agents the user
     // picked. Same mechanism as `addPipelineInline` — without this an
     // edit that swaps to a project/global agent would abort here even
@@ -4083,6 +4130,7 @@ export class WorkspaceWebview {
     stepName?: string,
   ): Promise<void> {
     if (!pipelineId || !parallelToAgent || !agentId) { return; }
+    if (this.refusePinnedStepEdit(pipelineId, 'add a step')) { return; }
     const root = this.getRootOrWarn();
     if (!root) { return; }
     const doc = readYaml(root);
@@ -4204,6 +4252,7 @@ export class WorkspaceWebview {
 
   private async addStepToPipeline(pipelineId: string, agentIdArg?: string, stepNameArg?: string): Promise<void> {
     if (!pipelineId) { return; }
+    if (this.refusePinnedStepEdit(pipelineId, 'add a step')) { return; }
     const root = this.getRootOrWarn();
     if (!root) { return; }
     const doc = readYaml(root);
