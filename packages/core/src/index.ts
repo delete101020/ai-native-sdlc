@@ -70,6 +70,20 @@ export type {
   ScaffoldEpicResult,
 } from './runs/EpicScaffold';
 
+export {
+  planAddEpicStep,
+  planRemoveEpicStep,
+  commitEpicStepEdit,
+  resolveStepRef,
+  EpicStepEditError,
+} from './runs/EpicStepEdit';
+export type {
+  EpicStepSpec,
+  EpicStepPosition,
+  EpicStepEditPlan,
+  CommitEpicStepEditArgs,
+} from './runs/EpicStepEdit';
+
 // ── Stage 6: maintain, and the loop back to stage 1 ────────────────
 export { SignalSchema, parseSignal, isSignal, SignalParseError } from './maintain/Signal';
 export type { Signal } from './maintain/Signal';

@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import Table from 'cli-table3';
 import {
   validateWorkspace,
+  collectWorkspaceRefIssues,
   assemblePipeline,
   recipePipelineId,
   PipelineAssembleError,
@@ -10,7 +11,15 @@ import {
   scaffoldEpic,
   EpicScaffoldError,
   stepAgentId,
+  RunStateStore,
+  planAddEpicStep,
+  planRemoveEpicStep,
+  commitEpicStepEdit,
+  EpicStepEditError,
+  stepIdentity,
   type PipelineConfig,
+  type EpicStepEditPlan,
+  type RunState,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { readYaml, requireYaml, writeYaml, existingIds } from '../yamlIO';
@@ -244,6 +253,194 @@ export function registerEpic(program: Command): void {
         throw err;
       }
     });
+
+  // ── step add / remove ──────────────────────────────────────────────────────
+  //
+  // The supported way to reshape a *running* epic. The Pipelines view refuses
+  // Add/Delete/Reorder while an epic owns a pipeline because those move the
+  // step definitions and leave the run's history where it was; these two move
+  // both together, and refuse the edits that cannot be made coherently at all.
+  const stepCmd = cmd
+    .command('step')
+    .description(
+      'Add or remove a step on a running epic — updates the pipeline, the run\n' +
+      '  state and the epic\'s state.json together.\n' +
+      '  <step> can be a step name ("spec"), an agent id, or a 0-based index.',
+    );
+
+  stepCmd
+    .command('add <epicId>')
+    .description('Insert a step into a running epic\'s pipeline')
+    .requiredOption('--agent <id>', 'agent that runs the step')
+    .option('--name <name>', 'step name — its identity in depends_on and the run records')
+    .option('--after <step>', 'insert immediately after this step')
+    .option('--before <step>', 'insert immediately before this step')
+    .option('--produces <path...>', 'artifact paths the step must produce')
+    .option('--requires <path...>', 'artifact paths that must exist before it opens')
+    .option('--depends-on <step...>', 'steps that must be approved before it opens')
+    .option('--human-review', 'pause for human approval after the step')
+    .option('--auto-review', 'run the auto-reviewer after the step')
+    .action((epicId: string, opts: {
+      agent: string; name?: string; after?: string; before?: string;
+      produces?: string[]; requires?: string[]; dependsOn?: string[];
+      humanReview?: boolean; autoReview?: boolean;
+    }, actionCmd: Command) => {
+      const root = resolveWorkspaceRoot(actionCmd);
+      const doc  = requireYaml(root);
+      const { runState, pipelineCfg } = requireEditableEpic(root, doc, epicId);
+
+      const plan = runEdit(() => planAddEpicStep({
+        runState,
+        pipeline: pipelineCfg,
+        step: {
+          agent: opts.agent,
+          name: opts.name,
+          produces: opts.produces,
+          requires: opts.requires,
+          depends_on: opts.dependsOn,
+          human_review: opts.humanReview,
+          auto_review: opts.autoReview,
+        },
+        position: { after: opts.after, before: opts.before },
+      }));
+
+      writeEdit(root, doc, plan);
+      console.log(chalk.green('✔') + ` Added step ${chalk.bold(plan.stepId)} at index ${plan.index} of ${chalk.bold(pipelineCfg.id)}`);
+      printSteps(plan);
+      console.log(chalk.dim('  The step is pending — it opens when the run reaches it.'));
+    });
+
+  stepCmd
+    .command('remove <epicId> <step>')
+    .description('Remove a not-yet-started step from a running epic\'s pipeline')
+    .action((epicId: string, step: string, _opts: unknown, actionCmd: Command) => {
+      const root = resolveWorkspaceRoot(actionCmd);
+      const doc  = requireYaml(root);
+      const { runState, pipelineCfg } = requireEditableEpic(root, doc, epicId);
+
+      const plan = runEdit(() => planRemoveEpicStep({ runState, pipeline: pipelineCfg, step }));
+
+      writeEdit(root, doc, plan);
+      console.log(chalk.green('✔') + ` Removed step ${chalk.bold(plan.stepId)} from ${chalk.bold(pipelineCfg.id)}`);
+      printSteps(plan);
+    });
+}
+
+/**
+ * Load the run + pipeline for an epic, refusing the cases where an edit would
+ * be meaningless or would damage something else.
+ *
+ * The shared-pipeline check is the one worth spelling out: a hand-authored
+ * pipeline can back several epics, and each of their runs is indexed against
+ * it. Reshaping it for one epic silently reshapes it under the others, which
+ * is exactly the failure this command exists to avoid — so it is refused, and
+ * the fix is a pipeline of the epic's own.
+ */
+function requireEditableEpic(
+  root: string,
+  doc: ReturnType<typeof requireYaml>,
+  epicId: string,
+): { runState: RunState; pipelineCfg: PipelineConfig } {
+  const runState = RunStateStore.load(root, epicId);
+  if (!runState) {
+    console.error(chalk.red(`Epic "${epicId}" has no run state at .aidlc/runs/${epicId}.json.`));
+    console.error(chalk.dim('  Only a pipeline-backed epic has a step list to edit.'));
+    process.exit(1);
+  }
+
+  const found = (doc.pipelines as Array<Record<string, unknown>>)
+    .find((p) => String(p.id) === runState.pipelineId);
+  if (!found) {
+    console.error(chalk.red(`Pipeline "${runState.pipelineId}" is not in workspace.yaml, but run "${epicId}" executes it.`));
+    process.exit(1);
+  }
+
+  const sharing = listEpics(root, doc)
+    .filter((e) => e.pipeline === runState.pipelineId && e.id !== epicId);
+  if (sharing.length > 0) {
+    console.error(chalk.red(`Pipeline "${runState.pipelineId}" also backs ${sharing.map((e) => e.id).join(', ')}.`));
+    console.error(chalk.dim('  Editing its steps would reshape those runs too, without their history moving with it.'));
+    console.error(chalk.dim(`  Give ${epicId} a pipeline of its own first (aidlc pipeline add), then edit that.`));
+    process.exit(1);
+  }
+
+  return { runState, pipelineCfg: found as unknown as PipelineConfig };
+}
+
+/** Run a planner, turning its refusal into a clean CLI error. */
+function runEdit(plan: () => EpicStepEditPlan): EpicStepEditPlan {
+  try {
+    return plan();
+  } catch (err) {
+    if (err instanceof EpicStepEditError) {
+      console.error(chalk.red(err.message));
+      process.exit(1);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Write the plan to all three stores. The workspace write validates the whole
+ * document first — that is what catches a `--agent` that does not exist — and
+ * it happens before anything else is touched, so a rejected pipeline leaves
+ * the run untouched rather than half-edited.
+ */
+function writeEdit(
+  root: string,
+  doc: ReturnType<typeof requireYaml>,
+  plan: EpicStepEditPlan,
+): void {
+  const before = JSON.parse(JSON.stringify(doc.pipelines)) as Array<Record<string, unknown>>;
+
+  commitEpicStepEdit({
+    workspaceRoot: root,
+    doc,
+    plan,
+    writeWorkspace: (pipeline) => {
+      doc.pipelines = doc.pipelines.map((p) =>
+        String(p.id) === pipeline.id ? (pipeline as unknown as Record<string, unknown>) : p,
+      );
+      let config;
+      try {
+        config = validateWorkspace(doc, '.aidlc/workspace.yaml');
+      } catch (err) {
+        console.error(chalk.red('The edited pipeline fails workspace validation — nothing was written:'));
+        console.error(chalk.dim(err instanceof Error ? err.message : String(err)));
+        process.exit(1);
+      }
+      // The schema checks shape, not references — an `--agent` that does not
+      // exist passes it and then fails at run time with the step already in
+      // both stores. Reference issues are only fatal when they are *this*
+      // pipeline's; a workspace that was already carrying a dangling reference
+      // elsewhere is not this command's business.
+      const issues = collectWorkspaceRefIssues(config)
+        .filter((i) => i.path.startsWith(`pipelines.${pipeline.id}.`));
+      if (issues.length > 0) {
+        console.error(chalk.red('The edited step references something the workspace does not define — nothing was written:'));
+        for (const issue of issues) { console.error(chalk.dim(`  ${issue.message}`)); }
+        process.exit(1);
+      }
+      writeYaml(root, doc);
+    },
+    restoreWorkspace: () => {
+      doc.pipelines = before;
+      writeYaml(root, doc);
+    },
+  });
+}
+
+/** Print the run's step list after an edit, marking where the pointer sits. */
+function printSteps(plan: EpicStepEditPlan): void {
+  const { runState } = plan;
+  runState.steps.forEach((s, i) => {
+    const marker = i === runState.currentStepIdx ? chalk.yellow('▶') : ' ';
+    const label  = i === plan.index ? chalk.bold(stepIdentity(s)) : chalk.dim(stepIdentity(s));
+    console.log(`  ${marker} ${chalk.dim(String(i))} ${label} ${chalk.dim('(' + s.status + ')')}`);
+  });
+  if (plan.previousCurrentStepIdx !== runState.currentStepIdx) {
+    console.log(chalk.dim(`  Current step moved ${plan.previousCurrentStepIdx} → ${runState.currentStepIdx} (same step).`));
+  }
 }
 
 /** Commander collector for repeatable `--input key=value` flags. */

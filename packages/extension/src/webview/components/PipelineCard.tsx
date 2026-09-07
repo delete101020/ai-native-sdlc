@@ -136,8 +136,11 @@ export function PipelineCard({
           Its history lives in <span className="font-mono">state.json</span> and{' '}
           <span className="font-mono">.aidlc/runs/</span> keyed by step <em>position</em>,
           so adding, removing or reordering a step here would re-point that history
-          at different steps without raising an error. To drop a step, run{' '}
-          <span className="font-mono">aidlc step skip {locked} &lt;index&gt;</span>.
+          at different steps without raising an error. To change the step list, run{' '}
+          <span className="font-mono">aidlc epic step add|remove {locked}</span> — it
+          moves the pipeline and the run together. To jump over a step already in
+          flight,{' '}
+          <span className="font-mono">aidlc step skip {locked} &lt;step&gt;</span>.
           Gates and dependencies are still editable.
         </div>
       )}

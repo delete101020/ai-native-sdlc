@@ -20,6 +20,21 @@ declares no capabilities keeps working and simply receives a fuller prompt.
 
 ### Added
 
+- **`aidlc epic step add|remove <epic>` — reshape a running epic's pipeline.**
+  The pipeline, the run state and the epic's `state.json` are updated together,
+  so the history keeps describing the step it was always about: `stepIdx` is
+  renumbered, the pointer follows the step it was on, and the indices recorded
+  in step history are rewritten. Everything is validated before anything is
+  written, and a failed write puts back what it already wrote.
+  What it refuses is the part worth knowing: a step that is not `pending`
+  (removing it would delete the record of work that happened — `aidlc step
+  skip` is still the way past a step in flight), an insertion at or before a
+  step that has started (it would never open), a step other steps `depends_on`,
+  the last remaining step, a `--agent` or `--depends-on` the workspace does not
+  define, a step with no `depends_on` in a DAG pipeline (nothing would ever
+  open it), a pipeline shared with another epic, and a run that has already
+  drifted from its pipeline.
+
 - **A run now records *which* step each entry is about, not just where it sat.**
   `StepRecord` gained a `name`, so a step's identity in the run state is the
   same `name ?? agent` the pipeline, `depends_on` and the DAG resolver already

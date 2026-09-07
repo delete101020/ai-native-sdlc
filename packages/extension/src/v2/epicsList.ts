@@ -360,17 +360,19 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
  *
  * `aidlc epic start` writes three parallel step arrays: the pipeline's
  * `steps` in workspace.yaml, `stepStates[]` in the epic's state.json, and
- * `steps[]` in `.aidlc/runs/<id>.json`. Only the first stores a step *name* —
- * the other two identify a step by its position, and the run pointer
- * (`currentStepIdx`) is a bare integer. Adding, removing or reordering a step
- * in the pipeline therefore does not carry the epic's history with it: it
- * re-points that history at different steps. The runner only notices when an
- * index leaves the array, so a pipeline that got *shorter* keeps running
- * against the wrong steps with no error at all.
+ * `steps[]` in `.aidlc/runs/<id>.json`. The run pointer (`currentStepIdx`) and
+ * every `stepIdx` are positions into those arrays, so adding, removing or
+ * reordering a step in the pipeline alone does not carry the epic's history
+ * with it: it re-points that history at different steps. Since schema 2 the
+ * run records each step's name and the runner refuses a pair that has drifted,
+ * so this is no longer silent — but a refused run is still a stuck one, and
+ * the edit that caused it is still not one this view can make.
  *
  * Callers use this to refuse a shape edit while the epic still owns the
- * pipeline. `aidlc step skip` is the supported way to drop a step: it leaves
- * the length and every index alone and records a reason.
+ * pipeline. `aidlc epic step add|remove` is the supported way to change the
+ * list — it reshapes the pipeline and the run together — and `aidlc step skip`
+ * remains the way past a step already in flight, leaving the length and every
+ * index alone and recording a reason.
  *
  * An `artifactsOnly` epic has no state.json, so there is nothing to desync.
  */

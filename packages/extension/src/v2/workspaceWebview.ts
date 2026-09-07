@@ -2405,7 +2405,8 @@ export class WorkspaceWebview {
       `Cannot ${verb} in "${pipelineId}" — epic ${owner.id} is running against it. ` +
       'Its recorded history is keyed by step position, so reshaping the list here ' +
       'would re-point that history at different steps without any error. ' +
-      `To drop a step instead: aidlc step skip ${owner.id} <index>`,
+      `To change the step list: aidlc epic step add|remove ${owner.id}, which moves ` +
+      `both together. To jump over a step already in flight: aidlc step skip ${owner.id} <step>`,
     );
     return true;
   }
