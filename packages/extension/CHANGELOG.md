@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 3.7.0
+
+Three threads land together: a prompt that carries everything a phase needs
+instead of paths to go and read it; a Start epic that right-sizes the workflow
+to the task rather than running all six phases for a one-line fix; and an epic
+whose step list can still be changed after it has started, without the run
+losing track of what happened.
 
 Every phase now receives its persona and the repository's own conventions *in
 the prompt*, instead of as file paths it was told to go and read.
