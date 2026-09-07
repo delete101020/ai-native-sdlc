@@ -82,13 +82,12 @@ interface EpicState {
 interface CapabilityPrompt {
   prompt: string;
   placeholder: string;
-  defaultValue?: string;
 }
 
 const CAPABILITY_PROMPTS: Record<string, CapabilityPrompt> = {
   'jira':          { prompt: 'Jira ticket key or URL',                    placeholder: 'PROJ-123 or https://acme.atlassian.net/browse/PROJ-123' },
   'figma':         { prompt: 'Figma file URL or file key',                placeholder: 'https://www.figma.com/file/abc123/...' },
-  'core-business': { prompt: 'Path to core business docs (relative)',     placeholder: 'docs/core', defaultValue: 'docs/core' },
+  'core-business': { prompt: 'Path to core business docs (relative)',     placeholder: 'docs/core' },
   'github':        { prompt: 'GitHub repo or PR URL',                     placeholder: 'owner/repo or https://github.com/owner/repo/pull/42' },
   'slack':         { prompt: 'Slack channel or thread URL',               placeholder: '#engineering or https://slack.com/...' },
   'files':         { prompt: 'Files glob (relative to project root)',     placeholder: 'src/**/*.ts' },
@@ -519,7 +518,6 @@ async function promptCapability(cap: string): Promise<string | undefined> {
     title: `Capability: ${cap}`,
     prompt,
     placeHolder: placeholder,
-    value: meta?.defaultValue ?? '',
     ignoreFocusOut: true,
   });
   return value?.trim();

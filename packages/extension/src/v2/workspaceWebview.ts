@@ -654,6 +654,9 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     id: String(p.id),
     on_failure: p.on_failure === 'continue' ? 'continue' : 'stop',
     builtin: BUILTIN_WORKFLOWS.some((w) => w.pipelineId === String(p.id)),
+    ...(typeof p.derived_from === 'string' && p.derived_from
+      ? { derivedFrom: p.derived_from }
+      : {}),
     steps: Array.isArray(p.steps)
       ? (p.steps as PipelineStepConfig[]).map((raw) => {
           const norm = normalizeStep(raw);

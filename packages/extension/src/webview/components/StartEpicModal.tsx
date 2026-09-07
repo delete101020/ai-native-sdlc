@@ -11,13 +11,12 @@ const ID_PATTERN = /^[A-Z][A-Z0-9-]*$/;
 interface CapabilityPrompt {
   prompt: string;
   placeholder: string;
-  defaultValue?: string;
 }
 
 const CAPABILITY_PROMPTS: Record<string, CapabilityPrompt> = {
   jira: { prompt: 'Jira ticket key or URL', placeholder: 'PROJ-123 or https://acme.atlassian.net/browse/PROJ-123' },
   figma: { prompt: 'Figma file URL or file key', placeholder: 'https://www.figma.com/file/abc123/...' },
-  'core-business': { prompt: 'Path to core business docs (relative)', placeholder: 'docs/core', defaultValue: 'docs/core' },
+  'core-business': { prompt: 'Path to core business docs (relative)', placeholder: 'docs/core' },
   github: { prompt: 'GitHub repo or PR URL', placeholder: 'owner/repo or https://github.com/owner/repo/pull/42' },
   slack: { prompt: 'Slack channel or thread URL', placeholder: '#engineering or https://slack.com/...' },
   files: { prompt: 'Files glob (relative to project root)', placeholder: 'src/**/*.ts' },
@@ -96,8 +95,8 @@ export function StartEpicModal({
   const [selected, setSelected] = useState<Selection>(
     recipes.length > 0
       ? { kind: 'auto' }
-      : pipelines[0]
-        ? { kind: 'pipeline', id: pipelines[0].id }
+      : pipelines.find((p) => !p.derivedFrom)
+        ? { kind: 'pipeline', id: pipelines.find((p) => !p.derivedFrom)!.id }
         : { kind: 'auto' },
   );
   // Start empty (nextEpicId is shown only as a placeholder). A pre-filled
@@ -106,10 +105,11 @@ export function StartEpicModal({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [inputs, setInputs] = useState<Record<string, string>>({});
-  // Capability inputs are all optional (blank = skip), so they're collapsible —
-  // open by default so a required-looking field is never hidden from a first-time
-  // user, but foldable once the list gets long enough to push the footer away.
-  const [capsOpen, setCapsOpen] = useState(true);
+  // Capability inputs are all optional (blank = skip) and every one of them is a
+  // path or URL only the user can supply, so the common case is to fill none.
+  // Folded by default keeps the footer on screen; the header still reports
+  // ` · n filled` while closed, so folding can never hide a value that is set.
+  const [capsOpen, setCapsOpen] = useState(false);
   const idInputRef = useRef<HTMLInputElement>(null);
   // Extra projects (GH-67)
   const [extraProjects, setExtraProjects] = useState<ExtraProject[]>([]);
@@ -132,8 +132,30 @@ export function StartEpicModal({
   const [loadElapsed, setLoadElapsed] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const hasWorkflows = pipelines.length > 0 || recipes.length > 0;
-  const userPipelines = useMemo(() => pipelines.filter((p) => !p.builtin), [pipelines]);
+  // A pipeline assembled from a recipe is written into workspace.yaml under the
+  // epic's own id and belongs to that one epic — it is a record of what ran, not
+  // a workflow to start something else with. Listing them made "Your pipelines"
+  // grow by one dead row per epic, each looking like a reusable choice.
+  const userPipelines = useMemo(
+    () => pipelines.filter((p) => !p.builtin && !p.derivedFrom),
+    [pipelines],
+  );
+  // Everything the picker will actually show — the fallback selection has to
+  // come from here, or it can land on a pipeline that has no row.
+  const selectablePipelines = useMemo(
+    () => pipelines.filter((p) => !p.derivedFrom),
+    [pipelines],
+  );
+  const hasWorkflows = selectablePipelines.length > 0 || recipes.length > 0;
+  // Most steps first. The list is a coverage ladder, not a menu of equals:
+  // dropping a step drops a guarantee, so reading top-down reads from "every
+  // gate kept" down to "one phase only". Source order was authored by task
+  // type, which put the six-step full flow third and gave no way to see what
+  // a shorter row gives up. Ties keep their authored order.
+  const sortedRecipes = useMemo(
+    () => [...recipes].sort((a, b) => b.steps.length - a.steps.length),
+    [recipes],
+  );
   const aidlcPipelines = useMemo(() => pipelines.filter((p) => p.builtin), [pipelines]);
 
   // Live mirrors of the inputs so the (deps-frozen) host-message listener can
@@ -200,18 +222,19 @@ export function StartEpicModal({
   // selection valid: fall back to a pipeline when `auto` has no recipes, or
   // fill in a pipeline id once one exists.
   useEffect(() => {
-    if (selected.kind === 'auto' && recipes.length === 0 && pipelines[0]) {
-      setSelected({ kind: 'pipeline', id: pipelines[0].id });
-    } else if (selected.kind === 'pipeline' && !selected.id && pipelines[0]) {
-      setSelected({ kind: 'pipeline', id: pipelines[0].id });
+    const first = selectablePipelines[0];
+    if (selected.kind === 'auto' && recipes.length === 0 && first) {
+      setSelected({ kind: 'pipeline', id: first.id });
+    } else if (selected.kind === 'pipeline' && !selected.id && first) {
+      setSelected({ kind: 'pipeline', id: first.id });
     } else if (selected.kind === 'recipe' && !recipes.some((r) => r.id === selected.id)) {
       // The hand-picked recipe vanished (preset swapped) — don't submit a target
       // the workspace no longer defines.
       setSelected(recipes.length > 0
         ? { kind: 'auto' }
-        : pipelines[0] ? { kind: 'pipeline', id: pipelines[0].id } : { kind: 'auto' });
+        : first ? { kind: 'pipeline', id: first.id } : { kind: 'auto' });
     }
-  }, [pipelines, recipes, selected]);
+  }, [selectablePipelines, recipes, selected]);
 
   // Host messages: classifier verdict + external requirement loads.
   useEffect(() => {
@@ -460,20 +483,6 @@ export function StartEpicModal({
     [capabilities, inputs],
   );
 
-  useEffect(() => {
-    setInputs((cur) => {
-      const next = { ...cur };
-      let changed = false;
-      for (const cap of capabilities) {
-        if (!(cap in next)) {
-          const def = CAPABILITY_PROMPTS[cap]?.defaultValue ?? '';
-          if (def) { next[cap] = def; changed = true; }
-        }
-      }
-      return changed ? next : cur;
-    });
-  }, [capabilities]);
-
   // Empty field falls back to the suggested next id (shown as placeholder).
   const effectiveId = epicId.trim() || nextEpicId;
   const trimmedId = epicId.trim();
@@ -693,7 +702,7 @@ export function StartEpicModal({
                 {recipes.length > 0 && (
                   <GroupHeader label="Recipes (right-sized)" />
                 )}
-                {recipes.map((r) => (
+                {sortedRecipes.map((r) => (
                   <WorkflowRow
                     key={`r:${r.id}`}
                     id={r.id}

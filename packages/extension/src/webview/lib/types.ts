@@ -435,6 +435,11 @@ export interface PipelineSummary {
   steps: PipelineStepSummary[];
   on_failure: 'stop' | 'continue';
   builtin?: boolean;
+  /**
+   * Source pipeline id, set when this pipeline was assembled from a recipe.
+   * Present means it belongs to one epic and is not a reusable workflow.
+   */
+  derivedFrom?: string;
   /** Human label for built-in pipelines (e.g. "iOS Native Pipeline"). User-defined pipelines leave this undefined. */
   name?: string;
 }

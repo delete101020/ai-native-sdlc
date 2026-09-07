@@ -26,10 +26,16 @@ declares no capabilities keeps working and simply receives a fuller prompt.
   landed on it. Recipes now list under their own group, each showing its steps,
   and the classifier’s current pick is badged ★ suggested among them rather
   than replacing the choice.
-- **Start epic: capability inputs collapse.** They are all optional, and a
-  workflow touching several capabilities pushed the footer out of view. The
-  section folds from its header and reports `n filled` while closed, so folding
-  never hides that values are set. Open by default.
+- **Start epic: capability inputs collapse, and start folded.** They are all
+  optional, every one of them is a path or URL only the user can supply, and a
+  workflow touching several of them pushed the footer out of view. The section
+  folds from its header and reports `n filled` while closed, so folding never
+  hides that values are set.
+- **Start epic: recipes list most-steps-first.** Source order was authored by
+  task type, which put the six-step full flow third and gave no way to see what
+  a shorter row gives up. The list is a coverage ladder — dropping a step drops
+  a guarantee — so it now reads from "every gate kept" down to "one phase
+  only".
 - Persona resolution across all three asset scopes (project › `.aidlc` ›
   global), with frontmatter and install markers stripped before inlining.
 - Project instructions are resolved from whichever of `CLAUDE.md`,
@@ -93,6 +99,21 @@ declares no capabilities keeps working and simply receives a fuller prompt.
     so in the recipe picker.
 
 ### Fixed
+
+- **Start epic pre-filled `docs/core` into every epic it created.** The
+  `core-business` capability listed `docs/core` as both placeholder *and*
+  default, so an untouched field still submitted a value — one that most repos
+  have no such directory for. Capability inputs are captured at scaffold time
+  and no command edits them afterwards, so the only way back out was hand-editing
+  `inputs.json` and the run state. Nothing is pre-filled now; the placeholder
+  still shows the shape expected.
+
+- **"Your pipelines" grew a dead row for every epic ever started.** Starting
+  an epic from a recipe writes the assembled pipeline into `workspace.yaml`
+  under the epic's own id, and the picker listed anything not built in — so
+  `EPIC-001` appeared beside the real workflows, looking like something you
+  could start other work with. Per-epic pipelines are now recognised by their
+  recorded source and left out of the picker, including its fallback selection.
 
 - **An epic started from a recipe got an empty `artifacts/`.** Artifact
   templates are read from `.aidlc/aidlc-templates/<pipelineId>/`, but a
