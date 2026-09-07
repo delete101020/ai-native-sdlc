@@ -17,6 +17,7 @@
 import type { LoadedPersona } from './PersonaLoader';
 import type { ProjectInstructions } from './projectInstructions';
 import type { HarnessCapabilities } from '../runner/types';
+import { artifactLanguageSection } from './artifactLanguage';
 
 /**
  * The persona used to arrive as an instruction to go and read a file. Once the
@@ -39,25 +40,32 @@ export interface ComposeInput {
   instructions: ProjectInstructions | null;
   /** What the target harness supplies without our help. */
   harness: HarnessCapabilities;
+  /**
+   * Workspace's declared artifact language, or null/undefined for none. No
+   * harness supplies this — it is our own setting — so there is no capability
+   * flag guarding it.
+   */
+  artifactLanguage?: string | null;
 }
 
 export interface ComposedPrompt {
   /** The prompt text to hand the runner as `ctx.skill`. */
   text: string;
   /** Which layers this composition actually inlined — for `--dry-run` and doctor. */
-  included: { persona: boolean; instructions: boolean };
+  included: { persona: boolean; instructions: boolean; language: boolean };
 }
 
 export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
-  const { skills, persona, instructions, harness } = input;
+  const { skills, persona, instructions, harness, artifactLanguage } = input;
 
   const inlinePersona = !!persona && !harness.persona;
   const inlineInstructions = !!instructions && !harness.projectInstructions;
+  const language = artifactLanguage?.trim() || null;
 
   // Nothing to add ⇒ hand the skills through untouched. A workspace whose
   // agents have no persona file must see the exact prompt it saw before.
-  if (!inlinePersona && !inlineInstructions) {
-    return { text: skills, included: { persona: false, instructions: false } };
+  if (!inlinePersona && !inlineInstructions && !language) {
+    return { text: skills, included: { persona: false, instructions: false, language: false } };
   }
 
   const parts: string[] = [];
@@ -76,6 +84,13 @@ export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
     ].join('\n'));
   }
 
+  // Language comes after the persona and the project's rules — it constrains
+  // how the phase writes, so it reads better next to the phase behaviour than
+  // buried above two long documents.
+  if (language) {
+    parts.push(artifactLanguageSection(language));
+  }
+
   // The skill layer keeps its path-based persona directive only when nothing
   // has replaced it — i.e. when the harness loads the persona itself.
   const skillText = inlinePersona ? stripPersonaDirectives(skills) : skills;
@@ -83,6 +98,6 @@ export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
 
   return {
     text: parts.join('\n\n---\n\n') + '\n',
-    included: { persona: inlinePersona, instructions: inlineInstructions },
+    included: { persona: inlinePersona, instructions: inlineInstructions, language: !!language },
   };
 }

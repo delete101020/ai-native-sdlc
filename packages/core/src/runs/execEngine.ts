@@ -27,6 +27,7 @@ import { estimateCostUsd, ratesFromConfig, providerAliases } from './pricing';
 import { resolveProviderModel } from '../presets/models';
 import type { RunState } from './RunState';
 import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
+import { resolveArtifactLanguage } from '../loader/artifactLanguage';
 import { composeAgentPrompt, type ComposedPrompt } from '../loader/promptComposer';
 import { findProjectInstructions } from '../loader/projectInstructions';
 import { harnessCapabilities, type AidlcRunner } from '../runner/types';
@@ -277,6 +278,7 @@ function buildStepPrompt(
       ? null
       : findProjectInstructions(root, harness.instructionFile),
     harness,
+    artifactLanguage: resolveArtifactLanguage(ws.config),
   });
 }
 

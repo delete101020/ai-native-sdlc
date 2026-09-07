@@ -27,6 +27,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { artifactLanguageSection } from '../loader/artifactLanguage';
 import type { PipelineConfig, WorkspaceConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, stepDagId } from '../schema/WorkspaceSchema';
 import type { RunState } from '../runs/RunState';
@@ -296,6 +297,8 @@ Claude — but still follow the structural contract below.
    validator checks this path when the step is marked done.
 4. Summarize what you produced and tell the user to click **"Mark step done"**
    in the AIDLC panel to advance the pipeline.
+
+${artifactLanguageSection(null)}
 `;
 }
 
@@ -331,6 +334,8 @@ procedure exactly as \`/aidlc <epic> ${phase.id}\` would:
    state/inputs, write to
    \`${epicRoot}/<epic>/artifacts/${phase.artifact}\` (or the step's declared
    artifact), and tell the user to click **"Mark step done"**.
+
+${artifactLanguageSection(null)}
 `;
 }
 

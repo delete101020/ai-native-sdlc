@@ -25,6 +25,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { artifactLanguageSection } from '../loader/artifactLanguage';
 import { CODING_MODEL, PLANNING_MODEL } from './models';
 import { renderTemplate } from './templateRenderer';
 
@@ -1081,6 +1082,8 @@ The user invoked you with epic id \`$ARGUMENTS\`.
 2. Read \`${epicRoot}/$ARGUMENTS/inputs.json\` for capability inputs (Jira ticket, Figma URL, files glob, GitHub repo, etc.).
 ${artifactInstruction}
 4. When finished, summarize what you produced and tell the user to click **"Mark step done"** in the AIDLC panel to advance the pipeline.
+
+${artifactLanguageSection(null)}
 `;
 }
 

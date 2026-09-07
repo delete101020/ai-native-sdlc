@@ -613,6 +613,18 @@ export const WorkspaceSchema = z.object({
    */
   standard: z.string().min(1).optional(),
 
+  /**
+   * Natural language for artifact prose (`vi`, `Vietnamese`, `ja`, …). Unset
+   * ⇒ no opinion: the phase prompt carries no language section and the model
+   * infers from context, which is the historical behaviour.
+   *
+   * Free string, not an enum, for the same reason `standard` is: the value is
+   * handed to a model, which understands far more language names than we
+   * could enumerate. See `loader/artifactLanguage.ts` for what it governs —
+   * prose only, never the document skeleton.
+   */
+  artifact_language: z.string().min(1).optional(),
+
   agents: z.array(AgentSchema).default([]),
   skills: z.array(SkillSchema).default([]),
   /** Workspace-wide environment, layered under per-agent env. */

@@ -166,7 +166,7 @@ describe('composeAgentPrompt', () => {
       harness: new DefaultRunner().capabilities,
     });
 
-    expect(out.included).toEqual({ persona: true, instructions: false });
+    expect(out.included).toEqual({ persona: true, instructions: false, language: false });
     expect(out.text).toContain('## Persona');
     expect(out.text).toContain('You hold the problem.');
     expect(out.text).not.toContain('Use pnpm.');
@@ -178,7 +178,7 @@ describe('composeAgentPrompt', () => {
       harness: NO_HARNESS_CAPABILITIES,
     });
 
-    expect(out.included).toEqual({ persona: true, instructions: true });
+    expect(out.included).toEqual({ persona: true, instructions: true, language: false });
     expect(out.text).toContain('You hold the problem.');
     expect(out.text).toContain('Use pnpm.');
     expect(out.text).toContain('`CLAUDE.md`');
@@ -209,7 +209,7 @@ describe('composeAgentPrompt', () => {
     });
 
     expect(out.text).toBe(SKILL_TEXT);
-    expect(out.included).toEqual({ persona: false, instructions: false });
+    expect(out.included).toEqual({ persona: false, instructions: false, language: false });
   });
 
   it('carries the same persona text to every harness that has to be told', () => {

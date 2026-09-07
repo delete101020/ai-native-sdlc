@@ -20,6 +20,23 @@ declares no capabilities keeps working and simply receives a fuller prompt.
 
 ### Added
 
+- **`artifact_language:` in workspace.yaml, so a pipeline stops changing
+  language halfway through.** Nothing used to say what language artifacts are
+  written in, which left each phase to infer it from the brief on its own — a
+  Vietnamese intent could be followed by an English spec, and phase N+1 reads
+  phase N. Declaring the language settles it once for the workspace: the
+  headless composer inlines it (it has the config loaded), and the slash
+  commands read it from `workspace.yaml` at run time so a command file written
+  months ago cannot claim a language the workspace has since changed.
+
+  The rule governs prose only. Headings, field labels and table columns stay
+  in English on purpose: the maintain loop *generates* documents with the
+  literal strings `## 1. Problem` … `## 7. Open questions`, and auto-review
+  rules match headings, so a translated heading is a section the pipeline that
+  asked for it can no longer find.
+
+  Unset means what it always meant — no section composed, prompt unchanged.
+
 - **Start epic: pick a recipe by hand.** The Workflow list offered one `Auto`
   row and the pipelines; every recipe was reachable only through the classifier,
   so choosing a known-good recipe meant wording the brief until the keywords
