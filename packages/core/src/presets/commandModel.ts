@@ -322,9 +322,13 @@ procedure exactly as \`/aidlc <epic> ${phase.id}\` would:
 3. **If the pipeline has no \`${phase.id}\` step**, tell the user this epic's
    pipeline (\`<pipelineId>\`) has no \`${phase.id}\` phase, suggest
    \`/aidlc <epic>\` to run the next eligible phase, and stop.
-4. Otherwise load the persona (\`.claude/agents/<agent>.md\`) + skill(s)
-   (\`.claude/skills/<skill>.md\`), adopt them (unless the active standard is
-   \`none\`), then follow the structural contract: read state/inputs, write to
+4. Load the persona and skill(s) that step names. Resolve each from
+   \`workspace.yaml\` first — a \`skills[]\` / \`agents[]\` entry may
+   carry its own \`path:\`, including \`~/.claude/...\` for globally installed
+   ones — and only fall back to \`.claude/skills/<id>.md\` and
+   \`.claude/agents/<id>.md\` when none is declared. Adopt them (unless the
+   active standard is \`none\`), then follow the structural contract: read
+   state/inputs, write to
    \`${epicRoot}/<epic>/artifacts/${phase.artifact}\` (or the step's declared
    artifact), and tell the user to click **"Mark step done"**.
 `;

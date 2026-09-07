@@ -81,6 +81,16 @@ describe('workflow command provisioning', () => {
     const body = fs.readFileSync(path.join(commandsDir(), 'intent.md'), 'utf8');
     expect(body).toContain('work/epics/<epic>/state.json');
   });
+
+  it('tells the agent to resolve a skill path from workspace.yaml', () => {
+    // The skills in a preset-applied workspace live at `~/.claude/skills/…`,
+    // declared per-entry as `path:`. The dispatcher used to name
+    // `.claude/skills/<skill>.md` as the only location.
+    writeWorkflowCommands(root, NATIVE, loadBuiltinPreset(templatesRoot, NATIVE));
+    const body = fs.readFileSync(path.join(commandsDir(), 'intent.md'), 'utf8');
+    expect(body).toContain('workspace.yaml');
+    expect(body).toContain('~/.claude/...');
+  });
 });
 
 describe('workflow artifact templates', () => {

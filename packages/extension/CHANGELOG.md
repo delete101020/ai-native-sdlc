@@ -116,6 +116,13 @@ declares no capabilities keeps working and simply receives a fuller prompt.
   with no commands to run and an empty `artifacts/`. Both now call the same
   provisioning code.
 
+- **The phase dispatcher named one place a skill could live.** `/intent` and
+  its siblings resolve the agent and skills from `workspace.yaml` at runtime,
+  then told the agent to read `.claude/skills/<skill>.md` — but a preset-applied
+  workspace declares a `path:` per skill, pointing at `~/.claude/skills/`. The
+  dispatcher now resolves the declared path first and falls back to the project
+  directory only when none is given.
+
 - **Start epic pre-filled `docs/core` into every epic it created.** The
   `core-business` capability listed `docs/core` as both placeholder *and*
   default, so an untouched field still submitted a value — one that most repos
