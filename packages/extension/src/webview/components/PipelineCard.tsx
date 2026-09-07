@@ -141,7 +141,12 @@ export function PipelineCard({
           moves the pipeline and the run together. To jump over a step already in
           flight,{' '}
           <span className="font-mono">aidlc step skip {locked} &lt;step&gt;</span>.
-          Gates and dependencies are still editable.
+          The review gates stay editable here, and from{' '}
+          <span className="font-mono">aidlc epic step set {locked} &lt;step&gt;</span>:
+          the runner reads them off the pipeline as it goes, so a change reaches
+          any step that has not submitted its work yet. Dependencies are editable
+          too, but re-routing them mid-run can leave a pending step with nothing
+          left to open it.
         </div>
       )}
 

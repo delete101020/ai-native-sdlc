@@ -175,6 +175,8 @@ import {
   normalizeStep,
   discoverAssets,
   RunStateStore,
+  describeGateEffect,
+  type EpicStepGateChange,
   startRun,
   targetPath,
   validateWorkspace,
@@ -2615,6 +2617,48 @@ export class WorkspaceWebview {
       }
       p.steps[idx] = obj as unknown as PipelineStepConfig;
     });
+
+    this.reportGateEffect(root, pipelineId, idx, norm, draft);
+  }
+
+  /**
+   * Tell the user when a gate change cannot reach the step they changed it on.
+   *
+   * The step list is locked while an epic owns a pipeline but the gates are
+   * not, precisely because `human_review` and `auto_review` are read off the
+   * live pipeline when a step's work is submitted rather than copied into the
+   * run. The flip side is that a step which has already got past that point
+   * keeps the gate it had for this revision, and the toggle looks like it did
+   * nothing. Saying so is the whole job here — there is nothing to refuse,
+   * because the new setting is still right for the next time the step runs.
+   */
+  private reportGateEffect(
+    root: string,
+    pipelineId: string,
+    idx: number,
+    before: { human_review: boolean; auto_review: boolean },
+    after: { human_review: boolean; auto_review: boolean },
+  ): void {
+    const changes: EpicStepGateChange[] = [];
+    if (before.human_review !== after.human_review) {
+      changes.push({ gate: 'human_review', from: before.human_review, to: after.human_review });
+    }
+    if (before.auto_review !== after.auto_review) {
+      changes.push({ gate: 'auto_review', from: before.auto_review, to: after.auto_review });
+    }
+    if (changes.length === 0) { return; }
+
+    const owner = epicPinningPipeline(listEpics(root, readYaml(root)), pipelineId);
+    if (!owner) { return; }
+    const run = RunStateStore.load(root, owner.id);
+    const record = run?.steps[idx];
+    if (!record) { return; }
+
+    const note = describeGateEffect(record.status, changes);
+    if (!note) { return; }
+    void vscode.window.showInformationMessage(
+      `${owner.id}: step ${idx + 1} is ${record.status}. ${note}`,
+    );
   }
 
   /**

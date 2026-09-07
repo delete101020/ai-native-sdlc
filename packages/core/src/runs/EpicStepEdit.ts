@@ -36,11 +36,25 @@
  * behind an advancing pointer. `aidlc step skip` remains the answer for a step
  * in flight that should not run: it changes a status and leaves every index
  * and the length alone.
+ *
+ * ## Gates are a cheaper edit than shape
+ *
+ * {@link planSetEpicStepGates} is in this module for the company, not because
+ * it shares the hard part. `human_review` and `auto_review` are never copied
+ * into the run: the runner reads them off the live pipeline at the moment a
+ * step's work is submitted. So a gate edit touches one file, has no second
+ * store to keep in step with, and needs no rollback — the reason the extension
+ * lets gates be edited on a pinned pipeline while it locks the step list.
+ *
+ * What it cannot do is reach backwards. A gate that has already fired for the
+ * current revision of a step stays fired; {@link describeGateEffect} turns
+ * that into something to tell the user rather than a refusal, because the
+ * setting is still the right one for the next time the step runs.
  */
 
 import type { PipelineConfig, PipelineStepConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, stepDagId } from '../schema/WorkspaceSchema';
-import type { RunState, StepRecord, StepHistoryEntry } from './RunState';
+import type { RunState, StepRecord, StepHistoryEntry, StepStatus } from './RunState';
 import { stepIdentity, RUN_STATE_SCHEMA_VERSION } from './RunState';
 import { reconcileRunSteps, describeDrift } from './reconcileRun';
 import { RunStateStore } from './RunStateStore';
@@ -459,4 +473,154 @@ export function commitEpicStepEdit(args: CommitEpicStepEditArgs): void {
     throw err;
   }
   mirrorRunStateToEpic(workspaceRoot, plan.runState, doc);
+}
+
+// ── Gates ─────────────────────────────────────────────────────────────────────
+
+/** The gate flags a caller can change. Omitted keys are left as they are. */
+export interface EpicStepGateSpec {
+  human_review?: boolean;
+  auto_review?: boolean;
+  /** Validator path. Required whenever `auto_review` ends up on. */
+  auto_review_runner?: string;
+}
+
+export interface EpicStepGateChange {
+  gate: 'human_review' | 'auto_review';
+  from: boolean;
+  to: boolean;
+}
+
+export interface EpicStepGatePlan extends EpicStepEditPlan {
+  /** What actually changed. Empty when the step already had these settings. */
+  changes: EpicStepGateChange[];
+  /** The step's status when the edit was planned — see {@link describeGateEffect}. */
+  stepStatus: StepStatus;
+}
+
+/**
+ * Plan a gate change on one step of a running epic.
+ *
+ * Unlike {@link planAddEpicStep} and {@link planRemoveEpicStep} this reshapes
+ * nothing: `runState` is handed back untouched, and the caller only has the
+ * pipeline to write. It is still planned rather than applied directly so the
+ * refusals live next to the ones they resemble, and so a caller can see what
+ * it is about to change before it changes it.
+ *
+ * The alignment check is kept. An epic whose run has already drifted from its
+ * pipeline is one where "step 3" means two different things, and picking the
+ * wrong one to re-gate is the same class of mistake as splicing the wrong one.
+ */
+export function planSetEpicStepGates(args: {
+  runState: RunState;
+  pipeline: PipelineConfig;
+  step: string;
+  gates: EpicStepGateSpec;
+}): EpicStepGatePlan {
+  const { runState, pipeline, gates } = args;
+  requireAligned(runState, pipeline);
+
+  if (
+    gates.human_review === undefined &&
+    gates.auto_review === undefined &&
+    gates.auto_review_runner === undefined
+  ) {
+    throw new EpicStepEditError('Nothing to set — name at least one gate to change.');
+  }
+
+  const idx = resolveStepRef(runState, args.step);
+  const raw = pipelineSteps(pipeline);
+  const current = raw[idx];
+  const norm = normalizeStep(current);
+  const id = stepDagId(current);
+
+  const human = gates.human_review ?? norm.human_review;
+  const auto = gates.auto_review ?? norm.auto_review;
+  const runner = gates.auto_review_runner?.trim() || norm.auto_review_runner;
+
+  // The schema refuses this pair too, but catching it here names the step and
+  // happens before anything is serialized. A gate with no validator behind it
+  // would leave the step parked in `awaiting_auto_review` with nothing able to
+  // move it, which is a stall rather than an error.
+  if (auto && !runner) {
+    throw new EpicStepEditError(
+      `Step "${id}" would have \`auto_review\` on with no \`auto_review_runner\` to run. ` +
+      'Give the validator path along with the gate.',
+    );
+  }
+
+  const changes: EpicStepGateChange[] = [];
+  if (human !== norm.human_review) {
+    changes.push({ gate: 'human_review', from: norm.human_review, to: human });
+  }
+  if (auto !== norm.auto_review) {
+    changes.push({ gate: 'auto_review', from: norm.auto_review, to: auto });
+  }
+
+  // Absent means false throughout the schema, so an off gate is deleted rather
+  // than written as `false` — a workspace.yaml edited by this command should
+  // read like one written by hand.
+  const next: Record<string, unknown> =
+    typeof current === 'object' && current !== null
+      ? { ...(current as unknown as Record<string, unknown>) }
+      : { agent: norm.agent };
+  if (human) { next.human_review = true; } else { delete next.human_review; }
+  if (auto) {
+    next.auto_review = true;
+    next.auto_review_runner = runner;
+  } else {
+    delete next.auto_review;
+    delete next.auto_review_runner;
+    delete next.auto_review_timeout_ms;
+  }
+
+  const nextRaw = [...raw];
+  nextRaw[idx] = next as unknown as PipelineStepConfig;
+
+  return {
+    pipeline: { ...pipeline, steps: nextRaw },
+    runState,
+    stepId: id,
+    index: idx,
+    previousCurrentStepIdx: runState.currentStepIdx,
+    changes,
+    stepStatus: runState.steps[idx].status,
+  };
+}
+
+/**
+ * Explain what a gate change does *not* do, given where the step already is.
+ *
+ * The runner reads gates when a step's work is submitted, so a change reaches
+ * any step that has not got that far — `pending` and `awaiting_work` need no
+ * explanation at all. Past that point the gate for the current revision has
+ * already been decided, and the new setting waits for the next revision: a
+ * rerun, or a step sent back for an update.
+ *
+ * Returns `null` when there is nothing worth saying, so callers can treat a
+ * note as exceptional rather than printing an empty one.
+ */
+export function describeGateEffect(
+  status: StepStatus,
+  changes: EpicStepGateChange[],
+): string | null {
+  if (changes.length === 0) { return null; }
+  if (status === 'pending' || status === 'awaiting_work') { return null; }
+
+  const touched = (gate: EpicStepGateChange['gate']): boolean =>
+    changes.some((c) => c.gate === gate);
+
+  if (status === 'awaiting_auto_review' && touched('auto_review')) {
+    return 'The step is already waiting on its auto-reviewer, so this does not ' +
+      'call it off — submit a verdict, or reset the step, to get past it. ' +
+      'The new setting applies the next time the step runs.';
+  }
+  if (status === 'awaiting_review' && touched('human_review')) {
+    return 'The step is already waiting for approval, so turning the gate off ' +
+      'does not release it — approve it (aidlc run approve <epicId>) to move on. ' +
+      'The new setting applies the next time the step runs.';
+  }
+  return 'The step has already passed its gates for this revision, so nothing ' +
+    'reopens — the new setting applies if the step is rerun or sent back for ' +
+    'an update.';
 }

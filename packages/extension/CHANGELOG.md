@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`aidlc epic step set <epic> <step>` — change a step's review gates while it runs.**
+  `--human-review` / `--no-human-review` and `--auto-review <runner>` /
+  `--no-auto-review`. Unlike `add`/`remove` this writes only the pipeline:
+  the runner reads the gates off it when a step's work is submitted rather
+  than copying them into the run, so there is no second store to keep in
+  step. That is also why the extension leaves the gate toggles enabled on a
+  pipeline whose step list it has locked.
+  What it cannot do is reach backwards, and it now says so instead of looking
+  like it did nothing: a step already parked at a gate is not released by
+  turning that gate off, and one that has passed its gates takes the new
+  setting on its next revision. The same note appears in the extension when a
+  gate is toggled on a step a running epic has already gone past.
+
 ## 3.7.0
 
 Three threads land together: a prompt that carries everything a phase needs

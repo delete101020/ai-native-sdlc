@@ -14,11 +14,14 @@ import {
   RunStateStore,
   planAddEpicStep,
   planRemoveEpicStep,
+  planSetEpicStepGates,
+  describeGateEffect,
   commitEpicStepEdit,
   EpicStepEditError,
   stepIdentity,
   type PipelineConfig,
   type EpicStepEditPlan,
+  type EpicStepGatePlan,
   type RunState,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
@@ -263,8 +266,9 @@ export function registerEpic(program: Command): void {
   const stepCmd = cmd
     .command('step')
     .description(
-      'Add or remove a step on a running epic — updates the pipeline, the run\n' +
-      '  state and the epic\'s state.json together.\n' +
+      'Add, remove or re-gate a step on a running epic. add/remove update the\n' +
+      '  pipeline, the run state and the epic\'s state.json together; set changes\n' +
+      '  only the pipeline, because the runner reads gates from it as it goes.\n' +
       '  <step> can be a step name ("spec"), an agent id, or a 0-based index.',
     );
 
@@ -323,6 +327,56 @@ export function registerEpic(program: Command): void {
       writeEdit(root, doc, plan);
       console.log(chalk.green('✔') + ` Removed step ${chalk.bold(plan.stepId)} from ${chalk.bold(pipelineCfg.id)}`);
       printSteps(plan);
+    });
+
+  // Gates are the cheap edit: `human_review` and `auto_review` are never
+  // copied into the run — the runner reads them off the live pipeline when a
+  // step's work is submitted — so this writes workspace.yaml and nothing else.
+  // That is also why the extension leaves the gate toggles enabled on a
+  // pipeline whose step list it has locked.
+  stepCmd
+    .command('set <epicId> <step>')
+    .description('Turn a step\'s review gates on or off on a running epic')
+    .option('--human-review', 'pause for human approval after the step')
+    .option('--no-human-review', 'do not pause for human approval')
+    .option('--auto-review <runner>', 'run this validator after the step')
+    .option('--no-auto-review', 'do not run an auto-reviewer')
+    .action((epicId: string, step: string, opts: {
+      humanReview?: boolean; autoReview?: string | false;
+    }, actionCmd: Command) => {
+      const root = resolveWorkspaceRoot(actionCmd);
+      const doc  = requireYaml(root);
+      const { runState, pipelineCfg } = requireEditableEpic(root, doc, epicId);
+
+      // Commander gives `autoReview` three values because the flag is declared
+      // both ways: absent (leave the gate alone), `false` from --no-auto-review,
+      // or the runner path from --auto-review <runner>.
+      const plan = runEdit(() => planSetEpicStepGates({
+        runState,
+        pipeline: pipelineCfg,
+        step,
+        gates: {
+          human_review: opts.humanReview,
+          auto_review: opts.autoReview === undefined ? undefined : opts.autoReview !== false,
+          auto_review_runner: typeof opts.autoReview === 'string' ? opts.autoReview : undefined,
+        },
+      })) as EpicStepGatePlan;
+
+      if (plan.changes.length === 0) {
+        console.log(chalk.dim(`Step ${plan.stepId} already has those gates — nothing written.`));
+        return;
+      }
+
+      writePipeline(root, doc, plan.pipeline);
+      console.log(chalk.green('✔') + ` Step ${chalk.bold(plan.stepId)} of ${chalk.bold(pipelineCfg.id)}`);
+      for (const c of plan.changes) {
+        const arrow = c.to ? chalk.yellow('on') : chalk.dim('off');
+        console.log(`  ${chalk.dim(c.gate)} ${chalk.dim(String(c.from))} → ${arrow}`);
+      }
+      const note = describeGateEffect(plan.stepStatus, plan.changes);
+      if (note) {
+        console.log(chalk.yellow(`  The step is ${plan.stepStatus}. `) + chalk.dim(note));
+      }
     });
 }
 
@@ -397,37 +451,47 @@ function writeEdit(
     workspaceRoot: root,
     doc,
     plan,
-    writeWorkspace: (pipeline) => {
-      doc.pipelines = doc.pipelines.map((p) =>
-        String(p.id) === pipeline.id ? (pipeline as unknown as Record<string, unknown>) : p,
-      );
-      let config;
-      try {
-        config = validateWorkspace(doc, '.aidlc/workspace.yaml');
-      } catch (err) {
-        console.error(chalk.red('The edited pipeline fails workspace validation — nothing was written:'));
-        console.error(chalk.dim(err instanceof Error ? err.message : String(err)));
-        process.exit(1);
-      }
-      // The schema checks shape, not references — an `--agent` that does not
-      // exist passes it and then fails at run time with the step already in
-      // both stores. Reference issues are only fatal when they are *this*
-      // pipeline's; a workspace that was already carrying a dangling reference
-      // elsewhere is not this command's business.
-      const issues = collectWorkspaceRefIssues(config)
-        .filter((i) => i.path.startsWith(`pipelines.${pipeline.id}.`));
-      if (issues.length > 0) {
-        console.error(chalk.red('The edited step references something the workspace does not define — nothing was written:'));
-        for (const issue of issues) { console.error(chalk.dim(`  ${issue.message}`)); }
-        process.exit(1);
-      }
-      writeYaml(root, doc);
-    },
+    writeWorkspace: (pipeline) => { writePipeline(root, doc, pipeline); },
     restoreWorkspace: () => {
       doc.pipelines = before;
       writeYaml(root, doc);
     },
   });
+}
+
+/**
+ * Swap one pipeline into the document and write it, refusing anything the
+ * workspace would not accept. Both checks are needed and they are different:
+ * the schema is about shape, and passes a step naming an agent that does not
+ * exist — a reference the run would only fail on later, with the step already
+ * written. Reference issues are only fatal when they belong to *this*
+ * pipeline; a workspace already carrying a dangling reference elsewhere is not
+ * this command's business to fail on.
+ */
+function writePipeline(
+  root: string,
+  doc: ReturnType<typeof requireYaml>,
+  pipeline: PipelineConfig,
+): void {
+  doc.pipelines = doc.pipelines.map((p) =>
+    String(p.id) === pipeline.id ? (pipeline as unknown as Record<string, unknown>) : p,
+  );
+  let config;
+  try {
+    config = validateWorkspace(doc, '.aidlc/workspace.yaml');
+  } catch (err) {
+    console.error(chalk.red('The edited pipeline fails workspace validation — nothing was written:'));
+    console.error(chalk.dim(err instanceof Error ? err.message : String(err)));
+    process.exit(1);
+  }
+  const issues = collectWorkspaceRefIssues(config)
+    .filter((i) => i.path.startsWith(`pipelines.${pipeline.id}.`));
+  if (issues.length > 0) {
+    console.error(chalk.red('The edited step references something the workspace does not define — nothing was written:'));
+    for (const issue of issues) { console.error(chalk.dim(`  ${issue.message}`)); }
+    process.exit(1);
+  }
+  writeYaml(root, doc);
 }
 
 /** Print the run's step list after an edit, marking where the pointer sits. */

@@ -6,6 +6,8 @@ import * as path from 'path';
 import {
   planAddEpicStep,
   planRemoveEpicStep,
+  planSetEpicStepGates,
+  describeGateEffect,
   commitEpicStepEdit,
   resolveStepRef,
   EpicStepEditError,
@@ -15,6 +17,7 @@ import {
   type StepRecord,
   type StepStatus,
   type PipelineConfig,
+  type EpicStepGateChange,
 } from '../src';
 
 /**
@@ -347,5 +350,157 @@ describe('commitEpicStepEdit', () => {
       restoreWorkspace: () => { restored = true; },
     })).toThrow();
     expect(restored).toBe(true);
+  });
+});
+
+describe('planSetEpicStepGates', () => {
+  /** The pipeline step at `idx`, as a plain object. */
+  const stepAt = (cfg: PipelineConfig, idx: number): Record<string, unknown> =>
+    (cfg.steps as unknown as Array<Record<string, unknown>>)[idx];
+
+  it('turns a gate on without touching the run', () => {
+    const { runState, pipelineCfg } = midFlight();
+    const plan = planSetEpicStepGates({
+      runState, pipeline: pipelineCfg, step: 'verify', gates: { human_review: true },
+    });
+
+    expect(stepAt(plan.pipeline, 2).human_review).toBe(true);
+    expect(plan.changes).toEqual([{ gate: 'human_review', from: false, to: true }]);
+    // The gate is read off the pipeline as the run goes, so there is no second
+    // store to move — the run comes back the same object it went in as.
+    expect(plan.runState).toBe(runState);
+  });
+
+  it('deletes an off gate rather than writing false', () => {
+    const { runState } = midFlight();
+    const cfg = pipeline([
+      { agent: 'po', name: 'intent' },
+      { agent: 'eng', name: 'build' },
+      { agent: 'qa', name: 'verify', human_review: true },
+    ]);
+    const plan = planSetEpicStepGates({
+      runState, pipeline: cfg, step: 'verify', gates: { human_review: false },
+    });
+
+    expect('human_review' in stepAt(plan.pipeline, 2)).toBe(false);
+    expect(plan.changes).toEqual([{ gate: 'human_review', from: true, to: false }]);
+  });
+
+  it('leaves the gate it was not asked about alone', () => {
+    const { runState } = midFlight();
+    const cfg = pipeline([
+      { agent: 'po', name: 'intent' },
+      { agent: 'eng', name: 'build' },
+      { agent: 'qa', name: 'verify', auto_review: true, auto_review_runner: './v.js' },
+    ]);
+    const plan = planSetEpicStepGates({
+      runState, pipeline: cfg, step: 'verify', gates: { human_review: true },
+    });
+
+    expect(stepAt(plan.pipeline, 2).auto_review).toBe(true);
+    expect(stepAt(plan.pipeline, 2).auto_review_runner).toBe('./v.js');
+    expect(plan.changes).toHaveLength(1);
+  });
+
+  it('drops the runner and its timeout when auto_review goes off', () => {
+    const { runState } = midFlight();
+    const cfg = pipeline([
+      { agent: 'po', name: 'intent' },
+      { agent: 'eng', name: 'build' },
+      {
+        agent: 'qa', name: 'verify',
+        auto_review: true, auto_review_runner: './v.js', auto_review_timeout_ms: 5000,
+      },
+    ]);
+    const plan = planSetEpicStepGates({
+      runState, pipeline: cfg, step: 'verify', gates: { auto_review: false },
+    });
+
+    const step = stepAt(plan.pipeline, 2);
+    expect('auto_review' in step).toBe(false);
+    expect('auto_review_runner' in step).toBe(false);
+    expect('auto_review_timeout_ms' in step).toBe(false);
+  });
+
+  it('refuses auto_review with no validator behind it', () => {
+    const { runState, pipelineCfg } = midFlight();
+    expect(() => planSetEpicStepGates({
+      runState, pipeline: pipelineCfg, step: 'verify', gates: { auto_review: true },
+    })).toThrow(EpicStepEditError);
+    expect(() => planSetEpicStepGates({
+      runState, pipeline: pipelineCfg, step: 'verify', gates: { auto_review: true },
+    })).toThrow(/no \`auto_review_runner\`/);
+  });
+
+  it('reports no changes when the gates already say that', () => {
+    const { runState } = midFlight();
+    const cfg = pipeline([
+      { agent: 'po', name: 'intent' },
+      { agent: 'eng', name: 'build' },
+      { agent: 'qa', name: 'verify', human_review: true },
+    ]);
+    const plan = planSetEpicStepGates({
+      runState, pipeline: cfg, step: 'verify', gates: { human_review: true },
+    });
+    expect(plan.changes).toEqual([]);
+  });
+
+  it('refuses an edit that names no gate at all', () => {
+    const { runState, pipelineCfg } = midFlight();
+    expect(() => planSetEpicStepGates({
+      runState, pipeline: pipelineCfg, step: 'verify', gates: {},
+    })).toThrow(/at least one gate/);
+  });
+
+  it('re-gates a step that has already run, since a rerun would use it', () => {
+    const { runState, pipelineCfg } = midFlight();
+    const plan = planSetEpicStepGates({
+      runState, pipeline: pipelineCfg, step: 'intent', gates: { human_review: true },
+    });
+    expect(stepAt(plan.pipeline, 0).human_review).toBe(true);
+    expect(plan.stepStatus).toBe('approved');
+  });
+
+  it('refuses a run that has already drifted from its pipeline', () => {
+    const { runState } = midFlight();
+    const shorter = pipeline([
+      { agent: 'po', name: 'intent' },
+      { agent: 'eng', name: 'build' },
+    ]);
+    expect(() => planSetEpicStepGates({
+      runState, pipeline: shorter, step: 'build', gates: { human_review: true },
+    })).toThrow(/does not currently match pipeline/);
+  });
+});
+
+describe('describeGateEffect', () => {
+  const on: EpicStepGateChange[] = [{ gate: 'human_review', from: false, to: true }];
+  const autoOff: EpicStepGateChange[] = [{ gate: 'auto_review', from: true, to: false }];
+
+  it('says nothing for a step the change still reaches', () => {
+    // The runner reads the gate when work is submitted, so anything up to that
+    // point takes the new setting with no explanation needed.
+    expect(describeGateEffect('pending', on)).toBeNull();
+    expect(describeGateEffect('awaiting_work', on)).toBeNull();
+  });
+
+  it('says nothing when nothing changed', () => {
+    expect(describeGateEffect('approved', [])).toBeNull();
+  });
+
+  it('points a step already parked at the gate at the way past it', () => {
+    expect(describeGateEffect('awaiting_review', on)).toMatch(/aidlc run approve/);
+    expect(describeGateEffect('awaiting_auto_review', autoOff)).toMatch(/submit a verdict/);
+  });
+
+  it('tells a settled step the setting waits for the next revision', () => {
+    expect(describeGateEffect('approved', on)).toMatch(/rerun or sent back/);
+    expect(describeGateEffect('rejected', on)).toMatch(/rerun or sent back/);
+  });
+
+  it('does not claim a human gate is stuck on a step waiting for its validator', () => {
+    // The human gate is checked again when the auto-review verdict lands, so a
+    // step in awaiting_auto_review does take a human_review change.
+    expect(describeGateEffect('awaiting_auto_review', on)).not.toMatch(/submit a verdict/);
   });
 });

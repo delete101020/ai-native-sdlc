@@ -73,7 +73,9 @@ export type {
 export {
   planAddEpicStep,
   planRemoveEpicStep,
+  planSetEpicStepGates,
   commitEpicStepEdit,
+  describeGateEffect,
   resolveStepRef,
   EpicStepEditError,
 } from './runs/EpicStepEdit';
@@ -81,6 +83,9 @@ export type {
   EpicStepSpec,
   EpicStepPosition,
   EpicStepEditPlan,
+  EpicStepGateSpec,
+  EpicStepGateChange,
+  EpicStepGatePlan,
   CommitEpicStepEditArgs,
 } from './runs/EpicStepEdit';
 
