@@ -194,8 +194,6 @@ export interface OpenFollowUpEpicArgs {
   intentMarkdown?: string;
   /** Passed through to {@link renderIntentMarkdown} when `intentMarkdown` is not given. */
   intent?: RenderIntentOptions;
-  /** Override the `.aidlc` dir artifact templates are read from. */
-  aidlcDir?: string;
 }
 
 export interface OpenFollowUpEpicResult extends ScaffoldEpicResult {
@@ -213,7 +211,7 @@ export interface OpenFollowUpEpicResult extends ScaffoldEpicResult {
  * that deserves a person's eyes before anything is specified from it.
  */
 export function openFollowUpEpic(args: OpenFollowUpEpicArgs): OpenFollowUpEpicResult {
-  const { workspaceRoot, doc, signal, pipeline, fromEpicId, aidlcDir } = args;
+  const { workspaceRoot, doc, signal, pipeline, fromEpicId } = args;
 
   const steps = Array.isArray(pipeline.steps) ? pipeline.steps : [];
   const agents = steps.map((s) => stepAgentId(s)).filter(Boolean);
@@ -246,7 +244,6 @@ export function openFollowUpEpic(args: OpenFollowUpEpicArgs): OpenFollowUpEpicRe
     },
     pipeline,
     seedArtifacts: { [FOLLOW_UP_ARTIFACT]: intentMarkdown },
-    aidlcDir,
   });
 
   return {
@@ -278,8 +275,6 @@ export interface OpenIncidentEpicArgs {
   epicId?: string;
   /** Id prefix when deriving. Defaults to `INC`. */
   prefix?: string;
-  /** Override the `.aidlc` dir artifact templates are read from. */
-  aidlcDir?: string;
 }
 
 export interface OpenIncidentEpicResult extends ScaffoldEpicResult {
@@ -299,7 +294,7 @@ export interface OpenIncidentEpicResult extends ScaffoldEpicResult {
  * guessing. {@link openFollowUpEpic} is the separate step that runs after.
  */
 export function openIncidentEpic(args: OpenIncidentEpicArgs): OpenIncidentEpicResult {
-  const { workspaceRoot, doc, signal, pipeline, aidlcDir } = args;
+  const { workspaceRoot, doc, signal, pipeline } = args;
 
   const steps = Array.isArray(pipeline.steps) ? pipeline.steps : [];
   const agents = steps.map((s) => stepAgentId(s)).filter(Boolean);
@@ -325,7 +320,6 @@ export function openIncidentEpic(args: OpenIncidentEpicArgs): OpenIncidentEpicRe
       signal_scope: signal.scope,
     },
     pipeline,
-    aidlcDir,
   });
 
   // The signal, verbatim and re-parseable. Not folded into inputs.json: a later

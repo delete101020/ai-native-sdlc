@@ -53,10 +53,6 @@ describe('slugEpicId', () => {
 describe('scaffoldEpic — on-disk layout', () => {
   it('creates folder + artifacts + state.json + inputs.json + run state', () => {
     const root = tmpRoot();
-    // Seed an artifact template the scaffold should copy.
-    const tplDir = path.join(root, '.aidlc', 'aidlc-templates', PIPELINE.id);
-    fs.mkdirSync(tplDir, { recursive: true });
-    fs.writeFileSync(path.join(tplDir, 'PRD.md'), '# template');
 
     const result = scaffoldEpic({
       workspaceRoot: root,
@@ -72,8 +68,8 @@ describe('scaffoldEpic — on-disk layout', () => {
 
     const epicDir = path.join(root, 'docs/epics', 'CPD-1');
     expect(result.epicDir).toBe(epicDir);
-    // artifact template copied in
-    expect(fs.existsSync(path.join(epicDir, 'artifacts', 'PRD.md'))).toBe(true);
+    // artifacts/ exists and is empty — see the empty-artifacts test below
+    expect(fs.readdirSync(path.join(epicDir, 'artifacts'))).toEqual([]);
     // inputs.json captured
     expect(JSON.parse(fs.readFileSync(path.join(epicDir, 'inputs.json'), 'utf8'))).toEqual({ jira: 'CPD-1' });
 
@@ -133,21 +129,25 @@ describe('scaffoldEpic — on-disk layout', () => {
     expect(doc).toBe('# CPD-3\n');
   });
 
-  // A recipe-assembled pipeline is named after its epic, so its templates can
-  // only be found through `derived_from`. Keying on the pipeline id alone left
-  // artifacts/ empty for every epic started from a recipe.
-  it('seeds artifact templates from derived_from, not the pipeline id', () => {
+  // Blank templates used to be copied into artifacts/ at create time, which
+  // made `markStepDone`'s existence check pass on an epic where no agent had
+  // run yet — "Mark step done" was clickable on step 1 of a brand-new epic.
+  // The templates stay in .aidlc/aidlc-templates/ and the command bodies point
+  // the agents at them; artifacts/ now means "what the run produced".
+  it('leaves artifacts/ empty even when templates are on disk', () => {
     const root = tmpRoot();
     const tplDir = path.join(root, '.aidlc', 'aidlc-templates', PIPELINE.id);
     fs.mkdirSync(tplDir, { recursive: true });
     fs.writeFileSync(path.join(tplDir, 'PRD.md'), '# template');
 
+    // Both keys the old copy used: the pipeline's own id, and `derived_from`
+    // for a recipe-assembled pipeline named after its epic.
     const assembled: PipelineConfig = {
       ...PIPELINE,
       id: 'CPD-4',
       derived_from: PIPELINE.id,
     };
-    scaffoldEpic({
+    const result = scaffoldEpic({
       workspaceRoot: root,
       doc: null,
       epicId: 'CPD-4',
@@ -159,8 +159,8 @@ describe('scaffoldEpic — on-disk layout', () => {
       pipeline: assembled,
     });
 
-    expect(fs.existsSync(
-      path.join(root, 'docs/epics', 'CPD-4', 'artifacts', 'PRD.md'))).toBe(true);
+    expect(fs.existsSync(result.artifactsDir)).toBe(true);
+    expect(fs.readdirSync(result.artifactsDir)).toEqual([]);
   });
   // GH-67-UT01: extraProjects written to inputs.json
   it('persists extraProjects in inputs.json when provided', () => {

@@ -133,7 +133,10 @@ describe('the emitted intent', () => {
 });
 
 describe('scaffoldEpic — seeded artifacts (W3.4)', () => {
-  it('lets a seeded artifact replace the blank template', () => {
+  // A seed is real content — stage 6 handing the next epic its intent — and it
+  // is the only thing that lands in a new epic's artifacts/. Blank templates
+  // are not copied any more, so the folder holds the seed and nothing else.
+  it('writes a seeded artifact, and only that', () => {
     const root = tmpRoot();
     const tplDir = path.join(root, '.aidlc', 'aidlc-templates', PIPELINE.id);
     fs.mkdirSync(tplDir, { recursive: true });
@@ -149,8 +152,9 @@ describe('scaffoldEpic — seeded artifacts (W3.4)', () => {
     });
 
     expect(fs.readFileSync(path.join(artifactsDir, 'intent.md'), 'utf8')).toBe('# real intent\n');
-    // Untouched artifacts still come from the templates.
-    expect(fs.readFileSync(path.join(artifactsDir, 'spec.md'), 'utf8')).toContain('# Spec');
+    // The spec template stays in .aidlc/aidlc-templates/; the spec agent is
+    // what puts a spec.md here.
+    expect(fs.readdirSync(artifactsDir)).toEqual(['intent.md']);
   });
 
   it('refuses a seed name that would escape artifacts/', () => {

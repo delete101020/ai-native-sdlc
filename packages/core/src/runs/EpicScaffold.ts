@@ -7,7 +7,7 @@
  *   <state.root>/<epicId>/
  *     ├─ state.json      epic-level mirror of the run (status, stepStates, …)
  *     ├─ inputs.json     capability inputs captured at start time
- *     └─ artifacts/      seeded from .aidlc/aidlc-templates/<pipelineId>/
+ *     └─ artifacts/      empty; every file in it is agent output
  *   .aidlc/runs/<epicId>.json   the RunState machine (via RunStateStore)
  *
  * Keeping this in core (next to RunStateStore / startRun) means the two front
@@ -17,7 +17,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { WORKSPACE_DIR } from '../loader/WorkspaceLoader';
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import type { RunState, StepStatus } from './RunState';
 import { startRun } from './PipelineRunner';
@@ -144,14 +143,9 @@ export interface ScaffoldEpicArgs {
   /** Required when `target.kind === 'pipeline'` — used to start the run. */
   pipeline?: PipelineConfig;
   /**
-   * Override the `.aidlc` dir that artifact templates are read from. Defaults
-   * to `<workspaceRoot>/.aidlc`.
-   */
-  aidlcDir?: string;
-  /**
    * Artifact files to seed into `<epic>/artifacts/`, keyed by filename
-   * (`intent.md` → its markdown body). Written *after* the pipeline's artifact
-   * templates, so a seeded file replaces the empty template for that artifact.
+   * (`intent.md` → its markdown body). The only way a file lands in a new
+   * epic's artifacts/ — everything else there is written by an agent.
    *
    * This is how stage 6 closes the loop: `maintain` diagnoses a signal and hands
    * the next epic a real `intent.md` instead of a blank one, so the spec phase
@@ -207,32 +201,28 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   const artifactsDir = path.join(epicDir, 'artifacts');
   fs.mkdirSync(artifactsDir, { recursive: true });
 
-  // Seed artifacts/ from .aidlc/aidlc-templates/<pipelineId>/ so the agents
-  // have a structured starting point.
+  // `artifacts/` is created empty and stays empty until an agent writes into
+  // it. Blank templates used to be copied here from
+  // `.aidlc/aidlc-templates/<pipelineId>/`, and that quietly cost more than it
+  // gave:
   //
-  // `derived_from` first: a pipeline assembled from a recipe is named after
-  // its epic (`EPIC-001`), and no template dir will ever carry that name, so
-  // keying on `target.id` alone left every recipe-started epic with an empty
-  // artifacts/. Hand-authored pipelines have no `derived_from` and are their
-  // own template source.
-  if (target.kind === 'pipeline') {
-    const aidlcDir = args.aidlcDir ?? path.join(workspaceRoot, WORKSPACE_DIR);
-    const templatesId = pipeline?.derived_from ?? target.id;
-    const templatesDir = path.join(aidlcDir, 'aidlc-templates', templatesId);
-    if (fs.existsSync(templatesDir)) {
-      for (const fileName of fs.readdirSync(templatesDir)) {
-        const src = path.join(templatesDir, fileName);
-        const dest = path.join(artifactsDir, fileName);
-        if (fs.statSync(src).isFile() && !fs.existsSync(dest)) {
-          fs.copyFileSync(src, dest);
-        }
-      }
-    }
-  }
+  //   - `canStartStep` and `markStepDone` gate on `fs.existsSync` alone, so a
+  //     pre-seeded file satisfied every `requires` / `produces` check from the
+  //     moment the epic was created. "Mark step done" lit up on step 1 of a
+  //     brand-new epic, and the gate meant nothing.
+  //   - The copy took the whole template dir, keyed by `derived_from` — the
+  //     *source* pipeline — so an epic assembled from a recipe that drops the
+  //     spec and maintain stages still received `spec.md` and `incident.md`,
+  //     and the agents downstream had to explain in prose why files sitting in
+  //     their own artifacts/ were not theirs.
+  //
+  // The templates are still provisioned and still worth reading: the command
+  // bodies point each agent at `.aidlc/aidlc-templates/` for the shape (see
+  // `builtinClaudeCommand`). Nothing is lost by leaving the copy out, and
+  // existence recovers its meaning.
 
-  // Seeded artifacts land after the templates so a caller-supplied artifact
-  // (stage 6 handing the next epic its `intent.md`) wins over the blank
-  // template for the same filename.
+  // A caller-supplied artifact is real content, not a blank template — stage 6
+  // handing the next epic its `intent.md` — so it is still written here.
   for (const [fileName, content] of Object.entries(seedArtifacts ?? {})) {
     if (fileName.includes('/') || fileName.includes('\\') || fileName.includes('..') || !fileName.trim()) {
       throw new EpicScaffoldError(`Seed artifact name must be a plain filename, got "${fileName}".`);

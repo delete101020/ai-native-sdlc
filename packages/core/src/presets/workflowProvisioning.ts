@@ -86,7 +86,14 @@ export function writeWorkflowCommands(
     const file = path.join(commandsDir, `${pipelineCommandId(workflow.pipelineId, phase.id)}.md`);
     if (fs.existsSync(file) && !overwrite) { continue; }
     const skillBody = preset.skillContents[phase.id] ?? `# ${phase.name}\n\n${phase.description}\n`;
-    fs.writeFileSync(file, builtinClaudeCommand(phase, skillBody, epicRoot), 'utf8');
+    // The pipeline id is also the artifact-template folder name, so the
+    // command body can point the agent at the blank template for its own
+    // artifact — `scaffoldEpic` no longer copies it into the epic.
+    fs.writeFileSync(
+      file,
+      builtinClaudeCommand(phase, skillBody, epicRoot, workflow.pipelineId),
+      'utf8',
+    );
     written.push(file);
   }
 

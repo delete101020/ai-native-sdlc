@@ -292,10 +292,16 @@ Claude — but still follow the structural contract below.
 1. Read \`${epicRoot}/<epic>/state.json\` for prior feedback/history and address
    any rejection reasons in this revision.
 2. Read \`${epicRoot}/<epic>/inputs.json\` for capability inputs.
-3. Write your output to \`${epicRoot}/<epic>/artifacts/<FILE>\` where \`<FILE>\`
+3. Before writing, read the blank template for that artifact at
+   \`.aidlc/aidlc-templates/<templatesId>/<FILE>\` and follow its structure —
+   \`<templatesId>\` is the pipeline's \`derived_from\` when it has one (a
+   recipe-assembled pipeline is named after its epic and has no templates of
+   its own), else its \`id\`. Skip this if no such file exists.
+4. Write your output to \`${epicRoot}/<epic>/artifacts/<FILE>\` where \`<FILE>\`
    is the step's declared artifact, or the phase's conventional file. The AIDLC
-   validator checks this path when the step is marked done.
-4. Summarize what you produced and tell the user to click **"Mark step done"**
+   validator checks this path when the step is marked done. The folder starts
+   empty — a file in it is one an agent wrote, never a placeholder.
+5. Summarize what you produced and tell the user to click **"Mark step done"**
    in the AIDLC panel to advance the pipeline.
 
 ${artifactLanguageSection(null)}

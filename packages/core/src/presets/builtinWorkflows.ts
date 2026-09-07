@@ -1060,10 +1060,25 @@ export function builtinClaudeCommand(
   phase: PhaseDef,
   skillBody: string,
   epicRoot: string,
+  /**
+   * Pipeline id whose `.aidlc/aidlc-templates/<id>/` holds the blank artifact
+   * templates. Passing it adds a line telling the agent to read the template
+   * for its own artifact before writing.
+   *
+   * This used to need no saying: `scaffoldEpic` copied the templates into the
+   * epic's `artifacts/`, and the agent found its shape already sitting at the
+   * path it was about to write to. That copy is gone — a file present before
+   * anything ran made `markStepDone`'s existence check pass on an empty epic —
+   * so the pointer has to be explicit instead.
+   */
+  templatesPipelineId?: string,
 ): string {
   const isFilePath = !phase.artifact.includes('<') && !phase.artifact.includes('>');
+  const templateHint = templatesPipelineId
+    ? ` Read \`.aidlc/aidlc-templates/${templatesPipelineId}/${phaseArtifactFileName(phase)}\` first and follow its structure — it is the blank template for this artifact, and the steps downstream read it expecting those sections.`
+    : '';
   const artifactInstruction = isFilePath
-    ? `3. Write your output to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.artifact}\`. The AIDLC validator checks for this file when the step is marked done.`
+    ? `3. Write your output to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.artifact}\`.${templateHint} The AIDLC validator checks for this file when the step is marked done — the folder starts empty, so every file in it is one an agent wrote.`
     : `3. Complete the work (${phase.artifact}), then write a summary to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.id.toUpperCase()}-SUMMARY.md\` so the AIDLC validator has a file to check.`;
 
   return `---
