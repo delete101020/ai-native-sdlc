@@ -177,14 +177,36 @@ Two design points worth internalising before you use it:
   epic that `maintain` opens, where the generated `intent.md` is reviewed
   before anything is built.
 
-Four recipes pick how much of that you run:
+Eight recipes pick how much of that you run. Read the table as a ladder: each
+row adds a gate the row above skipped.
 
 | Recipe | Steps | When |
 |---|---|---|
 | `native-spike` | `intent` | Capture the problem only — no spec, no code |
+| `native-align` | `intent → spec` | Agree the scope with a PO before engineering starts |
 | `native-quick` | `intent → build-plan → implement → verify` | Small, well-understood change |
+| `native-fix` | `intent → build-plan → implement → verify → review` | Bug fix, refactor, tech debt — no new behaviour to specify, but still gated |
 | `native-full` | `intent → spec → build-plan → implement → verify → review` | The default for real features |
+| `native-hotfix` | `build-plan → implement → review` | Production is burning and the cause is known — see the warning below |
+| `native-audit` | `review` | Judge a diff that already exists against policy |
 | `native-incident` | `maintain` | A production signal arrived |
+
+**Choosing between them** comes down to which of `spec`, `verify` and `review`
+the work actually needs:
+
+- `spec` earns its place when the *behaviour* is up for debate. A refactor has
+  no new behaviour, so `native-fix` drops it; a feature does, so `native-full`
+  keeps it.
+- `verify` and `review` are the two gates, and they are not interchangeable —
+  `verify` asks "does this meet the spec", `review` asks "does this obey our
+  policy". Dropping both is what makes `native-quick` quick.
+
+⚠️ **`native-hotfix` is the one recipe to reach for reluctantly.** Without
+`intent` the engineer starts with nothing but the epic description as context,
+and without `verify` nobody independently checks the fix — during an incident,
+which is when haste makes mistakes likeliest. It exists because the clock
+sometimes genuinely forbids the longer path. Prefer `native-fix`, which costs
+one extra phase and keeps both gates.
 
 Artifacts land in `docs/epics/<EPIC-ID>/artifacts/` (configurable via
 `state.root` in `workspace.yaml`), alongside the epic's `state.json` — which you

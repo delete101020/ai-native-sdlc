@@ -520,19 +520,46 @@ const AINATIVE_RECIPES: RecipeDef[] = [
     steps: ['intent', 'build-plan', 'implement', 'verify'],
   },
   {
+    id: 'native-fix',
+    description:
+      'Bug fix / refactor / tech debt — no spec (there is no new behaviour to specify), ' +
+      'but both quality gates kept: verify then review.',
+    steps: ['intent', 'build-plan', 'implement', 'verify', 'review'],
+  },
+  {
     id: 'native-full',
     description: 'Full AI-Native flow: intent → spec → build-plan → implement → verify → review.',
     steps: ['intent', 'spec', 'build-plan', 'implement', 'verify', 'review'],
   },
   {
-    id: 'native-incident',
-    description: 'A production signal arrived — diagnose it and open the follow-up epic.',
-    steps: ['maintain'],
+    id: 'native-hotfix',
+    description:
+      'Production is burning and the cause is already known — straight to plan, ship, review. ' +
+      'Trade-off: no intent.md means the engineer starts with only the epic description as ' +
+      'context, and skipping verify removes the independent check exactly when haste makes ' +
+      'errors likeliest. Prefer native-fix unless the clock genuinely forbids it.',
+    steps: ['build-plan', 'implement', 'review'],
+  },
+  {
+    id: 'native-align',
+    description:
+      'Agree on scope before engineering starts — stop once acceptance criteria exist, write no code.',
+    steps: ['intent', 'spec'],
   },
   {
     id: 'native-spike',
     description: 'Capture the problem only — no spec, no code.',
     steps: ['intent'],
+  },
+  {
+    id: 'native-audit',
+    description: 'Judge a diff that already exists against policy — no epic work, review only.',
+    steps: ['review'],
+  },
+  {
+    id: 'native-incident',
+    description: 'A production signal arrived — diagnose it and open the follow-up epic.',
+    steps: ['maintain'],
   },
 ];
 

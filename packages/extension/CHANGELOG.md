@@ -66,6 +66,33 @@ declares no capabilities keeps working and simply receives a fuller prompt.
 - `aidlc doctor` gains a **Providers** section: each provider CLI's presence on
   `PATH` and `--version`, the concrete model every agent resolves to, and which
   providers have blind cost accounting.
+- **Four recipes for the AI-Native workflow**, taking it from four to eight.
+  The set was chosen against one axis — which of `spec`, `verify` and `review`
+  the work actually needs — because the old set left a hole: `review` was
+  reachable only through `native-full`, so a bug fix had to pay for a spec of
+  behaviour it does not change.
+  - `native-fix` (`intent → build-plan → implement → verify → review`) — the
+    hole above. Bug fixes, refactors and tech debt: no spec, both gates.
+  - `native-align` (`intent → spec`) — stop once acceptance criteria exist, so
+    scope can be agreed before engineering is paid for.
+  - `native-audit` (`review`) — judge a diff that already exists against policy.
+  - `native-hotfix` (`build-plan → implement → review`) — the fast path, and
+    the one to reach for reluctantly: it drops `intent`, leaving the engineer
+    with only the epic description, and drops `verify` during an incident,
+    which is when an independent check is worth most. Its `description` says
+    so in the recipe picker.
+
+### Fixed
+
+- **`epic start --brief` classified every brief as `native-quick`.** The
+  heuristic classifier's fallback chains listed only the `sdlc` preset's recipe
+  ids (`bugfix`, `small-feature`, …). An `ai-native` workspace defines none of
+  them, so every chain fell through to `recipes[0]` — the task type was
+  computed correctly and then discarded. The chains now name each type's native
+  equivalent after its sdlc one, so `sdlc` workspaces resolve exactly as before
+  while `ai-native` briefs route to `native-fix`, `native-full` or
+  `native-spike` on their merits. `--llm` was unaffected and remains the more
+  accurate path.
 
 ### Changed
 

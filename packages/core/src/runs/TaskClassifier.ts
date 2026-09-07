@@ -92,14 +92,21 @@ const SIGNALS: Array<{ type: CanonicalType; words: RegExp }> = [
  * Fallback chain per canonical type: the first id that exists in the
  * workspace wins. Keeps classification pointing at a real recipe even when a
  * workspace ships a reduced recipe set (e.g. no `feature-parallel`).
+ *
+ * Each chain lists the `sdlc` preset's ids first, then the `ai-native`
+ * preset's equivalents. Order matters: an sdlc workspace keeps resolving
+ * exactly as before, while an ai-native workspace — which defines none of the
+ * sdlc ids — now lands on a recipe chosen for the task type instead of
+ * falling all the way through to `recipes[0]`, which made every brief classify
+ * as `native-quick` regardless of content.
  */
 const FALLBACKS: Record<CanonicalType, string[]> = {
-  bugfix: ['bugfix', 'small-feature'],
-  refactor: ['refactor', 'small-feature'],
-  spike: ['spike', 'small-feature'],
-  'large-feature': ['large-feature', 'feature-parallel', 'small-feature'],
-  'feature-parallel': ['feature-parallel', 'large-feature', 'small-feature'],
-  'small-feature': ['small-feature'],
+  bugfix: ['bugfix', 'native-fix', 'small-feature', 'native-quick'],
+  refactor: ['refactor', 'native-fix', 'small-feature', 'native-quick'],
+  spike: ['spike', 'native-spike', 'small-feature', 'native-quick'],
+  'large-feature': ['large-feature', 'feature-parallel', 'native-full', 'small-feature', 'native-quick'],
+  'feature-parallel': ['feature-parallel', 'large-feature', 'native-full', 'small-feature', 'native-quick'],
+  'small-feature': ['small-feature', 'native-quick'],
 };
 
 /**

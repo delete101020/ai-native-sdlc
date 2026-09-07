@@ -143,3 +143,56 @@ describe('LLM contract', () => {
     expect(() => parseClassificationVerdict('I think this is a bugfix.', RECIPES)).toThrow(/no JSON/);
   });
 });
+
+// An ai-native workspace defines none of the sdlc recipe ids. Before the
+// FALLBACKS chains listed the native equivalents, every one of these briefs
+// fell through to recipes[0] and classified as native-quick.
+const NATIVE_RECIPES: RecipeConfig[] = [
+  { id: 'native-quick', description: 'small change', steps: ['intent', 'build-plan', 'implement', 'verify'] },
+  { id: 'native-fix', description: 'fix / refactor, both gates', steps: ['intent', 'build-plan', 'implement', 'verify', 'review'] },
+  { id: 'native-full', description: 'full flow', steps: ['intent', 'spec', 'build-plan', 'implement', 'verify', 'review'] },
+  { id: 'native-hotfix', description: 'fast path', steps: ['build-plan', 'implement', 'review'] },
+  { id: 'native-align', description: 'scope only', steps: ['intent', 'spec'] },
+  { id: 'native-spike', description: 'problem only', steps: ['intent'] },
+  { id: 'native-audit', description: 'review a diff', steps: ['review'] },
+  { id: 'native-incident', description: 'production signal', steps: ['maintain'] },
+];
+
+describe('heuristicClassify — ai-native recipe set', () => {
+  it('routes a bug brief to native-fix', () => {
+    expect(heuristicClassify('Fix crash when exporting billing report to CSV', NATIVE_RECIPES).recipeId)
+      .toBe('native-fix');
+  });
+
+  it('routes a refactor brief to native-fix', () => {
+    expect(heuristicClassify('Refactor the auth module to remove tech debt', NATIVE_RECIPES).recipeId)
+      .toBe('native-fix');
+  });
+
+  it('routes an exploration brief to native-spike', () => {
+    expect(heuristicClassify('Investigate feasibility of offline sync', NATIVE_RECIPES).recipeId)
+      .toBe('native-spike');
+  });
+
+  it('routes a big brief to native-full', () => {
+    expect(heuristicClassify('Major rewrite of the rendering pipeline across multiple modules', NATIVE_RECIPES).recipeId)
+      .toBe('native-full');
+  });
+
+  it('routes a plain feature brief to native-quick', () => {
+    expect(heuristicClassify('Add a dark-mode toggle to settings', NATIVE_RECIPES).recipeId)
+      .toBe('native-quick');
+  });
+
+  it('still defaults to native-quick at low confidence when nothing matches', () => {
+    const v = heuristicClassify('zzz qqq', NATIVE_RECIPES);
+    expect(v.recipeId).toBe('native-quick');
+    expect(v.confidence).toBe('low');
+  });
+
+  it('leaves the sdlc recipe set resolving exactly as before', () => {
+    expect(heuristicClassify('Fix crash when exporting billing report to CSV', RECIPES).recipeId).toBe('bugfix');
+    expect(heuristicClassify('Refactor the auth module', RECIPES).recipeId).toBe('refactor');
+    expect(heuristicClassify('Investigate feasibility of offline sync', RECIPES).recipeId).toBe('spike');
+  });
+});

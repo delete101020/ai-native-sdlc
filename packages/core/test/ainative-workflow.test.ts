@@ -19,6 +19,7 @@ import {
   loadBuiltinPreset,
   getBuiltinArtifactTemplates,
 } from '../src/presets/builtinWorkflows';
+import { assemblePipeline, validateWorkspace } from '../src';
 import { CANONICAL_PHASES, CANONICAL_PHASE_IDS, getCanonicalPhase } from '../src/presets/commandModel';
 
 const CORE_ROOT = path.join(__dirname, '..');
@@ -125,6 +126,40 @@ describe('AI-Native SDLC — workflow registration', () => {
         expect(declared.has(step), `recipe ${recipe.id} references unknown step ${step}`).toBe(true);
       }
     }
+  });
+
+  it('offers a short recipe that still passes the policy gate', () => {
+    // The gap native-fix fills: before it, `review` was reachable only through
+    // native-full, so a bug fix had to pay for a spec it has no use for.
+    const fix = (workflow.recipes ?? []).find((r) => r.id === 'native-fix')!;
+    expect(fix.steps).toEqual(['intent', 'build-plan', 'implement', 'verify', 'review']);
+    expect(fix.steps).not.toContain('spec');
+  });
+
+  it('lets scope be agreed without writing code', () => {
+    const align = (workflow.recipes ?? []).find((r) => r.id === 'native-align')!;
+    expect(align.steps).toEqual(['intent', 'spec']);
+    expect(align.steps).not.toContain('implement');
+  });
+
+  it('can review a diff that already exists, with no build phases', () => {
+    const audit = (workflow.recipes ?? []).find((r) => r.id === 'native-audit')!;
+    expect(audit.steps).toEqual(['review']);
+  });
+
+  it('keeps the hotfix path honest about what it drops', () => {
+    const hotfix = (workflow.recipes ?? []).find((r) => r.id === 'native-hotfix')!;
+    expect(hotfix.steps).toEqual(['build-plan', 'implement', 'review']);
+    // Documented trade-off, asserted so it cannot be widened by accident: the
+    // fast path gives up intent and verify, never review.
+    expect(hotfix.steps).not.toContain('verify');
+    expect(hotfix.steps).toContain('review');
+  });
+
+  it('keeps native-quick first so an unclassifiable brief defaults to it', () => {
+    // resolveToRecipe() falls back to recipes[0] when no chain entry matches;
+    // that default must stay the safe middle option, not spike or hotfix.
+    expect((workflow.recipes ?? [])[0].id).toBe('native-quick');
   });
 });
 
@@ -256,5 +291,43 @@ describe('approval-gate hook', () => {
   it('fails open on input it cannot parse', () => {
     const r = spawnSync(PYTHON![0], [...PYTHON!.slice(1), HOOK], { input: 'not json', encoding: 'utf8' });
     expect(r.status).toBe(0);
+  });
+});
+
+describe('AI-Native SDLC — every shipped recipe assembles', () => {
+  const workflow = getBuiltinWorkflow('ai-native-pipeline')!;
+  const config = validateWorkspace(
+    // The preset omits `name`; `preset apply` fills it from the project.
+    { ...loadBuiltinPreset(CORE_ROOT, workflow).workspace, name: 'test' },
+    'ai-native.yaml',
+  );
+
+  it.each((workflow.recipes ?? []).map((r) => r.id))(
+    'assembles %s into a runnable pipeline',
+    (recipeId) => {
+      // assemblePipeline throws on a dangling agent/skill ref, so a green
+      // assertion here means the recipe would actually dispatch.
+      const p = assemblePipeline(config, { recipeId, pipelineId: `epic-${recipeId}` });
+      const names = p.steps.map((s) => (s as { name: string }).name);
+      expect(names).toEqual((workflow.recipes ?? []).find((r) => r.id === recipeId)!.steps);
+    },
+  );
+
+  it('re-links depends_on across the phases a recipe drops', () => {
+    // native-hotfix drops intent, spec and verify out of the middle of the
+    // chain. Naive filtering would leave review depending on an absent verify
+    // (or losing its edge entirely and running in parallel with implement).
+    const p = assemblePipeline(config, { recipeId: 'native-hotfix', pipelineId: 'epic-hotfix' });
+    const dep = (name: string) =>
+      (p.steps.find((s) => (s as { name: string }).name === name) as { depends_on?: string[] }).depends_on ?? [];
+    expect(dep('build-plan')).toEqual([]);          // spec + intent gone → DAG root
+    expect(dep('implement')).toEqual(['build-plan']);
+    expect(dep('review')).toEqual(['implement']);   // walked up through the dropped verify
+  });
+
+  it('leaves a single-step recipe with no dependencies', () => {
+    const p = assemblePipeline(config, { recipeId: 'native-audit', pipelineId: 'epic-audit' });
+    expect(p.steps).toHaveLength(1);
+    expect((p.steps[0] as { depends_on?: string[] }).depends_on ?? []).toEqual([]);
   });
 });
