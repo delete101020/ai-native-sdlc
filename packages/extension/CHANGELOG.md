@@ -100,6 +100,22 @@ declares no capabilities keeps working and simply receives a fuller prompt.
 
 ### Fixed
 
+- **The button that starts a step launched an unknown command.** "Run with
+  Claude" sends the slash command named in `slash_commands`,
+  which for a built-in workflow is namespaced — `/ai-native-full-intent`. The
+  only writer for those files lived in the extension's preset-apply path, so a
+  workspace set up with `aidlc preset apply` declared the name and had no file
+  behind it: the step could not be started at all. Commands are now provisioned
+  from the pipelines a workspace declares, on the way to launching Claude, so
+  an affected workspace heals on the next click.
+
+- **`aidlc preset apply` and the panel produced different workspaces.** The CLI
+  merged `workspace.yaml` and stopped there; `.claude/commands/` and the
+  artifact templates under `.aidlc/aidlc-templates/` were written only by the
+  extension. Two front doors to the same preset, one of which left every epic
+  with no commands to run and an empty `artifacts/`. Both now call the same
+  provisioning code.
+
 - **Start epic pre-filled `docs/core` into every epic it created.** The
   `core-business` capability listed `docs/core` as both placeholder *and*
   default, so an untouched field still submitted a value — one that most repos

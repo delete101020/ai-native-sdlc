@@ -302,6 +302,20 @@ export type {
   EligiblePhase,
   WriteCommandsResult,
 } from './presets/commandModel';
+// Project-file provisioning for a built-in workflow: `.claude/commands/*` and
+// `.aidlc/aidlc-templates/<pipelineId>/*`. Shared so `preset apply` produces
+// the same workspace from the CLI as it does from the extension.
+export {
+  writeWorkflowCommands,
+  writeWorkflowArtifactTemplates,
+  provisionWorkflowFiles,
+  provisionDeclaredWorkflows,
+  relativeEpicRoot,
+} from './presets/workflowProvisioning';
+export type {
+  ProvisionOptions,
+  ProvisionResult,
+} from './presets/workflowProvisioning';
 // Annotation + epic-memory tooling install (shared by ext + CLI).
 export {
   installAnnotationTools,

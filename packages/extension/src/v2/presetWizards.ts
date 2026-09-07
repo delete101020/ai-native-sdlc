@@ -25,7 +25,8 @@ import {
   builtinClaudeCommand,
   pipelineCommandId,
   writeBuiltinAutoReviewValidators,
-  writeTwoLayerCommands,
+  resolvePrimaryStack,
+  provisionWorkflowFiles,
   type BuiltinWorkflow,
 } from './builtinPresets';
 import {
@@ -33,7 +34,7 @@ import {
   installWorkflowGlobalsByIds,
 } from './globalDefaultsInstaller';
 import { resolveTechStackForRoot } from './techStackResolver';
-import { detectTechStack } from './techStackDetector';
+import { detectTechStack, artifactLookupKeys } from './techStackDetector';
 
 function getRoot(): string | undefined {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -248,7 +249,7 @@ export async function applyPresetCommand(
   const builtin = getBuiltinWorkflow(preset.id);
   if (builtin) {
     const epicRoot = readEpicRootFrom(root);
-    writeBuiltinClaudeCommands(root, builtin, preset, epicRoot, false);
+    writeBuiltinClaudeCommands(extensionPath, root, builtin, preset, epicRoot, false);
     // Scaffold the JS auto-review runner(s) the workflow references so
     // auto-review can load them — otherwise "Mark step done" crashes with a
     // missing-module error (issue #27).
@@ -379,36 +380,30 @@ function readEpicRootFrom(root: string): string {
 }
 
 /**
- * Write `.claude/commands/<slug>-<phase>.md` for each phase in a built-in
- * preset. Namespacing by workflow slug means multiple presets can coexist
- * in one project without overwriting each other's slash commands.
- * Idempotent — never overwrites an existing command file unless `overwrite`
- * is set, which is wired to the same Overwrite confirmation as workspace.yaml.
+ * Write the project files a built-in preset needs — the namespaced
+ * `.claude/commands/<pipelineId>-<phase>.md` set, the pipeline-agnostic
+ * two-layer commands, and the artifact templates under
+ * `.aidlc/aidlc-templates/<pipelineId>/`.
+ *
+ * Thin wrapper over the core helper, which the CLI's `preset apply` calls too.
+ * The loop used to live here, and only here, so the two front doors produced
+ * different workspaces.
  */
 function writeBuiltinClaudeCommands(
+  extensionPath: string,
   root: string,
   workflow: BuiltinWorkflow,
   preset: WorkspacePreset,
   epicRoot: string,
   overwrite: boolean,
 ): void {
-  const commandsDir = path.join(root, '.claude', 'commands');
-  fs.mkdirSync(commandsDir, { recursive: true });
-  for (const phase of workflow.phases) {
-    // Namespaced filename (pipeline-phase) so coexisting pipelines don't
-    // overwrite each other's commands; body is keyed by the bare phase id.
-    const commandFile = path.join(commandsDir, `${pipelineCommandId(workflow.pipelineId, phase.id)}.md`);
-    if (fs.existsSync(commandFile) && !overwrite) { continue; }
-    const skillBody = preset.skillContents[phase.id] ?? `# ${phase.name}\n\n${phase.description}\n`;
-    fs.writeFileSync(commandFile, builtinClaudeCommand(phase, skillBody, epicRoot), 'utf8');
-  }
-
-  // GH-71: also emit the pipeline-agnostic two-layer command set — the fixed
-  // shortcut phases (`/plan`, `/design`, …) + the `/aidlc <epic> [phase]`
-  // backbone dispatcher. These resolve composition at runtime from the epic's
-  // pipeline binding, so they're written once (not per pipeline) and left
-  // alongside the namespaced files above for back-compat. Idempotent.
-  writeTwoLayerCommands(root, { epicRoot, overwrite });
+  const stacks = resolveTechStackForRoot(root);
+  provisionWorkflowFiles(extensionPath, root, workflow, preset, {
+    epicRoot,
+    overwrite,
+    stacks,
+    lookupKeys: artifactLookupKeys(root, resolvePrimaryStack(stacks)),
+  });
 }
 
 interface MergeReport {

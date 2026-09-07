@@ -7,6 +7,8 @@ import {
   BUILTIN_WORKFLOWS,
   loadBuiltinPreset,
   installWorkflowGlobalsByIds,
+  provisionWorkflowFiles,
+  relativeEpicRoot,
   CODING_MODEL,
 } from '@aidlc/core';
 import { readYaml, requireYaml, writeYaml, YamlDocument } from '../yamlIO';
@@ -71,15 +73,15 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
   {
     id: 'sdlc',
     description: 'AIDLC SDLC pipeline (parallel): Plan → (Design ∥ Test Plan) → Implement (+unit-test) ∥ Generate Test Cases → Execute Test (+report)',
-    apply(_root, doc) {
-      return applyBuiltinWorkflow('aidlc-workflow', doc);
+    apply(root, doc) {
+      return applyBuiltinWorkflow('aidlc-workflow', root, doc);
     },
   },
   {
     id: 'ai-native',
     description: 'AI-Native SDLC (playbook stages 1-6): Intent → Spec → Build Plan → Implement → Verify → Review → Maintain',
-    apply(_root, doc) {
-      return applyBuiltinWorkflow('ai-native-pipeline', doc);
+    apply(root, doc) {
+      return applyBuiltinWorkflow('ai-native-pipeline', root, doc);
     },
   },
 ];
@@ -88,14 +90,18 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
  * Merge a built-in workflow's workspace shape (agents, skills, slash commands,
  * pipeline, recipes) into `doc`.
  *
- * Shared with the extension: the shape is template-independent — only the
- * composed skill *bodies* read template files, which the CLI doesn't write here
- * (skills resolve to ~/.claude/skills/aidlc-*.md, installed below).
+ * Shared with the extension, and so are the project files: `.claude/commands/`
+ * and `.aidlc/aidlc-templates/<pipelineId>/` are written through the same core
+ * helper the panel uses. They used to be extension-only, which meant a
+ * CLI-applied workspace declared `/ai-native-full-intent` in `slash_commands`
+ * with no file behind it — the panel's "Run with Claude" button then launched
+ * a command Claude did not know — and scaffolded every epic with an empty
+ * `artifacts/`.
  *
  * Looked up by id rather than by position: `BUILTIN_WORKFLOWS` is an ordered
  * list that grows, so an index would silently bind to the wrong workflow.
  */
-function applyBuiltinWorkflow(workflowId: string, doc: YamlDocument): YamlDocument {
+function applyBuiltinWorkflow(workflowId: string, root: string, doc: YamlDocument): YamlDocument {
   const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === workflowId);
   if (!workflow) {
     throw new Error(
@@ -126,6 +132,11 @@ function applyBuiltinWorkflow(workflowId: string, doc: YamlDocument): YamlDocume
   // matches the brief to a recipe, then assembles a right-sized pipeline.
   const docRecipes = (Array.isArray(doc.recipes) ? doc.recipes : (doc.recipes = [])) as Array<Record<string, unknown>>;
   for (const r of ws.recipes ?? []) { addIfMissing(docRecipes, r); }
+
+  // The slash commands just merged into `doc` name files that have to exist,
+  // and `scaffoldEpic` seeds `artifacts/` from the template dir. Written after
+  // the merge so `epicRoot` reflects any `state.root` the workspace declares.
+  provisionWorkflowFiles(templatesRoot, root, workflow, preset, { epicRoot: relativeEpicRoot(doc) });
   return doc;
 }
 
