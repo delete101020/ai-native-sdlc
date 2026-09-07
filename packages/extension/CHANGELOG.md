@@ -94,6 +94,14 @@ declares no capabilities keeps working and simply receives a fuller prompt.
 
 ### Fixed
 
+- **Switch Claude Account no longer hands your account to the team by
+  default.** Writing to “This workspace” lands in `.vscode/settings.json`,
+  which many repos commit — and the damage is invisible on the machine that
+  makes the choice: the teammate who pulls it gets a config dir that does not
+  exist on theirs, so their Agents panel is empty with nothing to explain why.
+  That row now checks git first (tracked beats ignored) and says so when the
+  file is shared. A repository git cannot answer for raises no alarm.
+
 - **`epic start --brief` classified every brief as `native-quick`.** The
   heuristic classifier's fallback chains listed only the `sdlc` preset's recipe
   ids (`bugfix`, `small-feature`, …). An `ai-native` workspace defines none of

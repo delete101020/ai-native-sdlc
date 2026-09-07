@@ -44,6 +44,24 @@ describe('claude account switcher contributions', () => {
     }
   });
 
+  // Writing the account to `.vscode/settings.json` is only safe when that file
+  // is not shared. The failure is invisible on the machine that makes the
+  // choice — it surfaces on a teammate's, as an empty Agents panel with no
+  // error — so the warning has to be at the decision, not after it.
+  it('checks whether the workspace settings file is shared before offering it', () => {
+    expect(source).toContain('workspaceSettingsAreShared');
+    // Tracked beats ignored: a file in the index stays shared regardless.
+    expect(source).toContain("'ls-files', '--error-unmatch'");
+    expect(source).toContain("'check-ignore', '-q'");
+    // Undeterminable (no git / not a repo) must not raise a false alarm.
+    expect(source).toContain("'rev-parse', '--is-inside-work-tree'");
+  });
+
+  it('warns on the workspace row rather than silently writing a shared file', () => {
+    expect(source).toContain('$(warning) This workspace');
+    expect(source).toMatch(/const shared = await workspaceSettingsAreShared\(\)/);
+  });
+
   it('describes saved accounts as {label?, path}', () => {
     const items = (pkg.contributes.configuration.properties['aidlc.claude.configDirs'] as {
       items?: { required?: string[]; properties?: Record<string, unknown> };

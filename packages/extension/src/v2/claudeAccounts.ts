@@ -22,9 +22,11 @@
  * path, hence the reload prompt.
  */
 
+import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { promisify } from 'util';
 
 import * as vscode from 'vscode';
 
@@ -161,27 +163,73 @@ async function browseForPath(): Promise<string | undefined> {
   return picked?.[0]?.fsPath;
 }
 
+const execFileAsync = promisify(execFile);
+
+/**
+ * Would a workspace-scoped write end up in version control?
+ *
+ * `aidlc.claude.configDir` is per-machine, but it lands in
+ * `.vscode/settings.json`, which many repos commit — and the damage is silent:
+ * the teammate who pulls it gets a config dir that does not exist on their
+ * machine, so their Agents panel is empty with nothing to explain why.
+ *
+ * Tracked beats ignored — a file already in the index stays shared even when a
+ * later rule ignores it — so ask git in that order. Anything we cannot
+ * determine (git missing, not a repository) answers `false`: a warning shown on
+ * a guess is worse than none.
+ */
+async function workspaceSettingsAreShared(): Promise<boolean> {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder || folder.uri.scheme !== 'file') { return false; }
+  const cwd = folder.uri.fsPath;
+  const rel = '.vscode/settings.json';
+
+  /** Exit code of a git invocation; -1 when git could not run at all. */
+  const git = async (...args: string[]): Promise<number> => {
+    try {
+      await execFileAsync('git', args, { cwd, timeout: 3000, windowsHide: true });
+      return 0;
+    } catch (err) {
+      const code = (err as { code?: unknown }).code;
+      return typeof code === 'number' ? code : -1;
+    }
+  };
+
+  if (await git('rev-parse', '--is-inside-work-tree') !== 0) { return false; }
+  if (await git('ls-files', '--error-unmatch', rel) === 0) { return true; }
+  // `check-ignore` exits 1 when the path is NOT ignored — i.e. a plain
+  // `git add .` would commit it.
+  return await git('check-ignore', '-q', rel) === 1;
+}
+
 /**
  * Which settings file to write to. Workspace is the useful default — it is what
  * lets three windows hold three accounts — but a single-account user wants the
  * choice to stick everywhere, so ask rather than assume.
+ *
+ * When the workspace file is shared (see {@link workspaceSettingsAreShared})
+ * the workspace row says so, because the consequence is invisible on the machine
+ * that makes the choice and only shows up on a teammate's.
  */
 async function chooseTarget(): Promise<vscode.ConfigurationTarget | undefined> {
   if (!vscode.workspace.workspaceFolders?.length) {
     return vscode.ConfigurationTarget.Global;
   }
+  const shared = await workspaceSettingsAreShared();
   const pick = await vscode.window.showQuickPick(
     [
       {
-        label: 'This workspace',
+        label: shared ? '$(warning) This workspace' : 'This workspace',
         description: '.vscode/settings.json',
-        detail: 'Other windows keep their own account — this is how several accounts run side by side',
+        detail: shared
+          ? 'That file is committed in this repo — a teammate who pulls it inherits your account path, which likely does not exist on their machine'
+          : 'Other windows keep their own account — this is how several accounts run side by side',
         target: vscode.ConfigurationTarget.Workspace,
       },
       {
         label: 'All windows',
         description: 'User settings',
-        detail: 'Every workspace without its own setting uses this account',
+        detail: 'Every workspace without its own setting uses this account — stays on this machine, outside any repo',
         target: vscode.ConfigurationTarget.Global,
       },
     ],
