@@ -90,6 +90,42 @@ function loadPipeline(root: string, pipelineId: string): PipelineConfig | undefi
 }
 
 /**
+ * The slash command wired to `agent` in `slash_commands`, leading `/` included.
+ * Null when nothing targets that agent.
+ *
+ * These notifications used to print `/${agent}` unconditionally, which is only
+ * correct when a command happens to be named after the agent it targets.
+ * `slash_commands` names are free text, so that guess sends people to a command
+ * that does not exist — worse than not naming one at all.
+ */
+function slashCommandForAgent(root: string, agent: string): string | null {
+  if (!agent) { return null; }
+  const doc = readYaml(root);
+  if (!doc) { return null; }
+  for (const c of doc.slash_commands) {
+    const target = (c as { agent?: unknown }).agent;
+    if (target !== agent || typeof c.name !== 'string' || !c.name) { continue; }
+    return c.name.startsWith('/') ? c.name : `/${c.name}`;
+  }
+  return null;
+}
+
+/**
+ * How to actually work a step that is now `awaiting_work`.
+ *
+ * Both halves of the old sentence were unreliable: the command was guessed from
+ * the agent id, and "Mark step done" was pointed at a sidebar section. The
+ * section exists now (Active Runs), so that half stands; the command is
+ * resolved rather than assumed.
+ */
+function howToWorkStep(root: string, agent: string, runId: string): string {
+  const cmd = slashCommandForAgent(root, agent);
+  return cmd
+    ? `Run ${cmd} ${runId} in Claude, then "Mark step done" on the run in the AIDLC sidebar.`
+    : `No slash command targets "${agent}" — invoke that agent yourself, then "Mark step done" on the run in the AIDLC sidebar.`;
+}
+
+/**
  * Resolve a runId to an active run. If `explicit` is supplied (from a
  * sidebar click), use that. Otherwise show a quick-pick of active runs.
  */
@@ -167,7 +203,7 @@ export async function startPipelineRunInlineCommand(
   const firstStep = pipeline.steps[0];
   const firstAgent = typeof firstStep === 'string' ? firstStep : firstStep.agent;
   void vscode.window.showInformationMessage(
-    `Started run "${rid}" — first step: ${firstAgent}. Run /${firstAgent} ${rid} in Claude, then click "Mark step done" in the sidebar.`,
+    `Started run "${rid}" — first step: ${firstAgent}. ${howToWorkStep(root, firstAgent, rid)}`,
   );
 }
 
@@ -224,17 +260,20 @@ export async function startPipelineRunCommand(pipelineIdArg?: string): Promise<v
   });
   if (!runId) { return; }
 
+  // The run is created under the trimmed id, so the message has to quote that
+  // one — otherwise a stray space makes the id it tells you to type wrong.
+  const rid = runId.trim();
   const state = startRun({
-    runId: runId.trim(),
+    runId: rid,
     pipeline: pickedPipeline.pipeline,
-    context: { epic: runId.trim() },
+    context: { epic: rid },
   });
   saveRun(root, state);
 
   const firstStep = pickedPipeline.pipeline.steps[0];
   const firstAgent = typeof firstStep === 'string' ? firstStep : firstStep.agent;
   void vscode.window.showInformationMessage(
-    `Started run "${runId}" — first step: ${firstAgent}. Run /${firstAgent} ${runId} in Claude, then click "Mark step done" in the sidebar.`,
+    `Started run "${rid}" — first step: ${firstAgent}. ${howToWorkStep(root, firstAgent, rid)}`,
   );
 }
 
@@ -281,7 +320,7 @@ export async function markStepDoneCommand(runIdArg?: string, stepIdxArg?: number
   try {
     const next = markStepDone({ state, pipeline, workspaceRoot: root, stepIdx });
     saveRun(root, next);
-    notifyStepTransition(next, stepIdx);
+    notifyStepTransition(root, next, stepIdx);
   } catch (err) {
     surfaceRunError(err);
   }
@@ -367,7 +406,7 @@ export async function approveStepCommand(runIdArg?: string, stepIdxArg?: number)
   try {
     const next = approveStep({ state, pipeline, stepIdx });
     saveRun(root, next);
-    notifyStepTransition(next, stepIdx);
+    notifyStepTransition(root, next, stepIdx);
   } catch (err) {
     surfaceRunError(err);
   }
@@ -814,7 +853,7 @@ function resolveStepIdx(
   return match >= 0 ? match : state.currentStepIdx;
 }
 
-function notifyStepTransition(next: RunState, prevIdx: number): void {
+function notifyStepTransition(root: string, next: RunState, prevIdx: number): void {
   if (next.status === 'completed') {
     void vscode.window.showInformationMessage(
       `Pipeline "${next.pipelineId}" completed for run "${next.runId}". 🎉`,
@@ -825,13 +864,13 @@ function notifyStepTransition(next: RunState, prevIdx: number): void {
   if (next.currentStepIdx === prevIdx) {
     // Same step — must be awaiting_review
     void vscode.window.showInformationMessage(
-      `Step "${step.agent}" produced its artifacts. Awaiting your review in the sidebar.`,
+      `Step "${step.agent}" produced its artifacts. Awaiting your review under Active Runs in the AIDLC sidebar.`,
     );
     return;
   }
   // Advanced
   void vscode.window.showInformationMessage(
-    `Advanced to step "${step.agent}". Run /${step.agent} ${next.runId} in Claude, then "Mark step done".`,
+    `Advanced to step "${step.agent}". ${howToWorkStep(root, step.agent, next.runId)}`,
   );
 }
 

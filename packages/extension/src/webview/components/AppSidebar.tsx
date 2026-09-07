@@ -20,6 +20,9 @@ import {
   ListTree,
   Github,
   Languages,
+  Check,
+  Clipboard,
+  ScanEye,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -27,6 +30,7 @@ import type {
   RecentEpicRef,
   TemplateRef,
   McpServerInfo,
+  ActiveRun,
 } from '@/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { SavePresetModal } from './SavePresetModal';
@@ -35,6 +39,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { postMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
 
 interface CollapseState {
+  activeRuns: boolean;
   recentEpics: boolean;
   workflows: boolean;
   mcpServers: boolean;
@@ -45,6 +50,8 @@ interface PersistedUi {
 }
 
 const DEFAULT_COLLAPSED: CollapseState = {
+  // The one section that is asking the user to do something — never starts shut.
+  activeRuns: false,
   recentEpics: false,
   workflows: false,
   mcpServers: true,
@@ -147,6 +154,14 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
                 </button>
 
                 <StatsGrid state={state} />
+
+                {state.activeRuns.length > 0 && (
+                  <ActiveRunsSection
+                    runs={state.activeRuns}
+                    collapsed={collapsed.activeRuns}
+                    onToggle={() => toggleSection('activeRuns')}
+                  />
+                )}
 
                 {state.recentEpics.length > 0 && (
                   <RecentEpicsSection
@@ -471,6 +486,215 @@ function SectionHeader({
       </button>
       {trailing}
     </div>
+  );
+}
+
+/**
+ * Pipeline runs with `status === 'running'`.
+ *
+ * The host has always computed `activeRuns`, but nothing rendered it — so a run
+ * started from the Builder's Run button had no surface at all once its toast
+ * faded, and the toast's own "click Mark step done in the sidebar" pointed at a
+ * section that did not exist. This is that section.
+ *
+ * Runs that belong to an epic get a link into the Epics view rather than a
+ * second, thinner copy of the epic UI; the step controls stay here either way
+ * because acting on the current step is the whole reason to look at this list.
+ */
+function ActiveRunsSection({
+  runs,
+  collapsed,
+  onToggle,
+}: {
+  runs: ActiveRun[];
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div>
+      <SectionHeader
+        label="Active Runs"
+        collapsed={collapsed}
+        onToggle={onToggle}
+        trailing={
+          <span className="text-[10px] tabular-nums text-muted-foreground">{runs.length}</span>
+        }
+      />
+      {!collapsed && (
+        <div className="mt-1.5 space-y-1.5">
+          {runs.map((r) => (
+            <ActiveRunCard key={r.runId} run={r} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const RUN_STEP_STATUS: Record<string, { label: string; cls: string }> = {
+  awaiting_work: { label: 'Awaiting work', cls: 'border-warning/40 bg-warning/15 text-warning' },
+  awaiting_auto_review: { label: 'Auto-review', cls: 'border-primary/40 bg-primary/15 text-primary' },
+  awaiting_review: { label: 'Awaiting review', cls: 'border-primary/40 bg-primary/15 text-primary' },
+  rejected: { label: 'Rejected', cls: 'border-destructive/40 bg-destructive/15 text-destructive' },
+  pending: { label: 'Pending', cls: 'border-border bg-secondary text-muted-foreground' },
+  approved: { label: 'Approved', cls: 'border-success/40 bg-success/15 text-success' },
+};
+
+function ActiveRunCard({ run }: { run: ActiveRun }) {
+  const status = RUN_STEP_STATUS[run.currentStepStatus] ?? {
+    label: run.currentStepStatus || 'unknown',
+    cls: 'border-border bg-secondary text-muted-foreground',
+  };
+  // The commands below resolve the current step themselves when handed only a
+  // runId, so the sidebar never has to reason about step indices.
+  const act = (type: string) => () => postMessage({ type, runId: run.runId });
+  const missingRequires = run.requires.filter((r) => !r.exists);
+
+  return (
+    <div className="rounded-md border border-border bg-card/50 px-2.5 py-2 text-[11px]">
+      <div className="flex items-center gap-1.5">
+        {run.epicId ? (
+          <button
+            type="button"
+            onClick={() => postMessage({ type: 'openEpic', id: run.epicId })}
+            title={`Open ${run.epicId} in the Epics view`}
+            className="truncate font-mono text-[10px] font-bold text-primary hover:underline"
+          >
+            {run.runId}
+          </button>
+        ) : (
+          <span className="truncate font-mono text-[10px] font-bold text-primary">
+            {run.runId}
+          </span>
+        )}
+        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+          {run.currentStepIdx + 1}/{run.totalSteps}
+        </span>
+        <button
+          type="button"
+          onClick={act('openRunState')}
+          title="Open the run JSON"
+          className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <FileCode2 className="h-3 w-3" />
+        </button>
+      </div>
+
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+        <span
+          className={cn(
+            'rounded-full border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider',
+            status.cls,
+          )}
+        >
+          {status.label}
+        </span>
+        <span className="truncate text-muted-foreground">{run.currentAgent}</span>
+        {run.revision > 1 && (
+          <span className="text-[9px] text-muted-foreground">rev {run.revision}</span>
+        )}
+      </div>
+
+      {run.currentSlashCommand && run.currentStepStatus === 'awaiting_work' && (
+        <button
+          type="button"
+          onClick={() =>
+            postMessage({
+              type: 'copyCommand',
+              command: `${run.currentSlashCommand} ${run.runId}`,
+            })
+          }
+          title="Copy this command to the clipboard"
+          className="mt-1.5 flex w-full items-center gap-1.5 rounded border border-border bg-surface/60 px-1.5 py-1 font-mono text-[10px] text-foreground hover:bg-accent"
+        >
+          <Clipboard className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">
+            {run.currentSlashCommand} {run.runId}
+          </span>
+        </button>
+      )}
+
+      {(run.rejectReason || run.feedback) && (
+        <div className="mt-1.5 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[10px] leading-snug text-muted-foreground">
+          {run.rejectReason || run.feedback}
+        </div>
+      )}
+
+      {missingRequires.length > 0 && (
+        <div className="mt-1.5 text-[10px] leading-snug text-warning">
+          Missing input{missingRequires.length === 1 ? '' : 's'}:{' '}
+          <span className="font-mono">{missingRequires.map((r) => r.path).join(', ')}</span>
+        </div>
+      )}
+
+      {run.produces.length > 0 && (
+        <div className="mt-1.5 space-y-0.5">
+          {run.produces.map((p) => (
+            <button
+              key={p.path}
+              type="button"
+              onClick={() => postMessage({ type: 'openArtifact', path: p.path })}
+              title={p.exists ? `Open ${p.path}` : `${p.path} — not written yet`}
+              className="flex w-full items-center gap-1.5 text-left font-mono text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              <span
+                className={cn(
+                  'h-1.5 w-1.5 shrink-0 rounded-full',
+                  p.exists ? 'bg-success' : 'border border-muted-foreground/50',
+                )}
+              />
+              <span className="truncate">{p.path}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-1.5 flex flex-wrap gap-1">
+        {run.currentStepStatus === 'awaiting_work' && (
+          <RunAction icon={<Check className="h-2.5 w-2.5" />} label="Mark step done" onClick={act('markStepDone')} primary />
+        )}
+        {run.currentStepStatus === 'awaiting_auto_review' && (
+          <RunAction icon={<ScanEye className="h-2.5 w-2.5" />} label="Run auto-review" onClick={act('runAutoReview')} primary />
+        )}
+        {run.currentStepStatus === 'awaiting_review' && (
+          <>
+            <RunAction icon={<Check className="h-2.5 w-2.5" />} label="Approve" onClick={act('approveStep')} primary />
+            <RunAction icon={<X className="h-2.5 w-2.5" />} label="Reject" onClick={act('rejectStep')} />
+          </>
+        )}
+        {run.currentStepStatus === 'rejected' && (
+          <RunAction icon={<RefreshCw className="h-2.5 w-2.5" />} label="Rerun" onClick={act('rerunStep')} primary />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RunAction({
+  icon,
+  label,
+  onClick,
+  primary,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  primary?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+        primary
+          ? 'border-primary/40 bg-primary/15 text-primary hover:bg-primary/25'
+          : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+      )}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 

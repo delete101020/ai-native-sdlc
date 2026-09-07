@@ -48,6 +48,9 @@ export interface ArtifactPath {
 
 export interface ActiveRun {
   runId: string;
+  /** Set when this run belongs to an epic (`runId === epic.id`); undefined for
+   * a bare run started from the Builder's Run button. */
+  epicId?: string;
   pipelineId: string;
   currentStepIdx: number;
   totalSteps: number;

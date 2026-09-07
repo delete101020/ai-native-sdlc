@@ -68,6 +68,13 @@ interface ArtifactPath {
 /** Compact run summary for sidebar rendering. */
 interface ActiveRun {
   runId: string;
+  /**
+   * The epic this run belongs to, when one exists — the convention is
+   * `runId === epic.id`. Set so the sidebar can send a run that *is* an epic
+   * to the Epics view (its full UI) instead of duplicating those controls in a
+   * 300px-wide panel. Undefined for a bare run started from the Run button.
+   */
+  epicId?: string;
   pipelineId: string;
   currentStepIdx: number;
   totalSteps: number;
@@ -238,7 +245,7 @@ function buildState(
 
   // Active pipeline runs live in .aidlc/runs/ and are independent of the
   // workspace doc — surface them whenever the folder is open.
-  const activeRuns = listActiveRuns(root);
+  const activeRuns = listActiveRuns(root, new Set(allEpics.map((e) => e.id)));
   const runIds = listAllRunIds(root);
 
   if (!doc) {
@@ -319,7 +326,7 @@ function listAllRunIds(root: string): string[] {
   }
 }
 
-function listActiveRuns(root: string): ActiveRun[] {
+function listActiveRuns(root: string, epicIds: ReadonlySet<string>): ActiveRun[] {
   try {
     // Read pipelines once so we can map runs → step config without
     // re-parsing workspace.yaml per run.
@@ -353,6 +360,7 @@ function listActiveRuns(root: string): ActiveRun[] {
 
         return {
           runId: r.runId,
+          epicId: epicIds.has(r.runId) ? r.runId : undefined,
           pipelineId: r.pipelineId,
           currentStepIdx: r.currentStepIdx,
           totalSteps: r.steps.length,
