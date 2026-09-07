@@ -11,7 +11,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { RunStateStore, normalizeStep, resolvePath, mirrorRunStateToEpic } from '@aidlc/core';
+import {
+  RunStateStore,
+  normalizeStep,
+  resolvePath,
+  mirrorRunStateToEpic,
+  RUN_STATE_SCHEMA_VERSION,
+} from '@aidlc/core';
 import type {
   RunState,
   StepStatus,
@@ -425,6 +431,12 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     // its "Mark step done" affordance (issue #57). RunState.steps has one
     // ordered entry per pipeline step with an explicit `stepIdx` that aligns
     // with both stepStatesRaw[i] and pipelineCfg.steps[i].
+    //
+    // That alignment is an invariant the runner now enforces rather than one
+    // this listing has to trust: `reconcileRunSteps` matches the two lists by
+    // step identity (`name ?? agent`) and every transition refuses to run on a
+    // drifted pair. Reading by index here is safe because a drifted run cannot
+    // have been advanced.
     const runStepByIdx = new Map<number, StepStatus>();
     const runRejectByIdx = new Map<number, string>();
     const runVerdictByIdx = new Map<number, AutoReviewVerdict>();
@@ -890,6 +902,9 @@ function backfillRunStateFromEpic(
     return {
       stepIdx: i,
       agent: norm.agent,
+      // Reconstructed from the pipeline, so the identity is available and
+      // worth recording — this run had none of its own history to lose.
+      ...(norm.name === undefined ? {} : { name: norm.name }),
       revision: 1,
       status,
       startedAt: typeof legacy.startedAt === 'string' ? legacy.startedAt : undefined,
@@ -905,7 +920,7 @@ function backfillRunStateFromEpic(
       : 'running';
 
   const runState: RunState = {
-    schemaVersion: 1,
+    schemaVersion: RUN_STATE_SCHEMA_VERSION,
     runId: epicId,
     pipelineId,
     context,

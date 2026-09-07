@@ -20,6 +20,20 @@ declares no capabilities keeps working and simply receives a fuller prompt.
 
 ### Added
 
+- **A run now records *which* step each entry is about, not just where it sat.**
+  `StepRecord` gained a `name`, so a step's identity in the run state is the
+  same `name ?? agent` the pipeline, `depends_on` and the DAG resolver already
+  use. `reconcileRunSteps` compares a run against its pipeline on that
+  identity and says exactly what was added, removed or moved, and every
+  transition (`markStepDone`, `approveStep`, `submitAutoReviewVerdict`)
+  refuses to run on a drifted pair instead of resolving indices into a step
+  list that no longer means what it did. Run state moves to schema 2; a
+  version-1 file is migrated on read and picks up its step names the first
+  time the run is touched, so nothing needs a migration pass.
+- **`aidlc step skip <run> <step>` accepts a step name.** Indices and agent
+  ids still work, but a persona that owns several steps used to resolve to the
+  first of them silently — it now says so and lists the steps to choose from.
+
 - **A running epic's step list can no longer be reshaped by accident.**
   `aidlc epic start` writes the epic's steps three times — the pipeline in
   `workspace.yaml`, `stepStates[]` in the epic's `state.json`, and `steps[]`

@@ -98,6 +98,10 @@ export function mirrorRunStateToEpic(
 
   const stepStates = runState.steps.map((s) => ({
     agent: s.agent,
+    // The step's identity, mirrored alongside its agent so state.json says
+    // *which* step each entry is about. Two steps can share a persona — the
+    // agent alone does not tell them apart, and the index no longer has to.
+    name: s.name,
     status: mapStepStatusToEpic(s.status),
     revision: s.revision,
     runStatus: s.status,

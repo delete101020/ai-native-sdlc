@@ -26,13 +26,43 @@ import * as path from 'path';
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep } from '../schema/WorkspaceSchema';
 import type { RunState, StepRecord, AutoReviewVerdict, StepHistoryEntry } from './RunState';
-import { resolvePath } from './RunState';
+import { resolvePath, stepIdentity, RUN_STATE_SCHEMA_VERSION } from './RunState';
+import { reconcileRunSteps, describeDrift, withBackfilledStepNames } from './reconcileRun';
 
 export class PipelineRunError extends Error {
   constructor(message: string, public readonly missing?: string[]) {
     super(message);
     this.name = 'PipelineRunError';
   }
+}
+
+/**
+ * Refuse to advance a run whose step list no longer matches its pipeline, and
+ * return the state with any missing step names filled in.
+ *
+ * Every transition below addresses steps by index. That is only meaningful
+ * while the two lists still describe the same steps in the same order, and
+ * nothing used to check it: a step removed from the pipeline left every later
+ * index quietly pointing one step early, and the old `index in range` guard
+ * had no opinion about that at all. Comparing identities turns it into a
+ * refusal that names what moved.
+ *
+ * The backfill rides along because this is the one place a run and its
+ * pipeline are both in hand on a write path: a pre-schema-2 run acquires its
+ * step names the first time it is touched, and stays checkable afterwards.
+ */
+function alignedOrThrow(state: RunState, pipeline: PipelineConfig): RunState {
+  const r = reconcileRunSteps(state, pipeline);
+  if (!r.aligned) {
+    throw new PipelineRunError(
+      `Run "${state.runId}" no longer matches pipeline "${pipeline.id}" — ` +
+      `${describeDrift(r)}. The run records what happened by step, so it ` +
+      'cannot be replayed onto a different step list. Use ' +
+      `\`aidlc step skip ${state.runId} <index>\` to drop a step from this run ` +
+      'without reshaping the pipeline.',
+    );
+  }
+  return withBackfilledStepNames(state, pipeline);
 }
 
 /**
@@ -64,6 +94,10 @@ export function startRun(args: {
     return {
       stepIdx: idx,
       agent: norm.agent,
+      // Recorded so the run can later be checked against the pipeline by
+      // *which* step, not by position. Undefined when the step has no name,
+      // which `stepIdentity` reads as "identified by agent alone".
+      ...(norm.name === undefined ? {} : { name: norm.name }),
       revision: 1,
       status: isRoot ? 'awaiting_work' : 'pending',
       startedAt: isRoot ? now : undefined,
@@ -76,7 +110,7 @@ export function startRun(args: {
   // steps but every gate operation passes an explicit stepIdx anyway.
   const firstOpen = steps.findIndex((s) => s.status === 'awaiting_work');
   return {
-    schemaVersion: 1,
+    schemaVersion: RUN_STATE_SCHEMA_VERSION,
     runId,
     pipelineId: pipeline.id,
     context: { ...context },
@@ -137,7 +171,8 @@ export function markStepDone(args: {
   /** Step to mark done. Defaults to `state.currentStepIdx` for back-compat. */
   stepIdx?: number;
 }): RunState {
-  const { state, pipeline, workspaceRoot } = args;
+  const { pipeline, workspaceRoot } = args;
+  const state = alignedOrThrow(args.state, pipeline);
   const idx = args.stepIdx ?? state.currentStepIdx;
   const step = state.steps[idx];
   if (!step) {
@@ -163,7 +198,10 @@ export function markStepDone(args: {
 
   const stepConfig = pipeline.steps[idx];
   if (!stepConfig) {
-    throw new PipelineRunError(`Pipeline mismatch — index ${idx} not in pipeline.steps`);
+    throw new PipelineRunError(
+      `Pipeline mismatch — step "${stepIdentity(step)}" is at index ${idx}, ` +
+      `which pipeline "${pipeline.id}" does not have.`,
+    );
   }
   const norm = normalizeStep(stepConfig);
 
@@ -256,7 +294,8 @@ export function submitAutoReviewVerdict(args: {
   /** Step the verdict applies to. Defaults to `state.currentStepIdx`. */
   stepIdx?: number;
 }): RunState {
-  const { state, pipeline, verdict } = args;
+  const { pipeline, verdict } = args;
+  const state = alignedOrThrow(args.state, pipeline);
   const idx = args.stepIdx ?? state.currentStepIdx;
   const step = state.steps[idx];
   if (!step) {
@@ -270,7 +309,10 @@ export function submitAutoReviewVerdict(args: {
 
   const stepConfig = pipeline.steps[idx];
   if (!stepConfig) {
-    throw new PipelineRunError(`Pipeline mismatch — index ${idx} not in pipeline.steps`);
+    throw new PipelineRunError(
+      `Pipeline mismatch — step "${stepIdentity(step)}" is at index ${idx}, ` +
+      `which pipeline "${pipeline.id}" does not have.`,
+    );
   }
   const norm = normalizeStep(stepConfig);
 
@@ -317,7 +359,8 @@ export function approveStep(args: {
   /** Step to approve. Defaults to `state.currentStepIdx`. */
   stepIdx?: number;
 }): RunState {
-  const { state, pipeline } = args;
+  const { pipeline } = args;
+  const state = alignedOrThrow(args.state, pipeline);
   const idx = args.stepIdx ?? state.currentStepIdx;
   const step = state.steps[idx];
   if (!step) {

@@ -226,7 +226,17 @@ export type { VerifyReport, StepDrift } from './runs/verifyRun';
 export { renderRunReport } from './runs/runReport';
 export { runAutoReview, AutoReviewerError } from './runs/AutoReviewer';
 export type { AutoReviewerContext, AutoReviewerFn } from './runs/AutoReviewer';
-export { resolvePath } from './runs/RunState';
+export { resolvePath, stepIdentity, migrateRunState, RUN_STATE_SCHEMA_VERSION } from './runs/RunState';
+export {
+  reconcileRunSteps,
+  describeDrift,
+  withBackfilledStepNames,
+} from './runs/reconcileRun';
+export type {
+  RunReconciliation,
+  StepAlignment,
+  StepAlignmentKind,
+} from './runs/reconcileRun';
 export type {
   RunState,
   StepRecord,
