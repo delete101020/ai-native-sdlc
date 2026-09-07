@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 3.8.0
+
+The step list of a running epic became editable in 3.7.0; its review gates
+follow here, from the CLI and with the extension finally saying what a gate
+change reaches when the step is already past it.
 
 ### Added
 
