@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ChevronRight,
   ChevronDown,
@@ -89,10 +89,26 @@ interface Props {
   epic: EpicSummary;
   agentMeta: Record<string, AgentMeta>;
   slashCommandsByAgent: Record<string, string>;
+  /**
+   * Non-zero when the sidebar deep-linked to this epic; a *new* value each
+   * click, so opening the same epic twice re-expands and re-scrolls instead of
+   * appearing to do nothing the second time.
+   */
+  focusNonce?: number;
 }
 
-export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
+export function EpicCard({ epic, agentMeta, slashCommandsByAgent, focusNonce = 0 }: Props) {
   const [expanded, setExpanded] = useState<boolean>(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!focusNonce) { return; }
+    setExpanded(true);
+    // The list can be long and the panel may have just switched views, so the
+    // card is rarely on screen already.
+    cardRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [focusNonce]);
+
   const [focusedIdx, setFocusedIdx] = useState<number>(epic.currentStep ?? 0);
   const ui = epicUiStatus(epic.status);
   const total = epic.stepDetails.length;
@@ -101,7 +117,15 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
   const inputKeys = Object.keys(epic.inputs || {});
 
   return (
-    <div className="group relative rounded-lg border border-border bg-card transition-all hover:border-primary/30">
+    <div
+      ref={cardRef}
+      className={cn(
+        'group relative rounded-lg border bg-card transition-all hover:border-primary/30',
+        // Says *which* card the click landed on — after a scroll the reader
+        // has no other way to tell the deep-linked one from its neighbours.
+        focusNonce ? 'border-primary/60 ring-1 ring-primary/40' : 'border-border',
+      )}
+    >
       <div
         className={cn(
           'absolute left-0 top-0 h-full w-0.5 rounded-l-lg',

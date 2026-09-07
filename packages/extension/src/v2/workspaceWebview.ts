@@ -1310,6 +1310,18 @@ export class WorkspaceWebview {
   private disposables: vscode.Disposable[] = [];
   private currentView: WorkspaceView;
 
+  /**
+   * An epic to expand once the React side is listening.
+   *
+   * `show()` creates the panel and returns immediately, but the webview only
+   * exists after its bundle has run and sent `ready`. A `focusEpic` posted in
+   * that gap is delivered to nobody — which turns "open EPIC-002" into "open
+   * the epics list", the exact failure this deep link is meant to avoid. Held
+   * here and flushed on `ready`.
+   */
+  private pendingFocusEpic: string | null = null;
+  private booted = false;
+
   static show(extensionUri: vscode.Uri, initialView: WorkspaceView = 'builder'): void {
     const column = vscode.ViewColumn.One;
     if (WorkspaceWebview.current) {
@@ -1340,6 +1352,18 @@ export class WorkspaceWebview {
   static triggerStartEpic(extensionUri: vscode.Uri): void {
     WorkspaceWebview.show(extensionUri, 'epics');
     void WorkspaceWebview.current?.panel.webview.postMessage({ type: 'triggerStartEpic' });
+  }
+
+  /**
+   * Open the Epics view with one epic expanded and scrolled into view.
+   *
+   * The sidebar's Recent Epics list used to open `state.json` in an editor.
+   * That is the storage format, not the thing the user clicked for: the run's
+   * own UI — steps, gates, actions — is what the epic *is* here.
+   */
+  static openEpic(extensionUri: vscode.Uri, epicId: string): void {
+    WorkspaceWebview.show(extensionUri, 'epics');
+    WorkspaceWebview.current?.focusEpic(epicId);
   }
 
   /**
@@ -1451,6 +1475,18 @@ export class WorkspaceWebview {
   setView(view: WorkspaceView): void {
     this.currentView = view;
     void this.panel.webview.postMessage({ type: 'setView', view });
+  }
+
+  /**
+   * Ask the React side to switch to Epics and expand `epicId`. Deferred until
+   * `ready` when the panel was created a moment ago — see `pendingFocusEpic`.
+   */
+  focusEpic(epicId: string): void {
+    if (!this.booted) {
+      this.pendingFocusEpic = epicId;
+      return;
+    }
+    void this.panel.webview.postMessage({ type: 'focusEpic', epicId });
   }
 
   private dispose(): void {
@@ -1638,9 +1674,14 @@ export class WorkspaceWebview {
 
   private async handleMessage(msg: { type: string; [k: string]: unknown }): Promise<void> {
     switch (msg.type) {
-      case 'ready':
+      case 'ready': {
+        this.booted = true;
         this.refresh();
+        const pending = this.pendingFocusEpic;
+        this.pendingFocusEpic = null;
+        if (pending) { this.focusEpic(pending); }
         return;
+      }
 
       case 'setTheme': {
         const mode = String(msg.mode ?? '');

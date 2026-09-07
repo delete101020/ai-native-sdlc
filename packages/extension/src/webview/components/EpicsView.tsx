@@ -19,9 +19,22 @@ function matches(epic: EpicSummary, filter: EpicFilter): boolean {
   return epic.status === filter;
 }
 
-export function EpicsView({ state }: { state: WorkspaceState }) {
+export function EpicsView({
+  state,
+  focusEpic,
+}: {
+  state: WorkspaceState;
+  /** Epic the sidebar deep-linked to; `nonce` changes on every click. */
+  focusEpic?: { id: string; nonce: number } | null;
+}) {
   const [filter, setFilter] = useState<EpicFilter>('all');
   const [startEpicOpen, setStartEpicOpen] = useState(false);
+
+  // A deep link has to win over the filter — landing on an empty list because
+  // the epic is done and the filter says "in progress" reads as a broken link.
+  useEffect(() => {
+    if (focusEpic) { setFilter('all'); }
+  }, [focusEpic]);
 
   useEffect(() => {
     return onHostMessage((msg) => {
@@ -176,6 +189,7 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
               epic={e}
               agentMeta={state.agentMeta}
               slashCommandsByAgent={state.slashCommandsByAgent}
+              focusNonce={focusEpic?.id === e.id ? focusEpic.nonce : 0}
             />
           ))}
         </div>

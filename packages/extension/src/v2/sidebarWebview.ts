@@ -562,6 +562,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'openEpicsList':
         await vscode.commands.executeCommand('aidlc.openEpicsList');
         return;
+      case 'openEpic': {
+        // Recent Epics is a deep link into the run, not a file browser — the
+        // raw `state.json` is still one click away inside the card.
+        const id = String(msg.id ?? '');
+        if (!id) { return; }
+        WorkspaceWebview.openEpic(this.extensionUri, id);
+        return;
+      }
       case 'openEpicState': {
         const statePath = String(msg.path ?? '');
         if (!statePath) { return; }

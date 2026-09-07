@@ -508,11 +508,12 @@ function RecentEpicsSection({
               key={e.id}
               role="button"
               tabIndex={0}
-              onClick={() => postMessage({ type: 'openEpicState', path: e.statePath })}
+              title={`Open ${e.id} in the Epics view`}
+              onClick={() => postMessage({ type: 'openEpic', id: e.id })}
               onKeyDown={(ev) => {
                 if (ev.key === 'Enter' || ev.key === ' ') {
                   ev.preventDefault();
-                  postMessage({ type: 'openEpicState', path: e.statePath });
+                  postMessage({ type: 'openEpic', id: e.id });
                 }
               }}
               className="flex cursor-pointer items-center gap-2 rounded-md border border-border bg-card/50 px-2.5 py-1.5 text-[11px] transition-colors hover:bg-accent"
