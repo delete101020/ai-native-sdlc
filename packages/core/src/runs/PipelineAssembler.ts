@@ -130,6 +130,7 @@ export function assemblePipeline(
 
   const assembled: PipelineConfig = {
     id: opts.pipelineId ?? recipe.id,
+    derived_from: source.id,
     steps,
     on_failure: source.on_failure,
   };

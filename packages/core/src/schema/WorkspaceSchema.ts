@@ -210,6 +210,14 @@ const PipelineBudgetSchema = z.object({
 
 const PipelineSchema = z.object({
   id: z.string().min(1),
+  /**
+   * Set by {@link assemblePipeline} to the pipeline the recipe drew its steps
+   * from. An assembled pipeline is named after its epic (`EPIC-001`), so
+   * without this there is nothing left tying it back to `ai-native-full` —
+   * and artifact templates live under the *source* id. Absent on hand-authored
+   * pipelines, which are their own source.
+   */
+  derived_from: z.string().min(1).optional(),
   steps: z.array(PipelineStepSchema).min(1),
   on_failure: z.enum(['stop', 'continue']).default('stop'),
   budget: PipelineBudgetSchema.optional(),

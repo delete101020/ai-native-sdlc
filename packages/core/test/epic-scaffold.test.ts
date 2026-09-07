@@ -91,6 +91,77 @@ describe('scaffoldEpic — on-disk layout', () => {
     expect(state.stepStates.map((s: { agent: string }) => s.agent)).toEqual(['po', 'developer']);
   });
 
+  // The epic doc is the only file a phase-1 skill reads for the user's own
+  // words — the AI-Native intent skill opens `docs/epics/$0/$0.md` by name.
+  it('writes <epicId>.md carrying the title and description', () => {
+    const root = tmpRoot();
+    scaffoldEpic({
+      workspaceRoot: root,
+      doc: null,
+      epicId: 'CPD-2',
+      title: 'My epic',
+      description: 'do the thing',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po', 'developer'],
+      inputs: {},
+      pipeline: PIPELINE,
+    });
+
+    const doc = fs.readFileSync(
+      path.join(root, 'docs/epics', 'CPD-2', 'CPD-2.md'), 'utf8');
+    expect(doc).toContain('# CPD-2');
+    expect(doc).toContain('My epic');
+    expect(doc).toContain('do the thing');
+  });
+
+  it('writes a heading-only epic doc when there is no description', () => {
+    const root = tmpRoot();
+    scaffoldEpic({
+      workspaceRoot: root,
+      doc: null,
+      epicId: 'CPD-3',
+      title: '',
+      description: '',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po', 'developer'],
+      inputs: {},
+      pipeline: PIPELINE,
+    });
+
+    const doc = fs.readFileSync(
+      path.join(root, 'docs/epics', 'CPD-3', 'CPD-3.md'), 'utf8');
+    expect(doc).toBe('# CPD-3\n');
+  });
+
+  // A recipe-assembled pipeline is named after its epic, so its templates can
+  // only be found through `derived_from`. Keying on the pipeline id alone left
+  // artifacts/ empty for every epic started from a recipe.
+  it('seeds artifact templates from derived_from, not the pipeline id', () => {
+    const root = tmpRoot();
+    const tplDir = path.join(root, '.aidlc', 'aidlc-templates', PIPELINE.id);
+    fs.mkdirSync(tplDir, { recursive: true });
+    fs.writeFileSync(path.join(tplDir, 'PRD.md'), '# template');
+
+    const assembled: PipelineConfig = {
+      ...PIPELINE,
+      id: 'CPD-4',
+      derived_from: PIPELINE.id,
+    };
+    scaffoldEpic({
+      workspaceRoot: root,
+      doc: null,
+      epicId: 'CPD-4',
+      title: '',
+      description: '',
+      target: { kind: 'pipeline', id: assembled.id },
+      agents: ['po', 'developer'],
+      inputs: {},
+      pipeline: assembled,
+    });
+
+    expect(fs.existsSync(
+      path.join(root, 'docs/epics', 'CPD-4', 'artifacts', 'PRD.md'))).toBe(true);
+  });
   // GH-67-UT01: extraProjects written to inputs.json
   it('persists extraProjects in inputs.json when provided', () => {
     const root = tmpRoot();

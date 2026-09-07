@@ -94,6 +94,19 @@ declares no capabilities keeps working and simply receives a fuller prompt.
 
 ### Fixed
 
+- **An epic started from a recipe got an empty `artifacts/`.** Artifact
+  templates are read from `.aidlc/aidlc-templates/<pipelineId>/`, but a
+  recipe-assembled pipeline is named after its epic (`EPIC-001`), and no
+  template directory will ever carry that name. Assembled pipelines now record
+  the pipeline they drew their steps from, and the scaffold seeds from that.
+
+- **The title and description typed into Start epic reached no agent.** They
+  were written to `state.json`, which is machine state that no skill opens —
+  while phase one's skill reads `docs/epics/<epic>/<epic>.md` by name, a file
+  the scaffold never wrote. Every run therefore began from an empty brief and
+  asked the user back for what they had already typed. The scaffold now writes
+  that file.
+
 - **Switch Claude Account no longer hands your account to the team by
   default.** Writing to “This workspace” lands in `.vscode/settings.json`,
   which many repos commit — and the damage is invisible on the machine that

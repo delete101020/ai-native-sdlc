@@ -205,9 +205,16 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
 
   // Seed artifacts/ from .aidlc/aidlc-templates/<pipelineId>/ so the agents
   // have a structured starting point.
+  //
+  // `derived_from` first: a pipeline assembled from a recipe is named after
+  // its epic (`EPIC-001`), and no template dir will ever carry that name, so
+  // keying on `target.id` alone left every recipe-started epic with an empty
+  // artifacts/. Hand-authored pipelines have no `derived_from` and are their
+  // own template source.
   if (target.kind === 'pipeline') {
     const aidlcDir = args.aidlcDir ?? path.join(workspaceRoot, WORKSPACE_DIR);
-    const templatesDir = path.join(aidlcDir, 'aidlc-templates', target.id);
+    const templatesId = pipeline?.derived_from ?? target.id;
+    const templatesDir = path.join(aidlcDir, 'aidlc-templates', templatesId);
     if (fs.existsSync(templatesDir)) {
       for (const fileName of fs.readdirSync(templatesDir)) {
         const src = path.join(templatesDir, fileName);
@@ -251,6 +258,18 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     JSON.stringify(initialState, null, 2) + '\n',
     'utf8',
   );
+
+  // `<epicId>.md` is what the first phase's skill opens for context — the
+  // AI-Native intent skill's step 1 is literally "read the epic doc at
+  // docs/epics/$0/$0.md". state.json is machine state and no skill reads it,
+  // so without this the title and description the user just typed reach no
+  // agent at all: the run starts from an empty brief and asks for everything
+  // back. Markdown, because the agent reads it as prose.
+  const epicDoc =
+    `# ${epicId}${title ? ` — ${title}` : ''}\n` +
+    (description ? `\n${description}\n` : '');
+  fs.writeFileSync(path.join(epicDir, `${epicId}.md`), epicDoc, 'utf8');
+
   const persistedInputs: Record<string, unknown> = { ...inputs };
   if (extraProjects && extraProjects.length > 0) {
     persistedInputs.extra_projects = extraProjects;
