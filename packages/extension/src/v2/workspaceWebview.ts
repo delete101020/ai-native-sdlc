@@ -279,6 +279,34 @@ const INCIDENT_RECIPE = 'native-incident';
 const FOLLOW_UP_RECIPE = 'native-fix';
 
 /**
+ * Epics already opened from `incidentEpicId`, newest last.
+ *
+ * Matched on `from_epic` in inputs.json — the provenance `openFollowUpEpic`
+ * writes — rather than on the `<incident>-FIX` id shape. The id is a naming
+ * convenience the user is free to override at creation time; the input is the
+ * actual edge, and it is what the UI draws the link from.
+ */
+function followUpsOfIncident(
+  root: string,
+  doc: { state?: unknown } | null,
+  incidentEpicId: string,
+): string[] {
+  const dir = epicsRoot(root, doc);
+  const out: string[] = [];
+  for (const id of epicIdsOnDisk(root, doc)) {
+    const file = path.join(dir, id, 'inputs.json');
+    if (!fs.existsSync(file)) { continue; }
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { from_epic?: unknown };
+      if (String(parsed.from_epic ?? '') === incidentEpicId) { out.push(id); }
+    } catch {
+      // A hand-edited inputs.json is the user's business; it just cannot be a link.
+    }
+  }
+  return out;
+}
+
+/**
  * Open (or reuse) the Claude REPL terminal and run `slash` immediately.
  *
  * Always sends `claude '<slash>'` rather than the bare slash command.
@@ -3868,6 +3896,53 @@ export class WorkspaceWebview {
   }
 
   /**
+   * Let the user right-size the follow-up epic before it is scaffolded.
+   *
+   * Recipes come from the workspace when it has them — a team that edited
+   * `native-fix` should be offered the version they edited — and from the
+   * built-ins otherwise. `native-incident` is filtered out: it is the recipe
+   * that produced the epic being followed up, and running it again would
+   * diagnose an already-diagnosed signal.
+   */
+  private async pickFollowUpRecipe(
+    doc: Record<string, unknown> | null,
+    current: string,
+    epicId: string,
+    incidentEpicId: string,
+    seeded: string,
+  ): Promise<string | null> {
+    type RecipeRow = { id: string; description?: string; steps?: unknown };
+    const fromDoc = Array.isArray(doc?.recipes) ? (doc!.recipes as RecipeRow[]) : [];
+    const rows: RecipeRow[] = fromDoc.length > 0
+      ? fromDoc
+      : BUILTIN_WORKFLOWS.flatMap((w) => (w.recipes ?? []) as RecipeRow[]);
+
+    const items = rows
+      .filter((r) => r.id && r.id !== INCIDENT_RECIPE)
+      .map((r) => {
+        const steps = Array.isArray(r.steps) ? (r.steps as unknown[]).map(String) : [];
+        return {
+          label: r.id === current ? `${r.id}  ✓` : r.id,
+          description: steps.length > 0 ? `${steps.length} steps · ${steps.join(' → ')}` : undefined,
+          detail: r.description ? String(r.description) : undefined,
+          id: r.id,
+        };
+      });
+    if (items.length === 0) {
+      void vscode.window.showWarningMessage('AIDLC: no recipes defined in this workspace.');
+      return null;
+    }
+
+    const picked = await vscode.window.showQuickPick(items, {
+      title: `Recipe for ${epicId}`,
+      placeHolder: `Follows ${incidentEpicId}. ${seeded}`,
+      matchOnDescription: true,
+      matchOnDetail: true,
+    });
+    return picked ? picked.id : null;
+  }
+
+  /**
    * The other half of the loop: turn a diagnosed incident into the epic that
    * fixes it.
    *
@@ -3899,7 +3974,46 @@ export class WorkspaceWebview {
       return;
     }
 
-    const recipeId = FOLLOW_UP_RECIPE;
+    // Already opened one? `followUpIdFor` will happily hand out `-FIX-2`, and
+    // there is a real case for it — one diagnosis can fork into two independent
+    // pieces of work. A second click on the same button two minutes later is not
+    // that case, and the old dialog read identically in both. Name the epics
+    // that already exist and make the user say "another".
+    const priors = followUpsOfIncident(root, doc0, incidentEpicId);
+    const epicId = followUpIdFor(incidentEpicId, epicIdsOnDisk(root, doc0));
+
+    let recipeId = FOLLOW_UP_RECIPE;
+    const RECIPE_BUTTON = 'Choose recipe…';
+    const seeded = `Its intent.md is seeded from the signal, with anything the signal does not answer left as an open question for stage 1.`;
+    const confirm = priors.length > 0
+      ? await vscode.window.showWarningMessage(
+          `${incidentEpicId} already has a follow-up epic. Open another?`,
+          {
+            modal: true,
+            detail: `Existing: ${priors.join(', ')}.\n\nA second follow-up only makes sense when the diagnosis splits into work that ships separately — otherwise continue in the epic you already have. The new one would be "${epicId}", running ${recipeId}.`,
+          },
+          'Open another',
+          RECIPE_BUTTON,
+        )
+      : await vscode.window.showInformationMessage(
+          `Open follow-up epic "${epicId}" from ${incidentEpicId}?`,
+          { modal: true, detail: `Runs the ${recipeId} recipe. ${seeded}` },
+          'Open epic',
+          RECIPE_BUTTON,
+        );
+    if (!confirm) { return; }
+
+    // `native-fix` is the right default, not the right answer every time: the
+    // work a diagnosis opens ranges from a one-file perf fix to a redesign, and
+    // paying for spec + verify + review on the former is the same
+    // disproportion `strict_mode` exists to stop. Offered rather than asked, so
+    // the common path is still two clicks.
+    if (confirm === RECIPE_BUTTON) {
+      const picked = await this.pickFollowUpRecipe(doc0, recipeId, epicId, incidentEpicId, seeded);
+      if (!picked) { return; }
+      recipeId = picked;
+    }
+
     const existing = doc0 as { recipes?: Array<{ id?: unknown }> } | null;
     const hasRecipe = Array.isArray(existing?.recipes)
       && existing.recipes.some((r) => String(r.id) === recipeId);
@@ -3911,14 +4025,6 @@ export class WorkspaceWebview {
       }
       this.ensureBuiltinInWorkspace(root, wf);
     }
-
-    const epicId = followUpIdFor(incidentEpicId, epicIdsOnDisk(root, readYaml(root)));
-    const confirm = await vscode.window.showInformationMessage(
-      `Open follow-up epic "${epicId}" from ${incidentEpicId}?`,
-      { modal: true, detail: `Runs the ${recipeId} recipe. Its intent.md is seeded from the signal, with anything the signal does not answer left as an open question for stage 1.` },
-      'Open epic',
-    );
-    if (confirm !== 'Open epic') { return; }
 
     const pipelineId = this.assembleRecipeForEpic(root, recipeId, epicId);
     if (!pipelineId) { return; }

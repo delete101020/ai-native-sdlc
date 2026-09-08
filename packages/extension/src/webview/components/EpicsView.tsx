@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, Brain, FolderOpen, Pencil, Radio } from 'lucide-react';
+import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
 import { EpicCard } from './EpicCard';
@@ -20,6 +20,30 @@ function matches(epic: EpicSummary, filter: EpicFilter): boolean {
   return epic.status === filter;
 }
 
+/**
+ * The epic this one was opened from, or null.
+ *
+ * `from_epic` is written into inputs.json by `openFollowUpEpic` — the only
+ * parent/child edge the system records, and it costs nothing to draw. A generic
+ * `group` field on state.json would need someone to fill it in; this one is
+ * already true on disk for every incident that produced work.
+ */
+function parentOf(epic: EpicSummary): string | null {
+  const from = (epic.inputs?.from_epic ?? '').trim();
+  return from || null;
+}
+
+/** Root of the family an epic belongs to — itself, unless it follows another. */
+function familyOf(epic: EpicSummary): string {
+  return parentOf(epic) ?? epic.id;
+}
+
+/** One rendered row: a lone epic, or an incident and everything it opened. */
+interface Family {
+  rootId: string;
+  epics: EpicSummary[];
+}
+
 export function EpicsView({
   state,
   focusEpic,
@@ -31,12 +55,19 @@ export function EpicsView({
   const [filter, setFilter] = useState<EpicFilter>('all');
   const [startEpicOpen, setStartEpicOpen] = useState(false);
   const [reportSignalOpen, setReportSignalOpen] = useState(false);
+  // Focus comes from two places now: the host deep link, and the incident ⇄
+  // follow-up chips on the cards themselves. Both land here so the scroll,
+  // the expand and the filter reset behave identically either way.
+  const [focus, setFocus] = useState<{ id: string; nonce: number } | null>(null);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  useEffect(() => { if (focusEpic) { setFocus(focusEpic); } }, [focusEpic]);
 
   // A deep link has to win over the filter — landing on an empty list because
   // the epic is done and the filter says "in progress" reads as a broken link.
   useEffect(() => {
-    if (focusEpic) { setFilter('all'); }
-  }, [focusEpic]);
+    if (focus) { setFilter('all'); }
+  }, [focus]);
 
   useEffect(() => {
     return onHostMessage((msg) => {
@@ -65,6 +96,42 @@ export function EpicsView({
     () => state.epics.filter((e) => matches(e, filter)),
     [state.epics, filter],
   );
+
+  /** epic id → epics opened from it. Read by the cards to draw the link back. */
+  const followUpsByEpic = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const e of state.epics) {
+      const from = parentOf(e);
+      if (from) { (out[from] ??= []).push(e.id); }
+    }
+    return out;
+  }, [state.epics]);
+
+  // Group after filtering, not before: a filter is a question about epics, and
+  // hiding a follow-up should not drag its incident out of the list with it.
+  const families = useMemo(() => {
+    const out: Family[] = [];
+    const at = new Map<string, number>();
+    for (const e of visible) {
+      const key = familyOf(e);
+      const i = at.get(key);
+      if (i === undefined) { at.set(key, out.length); out.push({ rootId: key, epics: [e] }); }
+      else { out[i].epics.push(e); }
+    }
+    // The incident leads its own family wherever it happened to sort.
+    for (const f of out) {
+      f.epics.sort((a, b) => Number(b.id === f.rootId) - Number(a.id === f.rootId));
+    }
+    return out;
+  }, [visible]);
+
+  const navigate = (id: string) => {
+    const target = state.epics.find((e) => e.id === id);
+    // Following a link into a collapsed family and landing on nothing is the
+    // one way this chip can lie.
+    if (target) { setCollapsed((c) => ({ ...c, [familyOf(target)]: false })); }
+    setFocus({ id, nonce: Date.now() });
+  };
 
   const [editingDir, setEditingDir] = useState(false);
   const [dirDraft, setDirDraft] = useState(state.epicsDir);
@@ -197,18 +264,60 @@ export function EpicsView({
         </div>
       ) : (
         <div className="space-y-2">
-          {visible.map((e) => (
-            <EpicCard
-              key={e.id}
-              epic={e}
-              agentMeta={state.agentMeta}
-              slashCommandsByAgent={state.slashCommandsByAgent}
-              focusNonce={focusEpic?.id === e.id ? focusEpic.nonce : 0}
-              // Keyed by run id, and an epic's run id is the epic id by
-              // convention — but read it off the epic rather than assuming.
-              activity={(e.runId && state.agentActivity?.[e.runId]) || null}
-            />
-          ))}
+          {families.map((f) => {
+            const cards = f.epics.map((e) => (
+              <EpicCard
+                key={e.id}
+                epic={e}
+                agentMeta={state.agentMeta}
+                slashCommandsByAgent={state.slashCommandsByAgent}
+                focusNonce={focus?.id === e.id ? focus.nonce : 0}
+                // Keyed by run id, and an epic's run id is the epic id by
+                // convention — but read it off the epic rather than assuming.
+                activity={(e.runId && state.agentActivity?.[e.runId]) || null}
+                fromEpic={parentOf(e)}
+                followUps={followUpsByEpic[e.id] ?? []}
+                onNavigate={navigate}
+              />
+            ));
+            // A family of one is just an epic. Wrapping it in a header would
+            // add a row of chrome around every epic in the list to serve the
+            // handful that were opened from an incident.
+            if (f.epics.length < 2) { return cards; }
+
+            const root = f.epics.find((e) => e.id === f.rootId);
+            // Finished families fold themselves away: an incident and its fix,
+            // both done, is history — it should not cost four rows forever.
+            const isCollapsed = collapsed[f.rootId] ?? f.epics.every((e) => e.status === 'done');
+            return (
+              <div key={f.rootId} className="rounded-lg border border-border/70 bg-surface/40">
+                <button
+                  type="button"
+                  onClick={() => setCollapsed((c) => ({ ...c, [f.rootId]: !isCollapsed }))}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left"
+                >
+                  <ChevronRight
+                    className={cn(
+                      'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
+                      !isCollapsed && 'rotate-90',
+                    )}
+                  />
+                  <span className="shrink-0 font-mono text-[11px] font-bold text-primary">
+                    {f.rootId}
+                  </span>
+                  {root && (
+                    <span className="truncate text-[11px] text-muted-foreground">{root.title}</span>
+                  )}
+                  <span className="ml-auto shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    {f.epics.length} epics
+                  </span>
+                </button>
+                {!isCollapsed && (
+                  <div className="space-y-2 border-t border-border/60 px-3 py-3">{cards}</div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

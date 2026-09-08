@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ChevronRight,
   ChevronDown,
+  CornerDownRight,
   GitBranchPlus,
   Check,
   X,
@@ -106,6 +107,12 @@ interface Props {
    * the UI adds a busy state from this, it never infers an idle one.
    */
   activity?: AgentActivity | null;
+  /** The incident this epic was opened from (`from_epic` in inputs.json). */
+  fromEpic?: string | null;
+  /** Epics opened from this one. Non-empty only on an incident epic. */
+  followUps?: string[];
+  /** Jump the list to another epic — expands it, scrolls to it, highlights it. */
+  onNavigate?: (epicId: string) => void;
 }
 
 export function EpicCard({
@@ -114,6 +121,9 @@ export function EpicCard({
   slashCommandsByAgent,
   focusNonce = 0,
   activity = null,
+  fromEpic = null,
+  followUps = [],
+  onNavigate,
 }: Props) {
   const [expanded, setExpanded] = useState<boolean>(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -157,6 +167,7 @@ export function EpicCard({
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <span className="shrink-0 font-mono text-xs font-bold text-primary">{epic.id}</span>
           <span className="truncate text-sm text-foreground">{epic.title}</span>
+          <EpicLinks fromEpic={fromEpic} followUps={followUps} onNavigate={onNavigate} />
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <div className="flex items-center gap-1.5">
@@ -318,6 +329,59 @@ export function EpicCard({
  * open that file instead of dumping the text inline. Falls back to the plain
  * description when no such file exists.
  */
+/**
+ * The incident ⇄ follow-up edge, drawn in the card header.
+ *
+ * The link already existed on disk — `from_epic` in inputs.json, and the
+ * `<incident>-FIX` id — but only to someone who opened the files. On the list
+ * the two epics were unrelated rows that happened to sort next to each other,
+ * which is how one incident quietly ends up with two follow-ups nobody notices.
+ *
+ * Chips over a rendered tree: an epic has at most one parent and usually one
+ * child, and a two-node tree costs more chrome than it explains.
+ */
+function EpicLinks({
+  fromEpic,
+  followUps,
+  onNavigate,
+}: {
+  fromEpic: string | null;
+  followUps: string[];
+  onNavigate?: (epicId: string) => void;
+}) {
+  if (!fromEpic && followUps.length === 0) { return null; }
+  const chip =
+    'inline-flex max-w-[180px] shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-muted-foreground hover:border-primary/40 hover:text-primary';
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {fromEpic && (
+        <button
+          type="button"
+          title={`Opened from ${fromEpic} — the incident this epic fixes`}
+          onClick={(e) => { e.stopPropagation(); onNavigate?.(fromEpic); }}
+          className={chip}
+        >
+          <CornerDownRight className="h-2.5 w-2.5 shrink-0" />
+          <span className="truncate">{fromEpic}</span>
+        </button>
+      )}
+      {followUps.length > 0 && (
+        <button
+          type="button"
+          title={`Follow-up epics opened from this one: ${followUps.join(', ')}`}
+          onClick={(e) => { e.stopPropagation(); onNavigate?.(followUps[0]); }}
+          className={chip}
+        >
+          <GitBranchPlus className="h-2.5 w-2.5 shrink-0" />
+          <span className="truncate">
+            {followUps.length === 1 ? followUps[0] : `${followUps.length} follow-ups`}
+          </span>
+        </button>
+      )}
+    </span>
+  );
+}
+
 /**
  * `strict_mode` for one epic, as a badge that is also the only way to change it.
  *
