@@ -123,3 +123,95 @@ export function suggestEpicId(
   const seq = String(next).padStart(3, '0');
   return prefix ? `EPIC-${stamp}-${prefix}-${seq}` : `EPIC-${seq}`;
 }
+
+/**
+ * Two letters derived from a git `user.name`, or `null` when none can be.
+ *
+ * Only ever a *suggestion* — see {@link resolveEpicIdPrefixChain}. A derived
+ * value is never written anywhere and never appears in an id until someone
+ * accepts it, because guessing a person's initials and then stamping them on
+ * every epic they open is the same class of mistake as inheriting a
+ * colleague's prefix from a shared file.
+ *
+ * Two words give their initials (`Kim Dung` → `KD`); one word gives its first
+ * two letters (`Kingfisher` → `KI`). Diacritics are folded first so a
+ * Vietnamese name yields letters rather than `null` — `Đức Ngọc` → `DN`, not a
+ * pair that fails {@link EPIC_ID_PREFIX_PATTERN}.
+ */
+export function deriveEpicIdPrefix(gitUserName: string | null | undefined): string | null {
+  if (typeof gitUserName !== 'string') { return null; }
+  const words = gitUserName
+    .normalize('NFD')
+    // Combining marks, then the one Vietnamese letter that has none to strip.
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[đĐ]/g, 'D')
+    .split(/[^A-Za-z]+/)
+    .filter(Boolean);
+  if (words.length === 0) { return null; }
+  const raw = words.length >= 2
+    ? words[0][0] + words[1][0]
+    : words[0].slice(0, 2);
+  const upper = raw.toUpperCase();
+  return EPIC_ID_PREFIX_PATTERN.test(upper) ? upper : null;
+}
+
+/** Where the prefix that will actually be used came from. */
+export type EpicIdPrefixSource = 'user' | 'workspace' | null;
+
+/** The outcome of {@link resolveEpicIdPrefixChain}. */
+export interface EpicIdPrefixResolution {
+  /** The prefix to put in a new epic's id, or `null` for the old scheme. */
+  prefix: string | null;
+  /** Which file `prefix` came from; `null` when there is no prefix. */
+  source: EpicIdPrefixSource;
+  /**
+   * What to offer when this checkout has none of its own. Never used to build
+   * an id on its own — the UI puts it in front of a human first.
+   */
+  suggestion: string | null;
+  /**
+   * True when `.aidlc/user.yaml` declares nothing, whatever the shared file
+   * says. This is what the sidebar and the Start Epic modal warn on.
+   */
+  needsSetup: boolean;
+}
+
+/**
+ * Which prefix this checkout uses, and whether its owner ever chose it.
+ *
+ * The feature shipped storing `epic_id_prefix` in `.aidlc/workspace.yaml`,
+ * which is committed. The doc above this module says the key "gives each
+ * *checkout* two letters of its own" — but a committed file is the whole
+ * team's, so the second person to pull inherits the first person's initials
+ * and every epic they open is filed under someone else's name. That is worse
+ * than the numbering collision the prefix was introduced to fix: a collision
+ * announces itself, wrong attribution does not.
+ *
+ * So the prefix moves to `.aidlc/user.yaml`, which is gitignored, and the
+ * shared key is demoted to a fallback that still works. Demoted rather than
+ * dropped because workspaces already have it set: removing its effect would
+ * silently renumber their next epic. It keeps generating ids, `aidlc validate`
+ * says it should move, and `needsSetup` stays true so the UI keeps offering to
+ * move it — but nobody's ids break in the meantime.
+ */
+export function resolveEpicIdPrefixChain(input: {
+  /** Parsed `.aidlc/user.yaml`. */
+  user?: { epic_id_prefix?: unknown } | null;
+  /** Parsed `.aidlc/workspace.yaml`. */
+  workspace?: { epic_id_prefix?: unknown } | null;
+  /** `git config user.name`, for the suggestion only. */
+  gitUserName?: string | null;
+}): EpicIdPrefixResolution {
+  const user = resolveEpicIdPrefix(input.user);
+  const workspace = resolveEpicIdPrefix(input.workspace);
+  const derived = deriveEpicIdPrefix(input.gitUserName);
+
+  const prefix = user ?? workspace;
+  const source: EpicIdPrefixSource = user ? 'user' : workspace ? 'workspace' : null;
+
+  // The derived value wins the suggestion slot over the shared file's: it
+  // describes the person sitting here, where the shared one describes whoever
+  // committed it. Falling back to the shared value keeps the offer useful on a
+  // machine with no git identity configured.
+  return { prefix, source, suggestion: derived ?? workspace, needsSetup: user === null };
+}

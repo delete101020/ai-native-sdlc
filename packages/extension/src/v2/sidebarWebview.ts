@@ -30,11 +30,16 @@ import {
   provisionDeclaredWorkflows,
   relativeEpicRoot,
   resolveArtifactLanguage,
-  resolveEpicIdPrefix,
+  resolveEpicIdPrefixChain,
+  readUserConfig,
+  readGitUserName,
+  writeUserEpicIdPrefix,
+  ensureUserConfigIgnored,
+  USER_CONFIG_RELPATH,
   EPIC_ID_PREFIX_PATTERN,
   writeTwoLayerCommands,
 } from '@aidlc/core';
-import type { PipelineConfig, DiscoveredAsset } from '@aidlc/core';
+import type { PipelineConfig, DiscoveredAsset, EpicIdPrefixSource } from '@aidlc/core';
 import { listEpics } from './epicsList';
 import type { PresetStore } from './presetStore';
 import { themeManager } from './themeManager';
@@ -150,10 +155,20 @@ interface SidebarState {
    * YAML, and a workspace that never sets it gets a Vietnamese intent followed
    * by an English spec. */
   artifactLanguage: string | null;
-  /** `epic_id_prefix` from workspace.yaml — the two letters that keep this
-   * checkout’s epic ids from colliding with a colleague’s, or null when the
-   * workspace declares none. */
+  /** The two letters that keep this checkout’s epic ids from colliding with
+   * a colleague’s, or null when neither file declares one. Resolved from
+   * `.aidlc/user.yaml` first and the shared `workspace.yaml` second — see
+   * `resolveEpicIdPrefixChain`. */
   epicIdPrefix: string | null;
+  /** Which file {@link epicIdPrefix} came from, so the UI can say when a
+   * value inherited from the shared file is not yet this person’s own. */
+  epicIdPrefixSource: EpicIdPrefixSource;
+  /** Two letters derived from `git config user.name`, offered when this
+   * checkout has none of its own. Never reaches an id unaccepted. */
+  epicIdPrefixSuggestion: string | null;
+  /** True when `.aidlc/user.yaml` declares no prefix, whatever the shared
+   * file says — what the sidebar warning renders on. */
+  epicIdPrefixNeedsSetup: boolean;
   /** `aidlc.autopilot.enabled` setting — drives the AIDLC Autopilot row's
    * "Coming soon" vs "On" state in the Common workflows. */
   autopilotEnabled: boolean;
@@ -214,6 +229,9 @@ function buildState(
       mcpError: mcp.error,
       artifactLanguage: null,
       epicIdPrefix: null,
+      epicIdPrefixSource: null,
+      epicIdPrefixSuggestion: null,
+      epicIdPrefixNeedsSetup: false,
       autopilotEnabled,
       agentActivity: {},
     };
@@ -284,6 +302,9 @@ function buildState(
       extraProjects: sidebarExtraProjects,
       artifactLanguage: null,
       epicIdPrefix: null,
+      epicIdPrefixSource: null,
+      epicIdPrefixSuggestion: null,
+      epicIdPrefixNeedsSetup: false,
       autopilotEnabled,
       agentActivity: agentActivity.snapshot(),
     };
@@ -331,9 +352,37 @@ function buildState(
     // `YamlDocument` models only the keys the sidebar reads; the setting is a
     // free top-level string the schema knows about and this type does not.
     artifactLanguage: resolveArtifactLanguage(doc as { artifact_language?: unknown }),
-    epicIdPrefix: resolveEpicIdPrefix(doc as { epic_id_prefix?: unknown }),
+    ...epicIdPrefixFields(root, doc),
     autopilotEnabled,
     agentActivity: agentActivity.snapshot(),
+  };
+}
+
+/**
+ * The four prefix fields, resolved together so they cannot disagree.
+ *
+ * Split across two files on purpose: `.aidlc/user.yaml` is this checkout’s
+ * and is gitignored, `workspace.yaml` is the team’s and is committed. Reading
+ * only the shared one — which is what shipped — hands the second developer to
+ * pull their colleague’s initials, so every epic they open is filed under
+ * someone else’s name.
+ */
+function epicIdPrefixFields(root: string, doc: unknown): {
+  epicIdPrefix: string | null;
+  epicIdPrefixSource: EpicIdPrefixSource;
+  epicIdPrefixSuggestion: string | null;
+  epicIdPrefixNeedsSetup: boolean;
+} {
+  const r = resolveEpicIdPrefixChain({
+    user: readUserConfig(root),
+    workspace: doc as { epic_id_prefix?: unknown },
+    gitUserName: readGitUserName(root),
+  });
+  return {
+    epicIdPrefix: r.prefix,
+    epicIdPrefixSource: r.source,
+    epicIdPrefixSuggestion: r.suggestion,
+    epicIdPrefixNeedsSetup: r.needsSetup,
   };
 }
 
@@ -652,8 +701,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'setEpicIdPrefix': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (!root) { return; }
-        const doc = readYaml(root);
-        if (!doc) { return; }
         const next = String(msg.prefix ?? '').trim().toUpperCase();
         // Empty removes the key rather than writing `""`: no prefix is a real
         // choice, and it is the one every existing workspace already made.
@@ -664,12 +711,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           this.refresh();
           return;
         }
-        if (next) {
-          (doc as { epic_id_prefix?: string }).epic_id_prefix = next;
-        } else {
-          delete (doc as { epic_id_prefix?: string }).epic_id_prefix;
+        writeUserEpicIdPrefix(root, next || null);
+        // Ignore it the moment it exists, not at `init`: the workspaces that
+        // most need this are the ones scaffolded before the file did.
+        if (next && ensureUserConfigIgnored(root)) {
+          void vscode.window.showInformationMessage(
+            `Added ${USER_CONFIG_RELPATH} to .gitignore — your prefix stays yours.`,
+          );
         }
-        writeYaml(root, doc);
         // Nothing to regenerate: the prefix is read when an id is *suggested*,
         // not baked into any command body, and epics already on disk keep the
         // ids they were created with.

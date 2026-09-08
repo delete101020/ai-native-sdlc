@@ -191,7 +191,9 @@ import {
   scaffoldEpic,
   epicsRoot,
   STRICT_MODE_KEY,
-  resolveEpicIdPrefix,
+  resolveEpicIdPrefixChain,
+  readUserConfig,
+  readGitUserName,
   suggestEpicId,
   EpicScaffoldError,
   installAnnotationTools,
@@ -502,6 +504,10 @@ interface WorkspaceState {
   defaultPipeline?: PipelineSummary;
   /** Suggested next sequential id for the inline Start-Epic modal. */
   nextEpicId: string;
+  /** True when `.aidlc/user.yaml` names no prefix for this checkout. */
+  epicIdPrefixNeedsSetup: boolean;
+  /** Two letters derived from `git config user.name` to offer, or null. */
+  epicIdPrefixSuggestion: string | null;
   /** All existing epic ids (folders under epicRoot) — for uniqueness check. */
   existingEpicIds: string[];
   requirementRuns?: RequirementRunSummary[];
@@ -572,6 +578,9 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       runIds: [],
       skillTemplates: SKILL_TEMPLATE_REFS,
       nextEpicId: 'EPIC-001',
+      // No workspace yet: nothing to warn about until there is one.
+      epicIdPrefixNeedsSetup: false,
+      epicIdPrefixSuggestion: null,
       existingEpicIds: [],
       requirementRuns: [],
       initialView: 'epics',
@@ -654,7 +663,9 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       epicsCount: epics.length,
       runIds: listRunIds(root),
       skillTemplates: SKILL_TEMPLATE_REFS,
-      nextEpicId: suggestNextEpicId(epicIds0, null),
+      nextEpicId: suggestNextEpicId(root, epicIds0, null),
+      epicIdPrefixNeedsSetup: epicIdPrefixState(root, null).needsSetup,
+      epicIdPrefixSuggestion: epicIdPrefixState(root, null).suggestion,
       existingEpicIds: epicIds0,
       requirementRuns: scanRequirementRuns(root),
       initialView,
@@ -726,7 +737,9 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     defaultPipeline: BUILTIN_WORKFLOWS[0]
       ? getBuiltinPipelineSummary(BUILTIN_WORKFLOWS[0])
       : undefined,
-    nextEpicId: suggestNextEpicId(epicIds, doc),
+    nextEpicId: suggestNextEpicId(root, epicIds, doc),
+      epicIdPrefixNeedsSetup: epicIdPrefixState(root, doc).needsSetup,
+      epicIdPrefixSuggestion: epicIdPrefixState(root, doc).suggestion,
     existingEpicIds: epicIds,
     requirementRuns: scanRequirementRuns(root),
     initialView,
@@ -844,12 +857,25 @@ function listEpicIdsFromDir(workspaceRoot: string, epicRoot: string): string[] {
 }
 
 /**
- * The id the Start-Epic modal opens with. Scoped by the workspace's
+ * The id the Start-Epic modal opens with. Scoped by this checkout's
  * `epic_id_prefix` so two people on one repo are never offered the same one;
  * with no prefix declared this is the plain `EPIC-<nnn>` it always was.
  */
-function suggestNextEpicId(existing: string[], doc: unknown): string {
-  return suggestEpicId(existing, resolveEpicIdPrefix(doc as { epic_id_prefix?: unknown }));
+function suggestNextEpicId(root: string, existing: string[], doc: unknown): string {
+  return suggestEpicId(existing, epicIdPrefixState(root, doc).prefix);
+}
+
+/**
+ * The prefix chain for this checkout, shared by the id suggester and the
+ * Start Epic modal's warning so the two can never disagree about whether a
+ * prefix has been chosen here.
+ */
+function epicIdPrefixState(root: string, doc: unknown) {
+  return resolveEpicIdPrefixChain({
+    user: readUserConfig(root),
+    workspace: doc as { epic_id_prefix?: unknown },
+    gitUserName: readGitUserName(root),
+  });
 }
 
 /**

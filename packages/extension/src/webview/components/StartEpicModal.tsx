@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, Wand2, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch, Gauge } from 'lucide-react';
+import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, Wand2, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch, Gauge, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AgentMeta, ExtraProject, PipelineSummary, RecipeSummary } from '@/lib/types';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
@@ -54,6 +54,12 @@ interface Props {
   recipes: RecipeSummary[];
   agentMeta: Record<string, AgentMeta>;
   nextEpicId: string;
+  /** True when this checkout has no `epic_id_prefix` of its own. Warned
+   *  about here as well as in the sidebar because this is where the id is
+   *  actually chosen, and the sidebar section may be collapsed. */
+  epicIdPrefixNeedsSetup: boolean;
+  /** Two letters derived from `git config user.name`, or null. */
+  epicIdPrefixSuggestion: string | null;
   existingEpicIds: string[];
   epicsDir: string;
   isFirstEpic: boolean;
@@ -90,6 +96,8 @@ export function StartEpicModal({
   recipes,
   agentMeta,
   nextEpicId,
+  epicIdPrefixNeedsSetup,
+  epicIdPrefixSuggestion,
   existingEpicIds,
   epicsDir,
   isFirstEpic,
@@ -795,6 +803,19 @@ export function StartEpicModal({
             />
             {idError && trimmedId && (
               <div className="mt-1 text-[10.5px] text-destructive">{idError}</div>
+            )}
+            {!idError && epicIdPrefixNeedsSetup && (
+              <div className="mt-1 flex items-start gap-1.5 text-[10.5px] leading-relaxed text-warning">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="text-muted-foreground">
+                  This id has no prefix of yours in it — a colleague may already be
+                  using it. Set{' '}
+                  <code className="font-mono text-foreground">
+                    {epicIdPrefixSuggestion ? `epic id prefix ${epicIdPrefixSuggestion}` : 'an epic id prefix'}
+                  </code>{' '}
+                  in the sidebar to name them apart.
+                </span>
+              </div>
             )}
           </div>
           <div>

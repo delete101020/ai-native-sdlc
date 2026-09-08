@@ -15,7 +15,10 @@ import {
   scaffoldEpic,
   EpicScaffoldError,
   epicsRoot,
+  readGitUserName,
+  readUserConfig,
   resolveEpicIdPrefix,
+  resolveEpicIdPrefixChain,
   suggestEpicId,
   epicStrictMode,
   STRICT_MODE_KEY,
@@ -326,7 +329,7 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
     });
   cmd
     .command('next-id')
-    .description('Print the id to give the next epic — honours epic_id_prefix in workspace.yaml')
+    .description('Print the id to give the next epic — honours epic_id_prefix in .aidlc/user.yaml')
     .action((_opts: unknown, actionCmd: Command) => {
       const root = resolveWorkspaceRoot(actionCmd);
       const doc  = requireYaml(root);
@@ -336,7 +339,12 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
         : [];
       // Bare id on stdout and nothing else, so `aidlc epic start $(aidlc epic
       // next-id)` works. Anything explanatory belongs on stderr or nowhere.
-      console.log(suggestEpicId(existing, resolveEpicIdPrefix(doc as { epic_id_prefix?: unknown })));
+      const { prefix } = resolveEpicIdPrefixChain({
+        user: readUserConfig(root),
+        workspace: doc as { epic_id_prefix?: unknown },
+        gitUserName: readGitUserName(root),
+      });
+      console.log(suggestEpicId(existing, prefix));
     });
   cmd
     .command('strict <epicId> [value]')

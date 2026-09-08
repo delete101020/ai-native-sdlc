@@ -204,6 +204,8 @@ export function EpicsView({
           recipes={state.recipes ?? []}
           agentMeta={state.agentMeta}
           nextEpicId={state.nextEpicId}
+          epicIdPrefixNeedsSetup={state.epicIdPrefixNeedsSetup}
+          epicIdPrefixSuggestion={state.epicIdPrefixSuggestion}
           existingEpicIds={state.existingEpicIds}
           epicsDir={state.epicsDir}
           isFirstEpic={state.epics.length === 0}

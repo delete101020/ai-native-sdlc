@@ -40,7 +40,8 @@ import {
   WORKSPACE_FILENAME,
   type TaskTypeVerdict,
   type RecipeConfig,
-  resolveEpicIdPrefix,
+  resolveEpicIdPrefixChain,
+  readUserConfig,
   suggestEpicId,
 } from '@aidlc/core';
 import type { PipelineConfig } from '@aidlc/core';
@@ -460,7 +461,8 @@ function readEpicRoot(doc: YamlDocument): string {
 /**
  * Suggest the next epic id by scanning existing folders under the epic root.
  *
- * The shape depends on the workspace's `epic_id_prefix`: with one declared the
+ * The shape depends on this checkout's `epic_id_prefix` — read from
+ * `.aidlc/user.yaml` first, then the shared `workspace.yaml`: with one declared the
  * suggestion is `EPIC-<yymmdd>-<XX>-<nnn>` and the counter is scoped to that
  * prefix on today, and without one it is the plain `EPIC-<nnn>` this wizard has
  * always offered. Either way the user can still type whatever they like — the
@@ -480,7 +482,10 @@ async function pickEpicId(
 
   const suggested = suggestEpicId(
     existing,
-    resolveEpicIdPrefix(doc as { epic_id_prefix?: unknown }),
+    resolveEpicIdPrefixChain({
+      user: readUserConfig(workspaceRoot),
+      workspace: doc as { epic_id_prefix?: unknown },
+    }).prefix,
   );
   const id = await vscode.window.showInputBox({
     prompt: 'Epic id',

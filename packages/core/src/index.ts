@@ -196,10 +196,23 @@ export {
 export {
   EPIC_ID_PREFIX_KEY,
   EPIC_ID_PREFIX_PATTERN,
+  deriveEpicIdPrefix,
   epicIdDateStamp,
   resolveEpicIdPrefix,
+  resolveEpicIdPrefixChain,
   suggestEpicId,
 } from './loader/epicId';
+export type { EpicIdPrefixResolution, EpicIdPrefixSource } from './loader/epicId';
+// The per-checkout settings file the prefix actually lives in.
+export {
+  USER_CONFIG_IGNORE_LINE,
+  USER_CONFIG_RELPATH,
+  ensureUserConfigIgnored,
+  readGitUserName,
+  readUserConfig,
+  userConfigPath,
+  writeUserEpicIdPrefix,
+} from './loader/userConfig';
 // Per-epic depth of work, and the prompt section that states it.
 export {
   STRICT_MODE_HEADING,

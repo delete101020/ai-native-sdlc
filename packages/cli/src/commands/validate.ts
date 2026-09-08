@@ -6,8 +6,12 @@ import {
   WorkspaceParseError,
   WorkspaceValidationError,
   collectWorkspaceRefIssues,
+  readUserConfig,
+  resolveEpicIdPrefix,
+  USER_CONFIG_RELPATH,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
+import { readYaml } from '../yamlIO';
 
 export function registerValidate(program: Command): void {
   program
@@ -43,6 +47,25 @@ export function registerValidate(program: Command): void {
         console.log(`  agents:    ${c.agents.length}`);
         console.log(`  skills:    ${c.skills.length}`);
         console.log(`  pipelines: ${c.pipelines.length}`);
+
+        // A prefix in the committed file is not a schema error — it works,
+        // and it is where the feature originally told people to put it. It
+        // is a *sharing* error: everyone who pulls the repo inherits it and
+        // files their epics under one person's initials. Say so once, here,
+        // rather than letting it stay silently wrong.
+        const shared = resolveEpicIdPrefix(readYaml(root) as { epic_id_prefix?: unknown } | null);
+        if (shared && !resolveEpicIdPrefix(readUserConfig(root))) {
+          console.error(chalk.yellow(
+            `
+epic_id_prefix: ${shared} is in the shared workspace.yaml.`,
+          ));
+          console.error(chalk.dim(
+            `  Everyone who pulls this repo files their epics under "${shared}".`,
+          ));
+          console.error(chalk.dim(
+            `  Move it to ${USER_CONFIG_RELPATH} (gitignored) — the sidebar has a button.`,
+          ));
+        }
 
         if (refIssues.length > 0) {
           const label = opts.strict ? chalk.red : chalk.yellow;

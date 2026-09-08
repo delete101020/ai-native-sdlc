@@ -24,6 +24,7 @@ import {
   Check,
   Clipboard,
   ScanEye,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -34,6 +35,7 @@ import type {
   ActiveRun,
   AgentActivity,
   AgentActivityMap,
+  EpicIdPrefixSource,
 } from '@/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { SavePresetModal } from './SavePresetModal';
@@ -128,7 +130,14 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
 
             {state.configExists && <ArtifactLanguageRow value={state.artifactLanguage} />}
 
-            {state.configExists && <EpicIdPrefixRow value={state.epicIdPrefix} />}
+            {state.configExists && (
+              <EpicIdPrefixRow
+                value={state.epicIdPrefix}
+                source={state.epicIdPrefixSource}
+                suggestion={state.epicIdPrefixSuggestion}
+                needsSetup={state.epicIdPrefixNeedsSetup}
+              />
+            )}
 
             {!state.configExists && (
               <div className="rounded-md border border-dashed border-border bg-surface/50 p-3 text-[11px] text-muted-foreground leading-relaxed">
@@ -268,33 +277,106 @@ function ArtifactLanguageRow({ value }: { value: string | null }) {
  * the counter restarts each day within this prefix. Nothing renames an epic
  * that already exists.
  */
-function EpicIdPrefixRow({ value }: { value: string | null }) {
-  const [draft, setDraft] = useState(value ?? '');
-  useEffect(() => { setDraft(value ?? ''); }, [value]);
+/**
+ * The two letters that scope this checkout's epic ids.
+ *
+ * The row has two faces. Once `.aidlc/user.yaml` names a prefix it is the
+ * quiet input it always was. Until then it is a warning, because the unset
+ * state used to be an empty box with a "none" placeholder — indistinguishable
+ * from a box someone had already looked at and left alone, which is how a
+ * whole team ends up sharing one person's initials.
+ *
+ * Two things are deliberately *not* done here. A derived prefix is offered,
+ * never applied: guessing someone's initials and stamping them on every epic
+ * they open is the same mistake as inheriting a colleague's. And there is no
+ * pop-up on activation — leaving the prefix unset is a legitimate choice for a
+ * one-person repo, and nagging the people who made it correctly is worse than
+ * a warning they can see when they look.
+ */
+function EpicIdPrefixRow({ value, source, suggestion, needsSetup }: {
+  value: string | null;
+  source: EpicIdPrefixSource;
+  suggestion: string | null;
+  needsSetup: boolean;
+}) {
+  // Unset rows open on the suggestion so accepting it is one click; set rows
+  // open on the real value so the field never lies about what is in effect.
+  const initial = needsSetup ? (suggestion ?? '') : (value ?? '');
+  const [draft, setDraft] = useState(initial);
+  useEffect(() => { setDraft(initial); }, [initial]);
+
   const invalid = draft !== '' && !/^[A-Za-z]{2}$/.test(draft);
+  const save = (next: string) => {
+    if (next !== '' && !/^[A-Za-z]{2}$/.test(next)) { return; }
+    postMessage({ type: 'setEpicIdPrefix', prefix: next.toUpperCase() });
+  };
   const commit = () => {
     if (invalid) { return; }
     const next = draft.toUpperCase();
-    if (next !== (value ?? '')) { postMessage({ type: 'setEpicIdPrefix', prefix: next }); }
+    // While unset, committing the untouched suggestion is the whole point, so
+    // this cannot short-circuit on "same as current" the way the settled row does.
+    if (needsSetup || next !== (value ?? '')) { save(next); }
   };
+
+  const field = (
+    <input
+      value={draft}
+      maxLength={2}
+      placeholder="none"
+      spellCheck={false}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
+      className={`w-14 rounded border bg-surface px-1.5 py-0.5 text-center text-[11px] uppercase text-foreground ${invalid ? 'border-destructive' : 'border-border'}`}
+    />
+  );
+
+  if (!needsSetup) {
+    return (
+      <label
+        className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground"
+        title="epic_id_prefix in .aidlc/user.yaml — two letters of your own, so a new epic is suggested as EPIC-260908-NG-001 instead of a number a colleague may already be using. This file is gitignored: your prefix stays yours. Clear it for plain EPIC-001."
+      >
+        <Fingerprint className="h-3.5 w-3.5 shrink-0" />
+        <span className="shrink-0">Epic id prefix</span>
+        <span className="ml-auto">{field}</span>
+      </label>
+    );
+  }
+
   return (
-    <label
-      className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground"
-      title="epic_id_prefix in workspace.yaml — two letters of your own, so a new epic is suggested as EPIC-260908-NG-001 instead of a number a colleague may already be using. Leave it empty for plain EPIC-001."
-    >
-      <Fingerprint className="h-3.5 w-3.5 shrink-0" />
-      <span className="shrink-0">Epic id prefix</span>
-      <input
-        value={draft}
-        maxLength={2}
-        placeholder="none"
-        spellCheck={false}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
-        className={`ml-auto w-14 rounded border bg-surface px-1.5 py-0.5 text-center text-[11px] uppercase text-foreground ${invalid ? 'border-destructive' : 'border-border'}`}
-      />
-    </label>
+    <div className="w-full rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-foreground">
+      <div className="flex items-center gap-2 font-medium">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
+        <span>No epic id prefix of your own</span>
+      </div>
+      <p className="mt-1 text-muted-foreground">
+        {source === 'workspace' ? (
+          <>
+            <code className="font-mono text-foreground">{value}</code> comes from the shared{' '}
+            <code className="font-mono">workspace.yaml</code>, so everyone who pulls it files
+            their epics under it. Claim two letters of your own.
+          </>
+        ) : (
+          <>New epics are named <code className="font-mono text-foreground">EPIC-001</code> — a
+          number a colleague may already be using. Two letters of your own keep them apart.</>
+        )}
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        {field}
+        <button
+          type="button"
+          onClick={commit}
+          disabled={invalid || draft === ''}
+          className="rounded-md border border-warning/50 bg-warning/20 px-2 py-1 text-[10.5px] font-semibold text-foreground transition-colors hover:bg-warning/30 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Use {draft.toUpperCase() || '—'}
+        </button>
+        {suggestion && (
+          <span className="text-[10px] text-muted-foreground">from your git user.name</span>
+        )}
+      </div>
+    </div>
   );
 }
 

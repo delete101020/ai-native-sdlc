@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   EPIC_ID_PREFIX_PATTERN,
   epicIdDateStamp,
+  deriveEpicIdPrefix,
   resolveEpicIdPrefix,
+  resolveEpicIdPrefixChain,
   suggestEpicId,
 } from '../src/loader/epicId';
 
@@ -92,5 +94,83 @@ describe('suggestEpicId', () => {
 
   it('ignores case in existing folder names', () => {
     expect(suggestEpicId(['epic-260908-ng-004'], 'NG', day)).toBe('EPIC-260908-NG-005');
+  });
+});
+
+describe('deriveEpicIdPrefix', () => {
+  it('takes the initials of a two-word name', () => {
+    expect(deriveEpicIdPrefix('Kim Dung')).toBe('KD');
+    expect(deriveEpicIdPrefix('kim dung nguyen')).toBe('KD');
+  });
+
+  it('takes the first two letters of a single-word name', () => {
+    expect(deriveEpicIdPrefix('Kingfisher')).toBe('KI');
+  });
+
+  it('folds diacritics rather than giving up on a Vietnamese name', () => {
+    expect(deriveEpicIdPrefix('Ngọc Đức')).toBe('ND');
+    expect(deriveEpicIdPrefix('Đức')).toBe('DU');
+  });
+
+  it('returns null when no two letters can be had', () => {
+    expect(deriveEpicIdPrefix(null)).toBeNull();
+    expect(deriveEpicIdPrefix('')).toBeNull();
+    expect(deriveEpicIdPrefix('  ')).toBeNull();
+    expect(deriveEpicIdPrefix('X')).toBeNull();
+    expect(deriveEpicIdPrefix('12345')).toBeNull();
+  });
+});
+
+describe('resolveEpicIdPrefixChain', () => {
+  it('prefers the checkout\'s own file over the shared one', () => {
+    const r = resolveEpicIdPrefixChain({
+      user: { epic_id_prefix: 'KD' },
+      workspace: { epic_id_prefix: 'KF' },
+      gitUserName: 'Kim Dung',
+    });
+    expect(r.prefix).toBe('KD');
+    expect(r.source).toBe('user');
+    expect(r.needsSetup).toBe(false);
+  });
+
+  it('keeps generating ids from the shared key, but still asks to be set', () => {
+    // The regression this guards: workspaces already have epic_id_prefix in
+    // workspace.yaml. Dropping its effect would silently renumber their next
+    // epic, so it keeps working — it just no longer counts as *chosen here*.
+    const r = resolveEpicIdPrefixChain({
+      workspace: { epic_id_prefix: 'KF' },
+      gitUserName: 'Kim Dung',
+    });
+    expect(r.prefix).toBe('KF');
+    expect(r.source).toBe('workspace');
+    expect(r.needsSetup).toBe(true);
+  });
+
+  it('suggests the person here, not whoever committed the shared file', () => {
+    const r = resolveEpicIdPrefixChain({
+      workspace: { epic_id_prefix: 'KF' },
+      gitUserName: 'Kim Dung',
+    });
+    expect(r.suggestion).toBe('KD');
+  });
+
+  it('falls back to the shared value when git has no identity', () => {
+    const r = resolveEpicIdPrefixChain({ workspace: { epic_id_prefix: 'KF' } });
+    expect(r.suggestion).toBe('KF');
+  });
+
+  it('never lets a derived prefix into an id on its own', () => {
+    // A guess must not become an epic id without a human accepting it.
+    const r = resolveEpicIdPrefixChain({ gitUserName: 'Kingfisher' });
+    expect(r.prefix).toBeNull();
+    expect(r.source).toBeNull();
+    expect(r.suggestion).toBe('KI');
+    expect(r.needsSetup).toBe(true);
+    expect(suggestEpicId([], r.prefix)).toBe('EPIC-001');
+  });
+
+  it('reads an empty workspace as the old unprefixed scheme', () => {
+    const r = resolveEpicIdPrefixChain({});
+    expect(r).toEqual({ prefix: null, source: null, suggestion: null, needsSetup: true });
   });
 });

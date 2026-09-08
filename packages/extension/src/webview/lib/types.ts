@@ -375,6 +375,9 @@ export interface OtelSnapshot {
   envConfigured: boolean;
 }
 
+/** Which file a resolved `epic_id_prefix` came from; null when there is none. */
+export type EpicIdPrefixSource = 'user' | 'workspace' | null;
+
 export interface SidebarState {
   hasFolder: boolean;
   workspaceName: string;
@@ -407,10 +410,19 @@ export interface SidebarState {
    * sidebar's language picker — the setting governs the prose in every
    * artifact, and without a control the only way to reach it was the YAML. */
   artifactLanguage: string | null;
-  /** `epic_id_prefix` from workspace.yaml, or null when unset. Two letters
-   * that scope this checkout’s suggested epic ids, so two people on one
-   * repo are never offered the same id. */
+  /** The two letters that scope this checkout’s suggested epic ids, so two
+   * people on one repo are never offered the same id. Null when neither
+   * `.aidlc/user.yaml` nor `workspace.yaml` declares one. */
   epicIdPrefix: string | null;
+  /** Which file {@link epicIdPrefix} came from. `workspace` means it was
+   * inherited from the shared, committed file and is not this person’s own
+   * — the sidebar offers to move it. */
+  epicIdPrefixSource: EpicIdPrefixSource;
+  /** Two letters derived from `git config user.name`, pre-filled into the
+   * warning below. A guess: it never reaches an id until accepted. */
+  epicIdPrefixSuggestion: string | null;
+  /** True when this checkout has not chosen a prefix of its own. */
+  epicIdPrefixNeedsSetup: boolean;
   /** Value of the `aidlc.autopilot.enabled` setting. Drives whether the
    * AIDLC Autopilot row in the Common workflows shows "Coming soon"
    * (disabled) or an active "On" state. */
@@ -680,6 +692,12 @@ export interface WorkspaceState {
   defaultPipeline?: PipelineSummary;
   /** Suggested next sequential id for the inline Start-Epic modal (e.g. EPIC-007). */
   nextEpicId: string;
+  /** True when this checkout has not chosen an `epic_id_prefix` of its own,
+   * so the Start Epic modal warns where the id is actually chosen. */
+  epicIdPrefixNeedsSetup: boolean;
+  /** Two letters derived from `git config user.name` to offer in that
+   * warning, or null when git has no identity here. */
+  epicIdPrefixSuggestion: string | null;
   /** All existing epic ids (folders under epicRoot) — for uniqueness check. */
   existingEpicIds: string[];
   requirementRuns?: RequirementRunSummary[];
