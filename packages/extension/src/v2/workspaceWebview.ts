@@ -478,6 +478,13 @@ interface EpicSummaryUi {
   inputs: Record<string, string>;
   epicDir: string;
   existingArtifacts: string[];
+  /**
+   * `strict_mode` from the epic's state.json. Carried explicitly because the
+   * webview badge reads it: leave it out of this DTO and every epic arrives
+   * with `strictMode: undefined`, which renders as `Depth: proportional`
+   * regardless of what is on disk.
+   */
+  strictMode: boolean;
   /** True when `signal.json` sits in the epic folder — an incident epic. */
   hasSignal: boolean;
   createdAt: string;
@@ -1008,6 +1015,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     // epic — the pipeline id is generated per epic and the recipe is not stored.
     hasSignal: fs.existsSync(path.join(epicDir, SIGNAL_FILE)),
     createdAt: e.createdAt,
+    strictMode: e.strictMode,
     artifactsOnly: e.artifactsOnly,
     tokenUsage: e.tokenUsage
       ? { total: e.tokenUsage.total, hasOverlap: e.tokenUsage.hasOverlap }
