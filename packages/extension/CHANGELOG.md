@@ -1,5 +1,70 @@
 # Changelog
 
+## 3.10.0
+
+`runExecLoop` was extracted into `@aidlc/core` so both front ends could drive a
+run, and then only the CLI ever called it: from the editor a pipeline advanced
+one button at a time. It now has a front door. Alongside it, two ways the panel
+could mislead you are closed — a stepper that moved while the body stayed put,
+and a start button that reset a finished epic.
+
+### Added
+
+- **`Run to completion` — the unattended loop, from the panel.**
+  One button on an epic card executes every remaining step back to back:
+  spawning each agent, checking its `produces` artifacts, running `auto_review`
+  headlessly, advancing. The same engine the CLI's `aidlc run exec` drives, so
+  the two front ends stop and resume at exactly the same places. A modal asks
+  the only two questions that change where it stops — whether `human_review`
+  gates pause it (naming the agents it would approve unread) and whether to run
+  the pipeline out or halt after a step you pick. The gates it cannot be told to
+  ignore are listed rather than offered: auto-review rejecting an artifact, a
+  runner exiting non-zero, the pipeline's budget ceiling.
+
+  The loop spawns in the extension host, so unlike `Run with Claude` there is no
+  terminal to read: output goes to `Output → AIDLC Autopilot`, progress to a
+  cancellable notification, and every transition refreshes the panel so the
+  stepper moves as the run does. It registers in the same activity registry as a
+  dispatched agent, so `Mark step done`, `Approve`, `Reject` and `Delete` are
+  already disabled while it runs, with no second busy channel to keep honest.
+
+- **Cancelling an exec loop (`shouldCancel`).**
+  The progress notification's Cancel takes effect at the next step boundary, not
+  during a step, and says so. The runner owns a spawned process it can only
+  kill, and a half-written artifact left behind by a killed agent would satisfy
+  the `produces` check on the next attempt — the gate cannot tell a finished
+  file from an abandoned one. So the step in flight runs to its own end and the
+  loop stops before spawning another, leaving the run somewhere a person can
+  pick it up by hand. The CLI reports the new `cancelled` outcome as exit 2,
+  alongside the other stops that are not failures.
+
+### Fixed
+
+- **`Start pipeline run` no longer resets a finished epic.**
+  `.aidlc/runs/` is gitignored while `docs/epics/<id>/state.json` is tracked, so
+  an epic that finished long ago and had its run file cleaned up read as
+  `!epic.runId` — "never started" — and was offered the start button again.
+  Starting mirrors a fresh all-pending run state over the epic's `state.json`:
+  approvals, revisions, feedback and history gone, for a click that reads like
+  it only creates something. The artifacts on disk survive; the record of them
+  having been reviewed does not. A `done` epic is now offered no start button at
+  all, and an epic with completed steps behind a missing run file gets a modal
+  that counts them and says what will be discarded, pointing at a follow-up epic
+  as the way forward.
+
+- **The body follows the stepper when a step is approved.**
+  Approving at `build-plan` moved the stepper to `implement` and left the panel
+  below it showing the step that had just been approved.
+
+### Changed
+
+- **`AIDLC Autopilot` is gone from Workflows → Common.**
+  It advertised a setting from a row that could not show whether it was doing
+  anything. The `aidlc.autopilot.enabled` setting, the scaffold hook and the
+  core plan generation are untouched — only the advertisement is removed.
+
+- `Epic id prefix` reads `Epic ID prefix`.
+
 ## 3.9.0
 
 An epic stops being a row in the team's shared file. Its pipeline moves into its
