@@ -545,7 +545,7 @@ function StepRow({
       )}
       {/* Model / capability summary so the user sees what the
           selected agent actually does without having to leave the modal. */}
-      {agentRecord && (agentRecord.model || (agentRecord.integrations && agentRecord.integrations.length > 0) || agentRecord.description) && (
+      {agentRecord && (agentRecord.model || (agentRecord.runner && agentRecord.runner !== 'default') || (agentRecord.integrations && agentRecord.integrations.length > 0) || agentRecord.description) && (
         <div className="ml-7 mt-1.5 space-y-1">
           {agentRecord.description && (
             <div className="text-[10.5px] text-muted-foreground">{agentRecord.description}</div>
@@ -554,6 +554,12 @@ function StepRow({
             {agentRecord.model && (
               <span className="inline-flex items-center rounded bg-secondary px-1.5 py-0.5 font-mono text-[9.5px] text-secondary-foreground">
                 {agentRecord.model}
+              </span>
+            )}
+            {/* Only a non-default harness is badged — see AgentCard. */}
+            {agentRecord.runner && agentRecord.runner !== 'default' && (
+              <span className="inline-flex items-center rounded bg-warning/15 px-1.5 py-0.5 font-mono text-[9.5px] text-warning">
+                {agentRecord.runner}
               </span>
             )}
             {agentRecord.integrations?.map((c) => (

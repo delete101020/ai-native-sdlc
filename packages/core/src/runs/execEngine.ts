@@ -22,9 +22,18 @@ import {
   PipelineRunError,
 } from './PipelineRunner';
 import { runAutoReview } from './AutoReviewer';
-import { checkBudget } from './budget';
+import { commitApprovedArtifacts, resolveArtifactCommitConfig } from './EpicArtifactCommit';
+import { epicsRoot, mirrorRunStateToEpic } from './EpicScaffold';
+import { checkBudget, type CostAccounting } from './budget';
+import { estimateCostUsd, ratesFromConfig, providerAliases } from './pricing';
+import { resolveProviderModel } from '../presets/models';
 import type { RunState } from './RunState';
 import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
+import { resolveArtifactLanguage } from '../loader/artifactLanguage';
+import { resolveEpicStrictMode } from '../loader/strictMode';
+import { composeAgentPrompt, type ComposedPrompt } from '../loader/promptComposer';
+import { findProjectInstructions } from '../loader/projectInstructions';
+import { harnessCapabilities, type AidlcRunner } from '../runner/types';
 
 /**
  * Why the loop stopped. Callers map this to an exit code (CLI) or a final
@@ -38,6 +47,7 @@ export type ExecOutcome =
   | { kind: 'awaiting_review' }
   | { kind: 'rejected' }
   | { kind: 'budget_pause' }
+  | { kind: 'cancelled' }
   | { kind: 'error' };
 
 /** Options controlling one exec loop. Mirrors the CLI's `run exec` flags. */
@@ -50,6 +60,16 @@ export interface ExecOptions {
   message?: string;
   /** Preview the current step's prompt without spawning claude, then stop. */
   dryRun?: boolean;
+  /**
+   * Polled between steps; true stops the loop cleanly with `cancelled`.
+   *
+   * Between steps and not during one, deliberately. The runner owns a spawned
+   * process it can only kill, and a half-written artifact left behind by a
+   * killed agent would satisfy the `produces` check on the next attempt — the
+   * gate cannot tell a finished file from an abandoned one. So a cancel takes
+   * effect at the next step boundary, and the caller says so.
+   */
+  shouldCancel?: () => boolean;
 }
 
 /**
@@ -74,6 +94,9 @@ export interface ExecHooks {
   /** A step finished `markStepDone` and transitioned. */
   onStepResult?(e: {
     stepIdx: number; agent: string; status: string; costUsd?: number;
+    /** True when costUsd came from tokens × a declared rate, not from the CLI. */
+    costEstimated?: boolean;
+    runner?: string; model?: string;
   }): void;
   /** The runner exited non-zero, or `markStepDone` rejected the artifacts. */
   onStepFailed?(e: {
@@ -95,13 +118,19 @@ export interface ExecHooks {
   onBudget?(e: {
     spent: number; limit: number; ok: boolean;
     exceeded?: 'step' | 'total'; onExceed?: string; runId: string;
+    /** How much of `spent` is measured vs. estimated, and how many steps are blind. */
+    measured?: number; estimated?: number; blindSteps?: number;
   }): void;
+  /** The caller's `shouldCancel` returned true at a step boundary. */
+  onCancelled?(): void;
   /** Stopped at the --until boundary. */
   onUntilStop?(e: { untilIdx: number }): void;
   /** Dry-run: assembled prompt preview (no claude spawned). */
   onDryRunPreview?(e: {
     skills: string; skillText: string; userMessage: string;
     env: Record<string, string>;
+    /** Which layers the composer inlined for this runner's harness. */
+    inlined: { persona: boolean; instructions: boolean };
   }): void;
 }
 
@@ -144,6 +173,13 @@ export async function runExecLoop(
   const budget = initialPipeline.budget;
 
   while (true) {
+    // Checked before anything is spawned, so a cancel that arrived while the
+    // previous step was running stops here rather than starting one more.
+    if (opts.shouldCancel?.()) {
+      hooks.onCancelled?.();
+      return { kind: 'cancelled' };
+    }
+
     // Reload fresh state each iteration so concurrent edits (extension, other
     // CLI) are picked up.
     const state = RunStateStore.load(root, runId);
@@ -201,18 +237,30 @@ export async function runExecLoop(
     if (budget) {
       const after = RunStateStore.load(root, runId);
       const stepCosts = after ? after.steps.map((s) => s.costUsd) : [];
+      // Only steps that actually ran can be blind; a step still queued has no
+      // cost because it has no execution, which is not the same thing.
+      const stepAccounting: Array<CostAccounting | undefined> = after
+        ? after.steps.map((s) => {
+            if (typeof s.costUsd === 'number') { return s.costEstimated ? 'estimated' : 'measured'; }
+            return s.startedAt ? 'blind' : undefined;
+          })
+        : [];
       const lastStepCost = after?.steps[state.currentStepIdx]?.costUsd;
-      const verdict = checkBudget({ stepCosts, budget, lastStepCost });
+      const verdict = checkBudget({ stepCosts, stepAccounting, budget, lastStepCost });
       if (!verdict.ok) {
         hooks.onBudget?.({
           spent: verdict.spent, limit: verdict.limit, ok: false,
           exceeded: verdict.exceeded, onExceed: budget.on_exceed, runId,
+          measured: verdict.measured, estimated: verdict.estimated, blindSteps: verdict.blindSteps,
         });
         return budget.on_exceed === 'fail'
           ? { kind: 'error' }
           : { kind: 'budget_pause' };
       }
-      hooks.onBudget?.({ spent: verdict.spent, limit: budget.max_usd, ok: true, runId });
+      hooks.onBudget?.({
+        spent: verdict.spent, limit: budget.max_usd, ok: true, runId,
+        measured: verdict.measured, estimated: verdict.estimated, blindSteps: verdict.blindSteps,
+      });
     }
 
     // --until boundary. `state.currentStepIdx` is the step that just ran.
@@ -226,6 +274,40 @@ export async function runExecLoop(
 /** Skill text for an agent — concatenated when it declares multiple skills. */
 function loadAgentSkills(ws: ReturnType<typeof WorkspaceLoader.load>, agent: AgentConfig): string {
   return agent.skills.map((id) => ws.skills.load(id)).join('\n\n---\n\n');
+}
+
+/**
+ * Full system prompt for a step: persona + project instructions + skills, minus
+ * whatever the runner's own harness already supplies.
+ *
+ * The skills alone used to be the whole prompt, with the persona and the
+ * project's conventions reaching the model only as *file paths written in prose*
+ * — which assumes a harness that has a read tool and Claude's directory layout.
+ * Composing them here makes the prompt self-contained, and makes "which agent
+ * runs this phase" a wiring question instead of a quality question.
+ * See MULTI_PROVIDER_ALIGNMENT.md §4c.
+ */
+function buildStepPrompt(
+  ws: ReturnType<typeof WorkspaceLoader.load>,
+  agent: AgentConfig,
+  runner: AidlcRunner,
+  root: string,
+  /** Epic whose depth setting applies. Runs are keyed by epic id. */
+  epicId: string,
+): ComposedPrompt {
+  const harness = harnessCapabilities(runner);
+  return composeAgentPrompt({
+    skills: loadAgentSkills(ws, agent),
+    persona: ws.personas.load(agent.id),
+    instructions: harness.projectInstructions
+      ? null
+      : findProjectInstructions(root, harness.instructionFile),
+    harness,
+    artifactLanguage: resolveArtifactLanguage(ws.config),
+    // Per epic, not per workspace: how deep a phase goes is a property of the
+    // work item. An epic that never set it reads as strict.
+    strictMode: resolveEpicStrictMode(epicsRoot(root, ws.config), epicId),
+  });
 }
 
 /** Execute one `awaiting_work` step: spawn the runner, then mark it done. */
@@ -260,13 +342,23 @@ async function execStep(
     return false;
   }
 
-  let skillText: string;
+  // Resolved before the prompt because the prompt depends on what this
+  // runner's harness already supplies.
+  let runner: AidlcRunner;
+  let prompt: ComposedPrompt;
   try {
-    skillText = loadAgentSkills(ws, agent);
+    runner = ws.runners.resolve(agent);
+  } catch (err) {
+    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to resolve runner for agent "${agentId}": ${errMsg(err)}` });
+    return false;
+  }
+  try {
+    prompt = buildStepPrompt(ws, agent, runner, root, state.runId);
   } catch (err) {
     hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to load skills for agent "${agentId}": ${errMsg(err)}` });
     return false;
   }
+  const skillText = prompt.text;
 
   const env = ws.envResolver.resolveLayered(ws.config.environment ?? {}, agent.env ?? {});
 
@@ -281,6 +373,7 @@ async function execStep(
       skillText,
       userMessage,
       env,
+      inlined: prompt.included,
     });
     return true;
   }
@@ -290,12 +383,20 @@ async function execStep(
     skills: agent.skills, model: agent.model, context: userMessage,
   });
 
-  const runner = ws.runners.resolve(agent);
+  // Model + rates are per-provider facts the user declares (P3); resolving the
+  // model here rather than inside the runner means the concrete id can be
+  // recorded on the step, so a finished run says which model wrote each
+  // artifact instead of only which tier was asked for.
+  const aliases = providerAliases(ws.config.providers, agent.runner);
+  const resolvedModel = resolveProviderModel(agent.runner, agent.model, aliases);
+
   const result = await runner.run({
     skill: skillText,
     env,
     args: userMessage ? [userMessage] : [],
     workspaceRoot: root,
+    model: agent.model,
+    modelAliases: aliases,
     onOutput: (chunk) => hooks.onOutput?.(chunk),
     onError: (chunk) => hooks.onErrorOutput?.(chunk),
     claude: null,
@@ -308,12 +409,34 @@ async function execStep(
 
   // markStepDone validates produces paths, then transitions.
   let next: RunState;
+  // Hoisted out of the try so it is still in scope as the "before" snapshot for
+  // persist(): the mutations below touch cost fields only, never step status.
+  let freshState: RunState;
   try {
-    const freshState = RunStateStore.load(root, runId)!;
+    freshState = RunStateStore.load(root, runId)!;
     // Record cost before the transition so the budget guard can sum it and it
     // survives the reload-each-iteration loop.
+    // Provenance of the step, recorded whether or not a cost came back.
+    const rec = freshState.steps[stepIdx];
+    rec.runner = agent.runner;
+    rec.model = resolvedModel;
+    rec.usage = result.usage;
     if (typeof result.costUsd === 'number') {
-      freshState.steps[stepIdx].costUsd = result.costUsd;
+      // A cost the CLI reported always wins: it knows about cache hits and the
+      // account's actual plan, and we do not.
+      rec.costUsd = result.costUsd;
+      rec.costEstimated = undefined;
+    } else {
+      const est = estimateCostUsd({
+        table: ratesFromConfig(ws.config.providers),
+        provider: agent.runner,
+        model: resolvedModel ?? agent.model,
+        usage: result.usage,
+      });
+      if (est) {
+        rec.costUsd = est.usd;
+        rec.costEstimated = true;
+      }
     }
     next = markStepDone({ state: freshState, pipeline, workspaceRoot: root });
   } catch (err) {
@@ -325,11 +448,12 @@ async function execStep(
     return false;
   }
 
-  RunStateStore.save(root, next);
+  persist(root, next, freshState);
 
   const doneStep = next.steps[stepIdx];
   hooks.onStepResult?.({
-    stepIdx, agent: agentId, status: doneStep.status, costUsd: result.costUsd,
+    stepIdx, agent: agentId, status: doneStep.status, costUsd: doneStep.costUsd,
+    costEstimated: doneStep.costEstimated, runner: agent.runner, model: resolvedModel,
   });
   return true;
 }
@@ -367,7 +491,7 @@ async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks):
     return false;
   }
 
-  RunStateStore.save(root, next);
+  persist(root, next, state);
   hooks.onAutoReviewResult?.({
     agent: step.agent, decision: verdict.decision, reason: verdict.reason, runId,
   });
@@ -379,8 +503,36 @@ async function autoApproveStep(root: string, state: RunState, hooks: ExecHooks):
   const ws = WorkspaceLoader.load(root);
   const pipeline = ws.config.pipelines.find((p) => p.id === state.pipelineId)!;
   const next = approveStep({ state, pipeline });
-  RunStateStore.save(root, next);
+  persist(root, next, state);
   hooks.onAutoApproved?.({ agent: state.steps[state.currentStepIdx].agent });
+}
+
+/**
+ * Save a transitioned run, and commit the epic's artifacts when the workspace
+ * asked for that (`artifact_commit: on_approve`).
+ *
+ * The exec loop runs unattended, which is exactly when artifacts are most
+ * likely to be left dirty and unclaimed: nobody is watching the working tree.
+ * Everything here is best-effort — {@link commitApprovedArtifacts} reports
+ * failures rather than throwing, and a git problem must never abort a run whose
+ * state has already been persisted.
+ */
+function persist(root: string, next: RunState, before?: RunState): void {
+  RunStateStore.save(root, next);
+  if (!before) { return; }
+
+  let doc: unknown;
+  try {
+    doc = WorkspaceLoader.load(root).config;
+  } catch {
+    return;
+  }
+  const cfgDoc = doc as { state?: unknown; artifact_commit?: unknown };
+  if (resolveArtifactCommitConfig(cfgDoc).mode !== 'on_approve') { return; }
+
+  // state.json is part of the commit, so it has to carry the approval first.
+  try { mirrorRunStateToEpic(root, next, cfgDoc); } catch { /* snapshot only */ }
+  commitApprovedArtifacts({ workspaceRoot: root, before, after: next, doc: cfgDoc });
 }
 
 function errMsg(err: unknown): string {

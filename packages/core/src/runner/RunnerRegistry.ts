@@ -2,7 +2,13 @@
  * Registry maps an agent's `runner` field to a concrete `AidlcRunner`.
  *
  *   - `runner: default` → bundled DefaultRunner (claude CLI shell-out).
+ *   - `runner: codex`   → bundled CodexRunner (`codex exec` shell-out).
  *   - `runner: custom`  → user's runner_path module, loaded on demand.
+ *
+ * Provider runners are builtins rather than `runner_path` files (P0/D2):
+ * CustomRunnerLoader `require()`s user modules unsandboxed and rejects `.ts`,
+ * so shipping our own providers that way would mean hand-maintained JavaScript
+ * in the repo.
  *
  * The registry caches custom runners by absolute path so repeated invocations
  * of the same custom runner don't re-`require()` the file.
@@ -13,6 +19,7 @@ import * as path from 'path';
 import type { AidlcRunner } from './types';
 import type { AgentConfig } from '../schema/WorkspaceSchema';
 import { DefaultRunner } from './DefaultRunner';
+import { CodexRunner } from './CodexRunner';
 import { CustomRunnerLoader } from './CustomRunnerLoader';
 
 export class RunnerRegistry {
@@ -23,6 +30,7 @@ export class RunnerRegistry {
   constructor(workspaceRoot: string) {
     this.loader = new CustomRunnerLoader(workspaceRoot);
     this.register('default', new DefaultRunner());
+    this.register('codex', new CodexRunner());
   }
 
   /** Add or replace a builtin runner. */
@@ -47,9 +55,16 @@ export class RunnerRegistry {
       return fresh;
     }
 
-    const builtin = this.builtins.get('default');
+    // The enum admits `gemini` before a runner exists for it (P0/D1: an enum
+    // member is a promise, and the promise is made once). Resolving it must
+    // fail with the reason rather than silently falling back to Claude —
+    // silent substitution is exactly what D6 forbids.
+    const builtin = this.builtins.get(agent.runner);
     if (!builtin) {
-      throw new Error('No default runner registered. RunnerRegistry constructor should have registered one.');
+      throw new Error(
+        `Agent \`${agent.id}\` declares runner: ${agent.runner}, which has no implementation yet. `
+        + `Available: ${[...this.builtins.keys()].sort().join(', ')}, custom.`,
+      );
     }
     return builtin;
   }

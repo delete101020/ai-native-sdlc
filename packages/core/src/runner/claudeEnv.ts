@@ -17,8 +17,8 @@
  * workspace.yaml `environment`) always wins — it is layered last.
  */
 import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+
+import { claudeConfigEnv, claudeJsonPath } from '../util/claudeHome';
 
 /** Auth vars Claude Code / a shell may inject; stripped so OAuth login is used. */
 const INHERITED_ANTHROPIC_AUTH = [
@@ -54,12 +54,17 @@ export function isInsideClaudeCodeSession(
 
 /**
  * Cheap, offline check for a `claude login`: Claude Code records an
- * `oauthAccount` object in ~/.claude.json once the user is signed in. Reading a
+ * `oauthAccount` object in `.claude.json` once the user is signed in. Reading a
  * flag from JSON beats spawning claude just to probe auth.
+ *
+ * The file follows the active config dir (`claudeJsonPath`), which matters more
+ * than it looks: probe the wrong account's file and this returns `false`, the
+ * inherited `ANTHROPIC_API_KEY` is left in place, and the caller gets back the
+ * exact "Invalid API key" failure this module exists to prevent.
  */
-export function hasClaudeLogin(home: string = os.homedir()): boolean {
+export function hasClaudeLogin(homeDir?: string): boolean {
   try {
-    const raw = fs.readFileSync(path.join(home, '.claude.json'), 'utf8');
+    const raw = fs.readFileSync(claudeJsonPath({ homeDir }), 'utf8');
     const j = JSON.parse(raw) as { oauthAccount?: unknown };
     return !!j.oauthAccount && typeof j.oauthAccount === 'object';
   } catch {
@@ -71,6 +76,9 @@ export function hasClaudeLogin(home: string = os.homedir()): boolean {
  * Build the environment for spawning a fresh `claude`. `overrides` (e.g. a
  * runner's resolved `ctx.env`) are layered last, so an explicitly-configured
  * key always wins over the inherited-but-stripped one.
+ *
+ * Also carries `CLAUDE_CONFIG_DIR` when the user has pinned a non-default
+ * Claude account, so the spawned CLI reads the same account AIDLC writes to.
  */
 export function buildClaudeSpawnEnv(
   overrides: Record<string, string> = {},
@@ -90,5 +98,5 @@ export function buildClaudeSpawnEnv(
     // to a fresh spawn — drop them while keeping the (login-less) API key.
     for (const k of CLAUDE_CODE_SESSION_MARKERS) { delete env[k]; }
   }
-  return { ...env, ...overrides };
+  return { ...env, ...claudeConfigEnv(), ...overrides };
 }

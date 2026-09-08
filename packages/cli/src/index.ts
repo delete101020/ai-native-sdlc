@@ -8,6 +8,7 @@ import { registerList } from './commands/list';
 import { registerStatus } from './commands/status';
 import { registerInit } from './commands/init';
 import { registerDoctor } from './commands/doctor';
+import { registerMcp } from './commands/mcp';
 import { registerAgent } from './commands/agent';
 import { registerSkill } from './commands/skill';
 import { registerPipeline } from './commands/pipeline';
@@ -25,6 +26,7 @@ import { registerGuide } from './commands/guide';
 import { registerGlobals } from './commands/globals';
 import { setQuiet } from './output';
 import { registerAnalyze } from './commands/analyze';
+import { registerMaintain } from './commands/maintain';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version } = require('../package.json') as { version: string };
 
@@ -54,6 +56,7 @@ registerValidate(program);
 registerList(program);
 registerStatus(program);
 registerDoctor(program);
+registerMcp(program);
 registerAgent(program);
 registerSkill(program);
 registerPipeline(program);
@@ -70,6 +73,7 @@ registerAsk(program);
 registerGuide(program);
 registerGlobals(program);
 registerAnalyze(program);
+registerMaintain(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : String(err));

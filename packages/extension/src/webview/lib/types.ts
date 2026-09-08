@@ -46,8 +46,37 @@ export interface ArtifactPath {
   exists: boolean;
 }
 
+/**
+ * One agent dispatch the host is still waiting on. Mirrors
+ * `src/v2/agentActivity.ts` — keep the two in step.
+ *
+ * Its absence is not evidence of absence: the host only sees agents it
+ * launched itself, so a step the user is working in their own Claude window
+ * has no entry. The UI therefore uses this to *add* a running state, never to
+ * assert that nothing is running.
+ */
+export interface AgentActivity {
+  runId: string;
+  stepIdx: number | null;
+  /** The prompt that was dispatched — shown in the tooltip. */
+  command: string;
+  /** Epoch ms, for the elapsed-time label. */
+  startedAt: number;
+  /**
+   * True when the host will be told the moment the command finishes. False
+   * means it is relying on the terminal closing or the step advancing, so the
+   * UI offers a dismiss instead of implying certainty.
+   */
+  tracked: boolean;
+}
+
+export type AgentActivityMap = Record<string, AgentActivity>;
+
 export interface ActiveRun {
   runId: string;
+  /** Set when this run belongs to an epic (`runId === epic.id`); undefined for
+   * a bare run started from the Builder's Run button. */
+  epicId?: string;
   pipelineId: string;
   currentStepIdx: number;
   totalSteps: number;
@@ -346,6 +375,9 @@ export interface OtelSnapshot {
   envConfigured: boolean;
 }
 
+/** Which file a resolved `epic_id_prefix` came from; null when there is none. */
+export type EpicIdPrefixSource = 'user' | 'workspace' | null;
+
 export interface SidebarState {
   hasFolder: boolean;
   workspaceName: string;
@@ -374,10 +406,29 @@ export interface SidebarState {
   mcpError: string | null;
   /** Extra projects from any in-progress epic (for sidebar display). */
   extraProjects?: ExtraProject[];
-  /** Value of the `aidlc.autopilot.enabled` setting. Drives whether the
-   * AIDLC Autopilot row in the Common workflows shows "Coming soon"
-   * (disabled) or an active "On" state. */
-  autopilotEnabled: boolean;
+  /** `artifact_language` from workspace.yaml, or null when unset. Drives the
+   * sidebar's language picker — the setting governs the prose in every
+   * artifact, and without a control the only way to reach it was the YAML. */
+  artifactLanguage: string | null;
+  /** The two letters that scope this checkout’s suggested epic ids, so two
+   * people on one repo are never offered the same id. Null when neither
+   * `.aidlc/user.yaml` nor `workspace.yaml` declares one. */
+  epicIdPrefix: string | null;
+  /** Which file {@link epicIdPrefix} came from. `workspace` means it was
+   * inherited from the shared, committed file and is not this person’s own
+   * — the sidebar offers to move it. */
+  epicIdPrefixSource: EpicIdPrefixSource;
+  /** Two letters derived from `git config user.name`, pre-filled into the
+   * warning below. A guess: it never reaches an id until accepted. */
+  epicIdPrefixSuggestion: string | null;
+  /** True when this checkout has not chosen a prefix of its own. */
+  epicIdPrefixNeedsSetup: boolean;
+  /**
+   * Runs whose agent this VS Code window launched and has not seen finish,
+   * keyed by run id. Only covers work the extension dispatched — a step run
+   * from the user's own Claude window is invisible to it.
+   */
+  agentActivity: AgentActivityMap;
 }
 
 export type AssetScope = 'project' | 'aidlc' | 'global';
@@ -392,6 +443,12 @@ export interface AgentSummary {
   /** All skills the agent can use. */
   skills?: string[];
   model?: string;
+  /**
+   * Which harness executes this agent (`default` = Claude Code, `codex`, …).
+   * Surfaced next to the model so a mixed pipeline shows, at a glance, which
+   * phases left Claude (MULTI_PROVIDER_ALIGNMENT.md §P3).
+   */
+  runner?: string;
   integrations?: string[];
   /** Human label of the built-in preset that contributed this entry (e.g. "SDLC Pipeline"). Absent for user-created entries. */
   builtinFrom?: string;
@@ -429,8 +486,20 @@ export interface PipelineSummary {
   steps: PipelineStepSummary[];
   on_failure: 'stop' | 'continue';
   builtin?: boolean;
+  /**
+   * Source pipeline id, set when this pipeline was assembled from a recipe.
+   * Present means it belongs to one epic and is not a reusable workflow.
+   */
+  derivedFrom?: string;
   /** Human label for built-in pipelines (e.g. "iOS Native Pipeline"). User-defined pipelines leave this undefined. */
   name?: string;
+  /**
+   * Epic id whose run state indexes into this pipeline's steps by position.
+   * Set means the step count and order are load-bearing elsewhere, so the
+   * shape-editing controls are hidden. See `epicPinningPipeline` on the host
+   * for why. Gates and `depends_on` stay editable — they move no step.
+   */
+  pinnedByEpic?: string;
 }
 
 /** A task-type recipe surfaced in the Start-Epic modal (mirrors host RecipeSummary). */
@@ -570,6 +639,12 @@ export interface EpicSummary {
   epicDir: string;
   existingArtifacts: string[];
   createdAt: string;
+  /** `strict_mode` from state.json: false = phases stay proportional to the
+   *  work. Absent on disk reads as true. */
+  strictMode: boolean;
+  /** True when `signal.json` sits in the epic folder — i.e. this is an incident
+   *  epic opened by stage 6, and a follow-up epic can be derived from it. */
+  hasSignal?: boolean;
   /** True when this folder has no state.json/pipeline and the summary was
    *  synthesized from the `.md` files in its artifacts/ folder. Steps are a
    *  straight lifecycle-ordered list with no run controls. */
@@ -616,6 +691,12 @@ export interface WorkspaceState {
   defaultPipeline?: PipelineSummary;
   /** Suggested next sequential id for the inline Start-Epic modal (e.g. EPIC-007). */
   nextEpicId: string;
+  /** True when this checkout has not chosen an `epic_id_prefix` of its own,
+   * so the Start Epic modal warns where the id is actually chosen. */
+  epicIdPrefixNeedsSetup: boolean;
+  /** Two letters derived from `git config user.name` to offer in that
+   * warning, or null when git has no identity here. */
+  epicIdPrefixSuggestion: string | null;
   /** All existing epic ids (folders under epicRoot) — for uniqueness check. */
   existingEpicIds: string[];
   requirementRuns?: RequirementRunSummary[];
@@ -629,6 +710,12 @@ export interface WorkspaceState {
   epicMemoryHookEnabled?: boolean;
   /** Current epics directory (relative path from project root). */
   epicsDir: string;
+  /**
+   * Runs whose agent this VS Code window launched and has not seen finish,
+   * keyed by run id. Only covers work the extension dispatched — a step run
+   * from the user's own Claude window is invisible to it.
+   */
+  agentActivity: AgentActivityMap;
 }
 
 export interface TestAgentTarget {

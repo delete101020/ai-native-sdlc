@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, Wand2, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch } from 'lucide-react';
+import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, Wand2, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch, Gauge, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AgentMeta, ExtraProject, PipelineSummary, RecipeSummary } from '@/lib/types';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
@@ -11,13 +11,12 @@ const ID_PATTERN = /^[A-Z][A-Z0-9-]*$/;
 interface CapabilityPrompt {
   prompt: string;
   placeholder: string;
-  defaultValue?: string;
 }
 
 const CAPABILITY_PROMPTS: Record<string, CapabilityPrompt> = {
   jira: { prompt: 'Jira ticket key or URL', placeholder: 'PROJ-123 or https://acme.atlassian.net/browse/PROJ-123' },
   figma: { prompt: 'Figma file URL or file key', placeholder: 'https://www.figma.com/file/abc123/...' },
-  'core-business': { prompt: 'Path to core business docs (relative)', placeholder: 'docs/core', defaultValue: 'docs/core' },
+  'core-business': { prompt: 'Path to core business docs (relative)', placeholder: 'docs/core' },
   github: { prompt: 'GitHub repo or PR URL', placeholder: 'owner/repo or https://github.com/owner/repo/pull/42' },
   slack: { prompt: 'Slack channel or thread URL', placeholder: '#engineering or https://slack.com/...' },
   files: { prompt: 'Files glob (relative to project root)', placeholder: 'src/**/*.ts' },
@@ -42,6 +41,12 @@ export interface StartEpicDraft {
   description: string;
   inputs: Record<string, string>;
   extraProjects?: ExtraProject[];
+  /**
+   * How deep the phases of this epic go. Sits next to the workflow choice
+   * because the two answer adjacent questions: the recipe picks which steps
+   * run, this picks how far each one goes.
+   */
+  strictMode: boolean;
 }
 
 interface Props {
@@ -49,12 +54,22 @@ interface Props {
   recipes: RecipeSummary[];
   agentMeta: Record<string, AgentMeta>;
   nextEpicId: string;
+  /** True when this checkout has no `epic_id_prefix` of its own. Warned
+   *  about here as well as in the sidebar because this is where the id is
+   *  actually chosen, and the sidebar section may be collapsed. */
+  epicIdPrefixNeedsSetup: boolean;
+  /** Two letters derived from `git config user.name`, or null. */
+  epicIdPrefixSuggestion: string | null;
   existingEpicIds: string[];
   epicsDir: string;
   isFirstEpic: boolean;
   workspaceName: string;
   /** When false (no folder open), the user must add at least one project. */
   hasFolder?: boolean;
+  /** Hand the user over to the Report-signal form when they pick a recipe that
+   *  needs a `signal.json` this modal cannot write. Omitted where no such form
+   *  is mounted (the no-folder shell) — the warning still shows. */
+  onReportSignal?: () => void;
   onSubmit: (draft: StartEpicDraft) => void;
   onClose: () => void;
 }
@@ -62,11 +77,15 @@ interface Props {
 /**
  * What the user picked in the WORKFLOW section:
  *   - `auto`     → let the classifier suggest a recipe from the task description.
+ *   - `recipe`   → a recipe the user picked by hand, skipping the classifier.
  *   - `pipeline` → a concrete pipeline (user-defined or built-in AIDLC).
  * An `auto` selection resolves to a recipe target at submit time via the
- * current {@link Suggestion}.
+ * current {@link Suggestion}; a `recipe` selection already is one.
  */
-type Selection = { kind: 'auto' } | { kind: 'pipeline'; id: string };
+type Selection =
+  | { kind: 'auto' }
+  | { kind: 'recipe'; id: string }
+  | { kind: 'pipeline'; id: string };
 
 interface Suggestion {
   recipeId: string;
@@ -81,19 +100,22 @@ export function StartEpicModal({
   recipes,
   agentMeta,
   nextEpicId,
+  epicIdPrefixNeedsSetup,
+  epicIdPrefixSuggestion,
   existingEpicIds,
   epicsDir,
   isFirstEpic,
   workspaceName,
   hasFolder = true,
+  onReportSignal,
   onSubmit,
   onClose,
 }: Props) {
   const [selected, setSelected] = useState<Selection>(
     recipes.length > 0
       ? { kind: 'auto' }
-      : pipelines[0]
-        ? { kind: 'pipeline', id: pipelines[0].id }
+      : pipelines.find((p) => !p.derivedFrom)
+        ? { kind: 'pipeline', id: pipelines.find((p) => !p.derivedFrom)!.id }
         : { kind: 'auto' },
   );
   // Start empty (nextEpicId is shown only as a placeholder). A pre-filled
@@ -102,6 +124,12 @@ export function StartEpicModal({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [inputs, setInputs] = useState<Record<string, string>>({});
+  // Capability inputs are all optional (blank = skip) and every one of them is a
+  // path or URL only the user can supply, so the common case is to fill none.
+  // Folded by default keeps the footer on screen; the header still reports
+  // ` · n filled` while closed, so folding can never hide a value that is set.
+  const [capsOpen, setCapsOpen] = useState(false);
+  const [strictMode, setStrictMode] = useState(true);
   const idInputRef = useRef<HTMLInputElement>(null);
   // Extra projects (GH-67)
   const [extraProjects, setExtraProjects] = useState<ExtraProject[]>([]);
@@ -124,8 +152,30 @@ export function StartEpicModal({
   const [loadElapsed, setLoadElapsed] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const hasWorkflows = pipelines.length > 0 || recipes.length > 0;
-  const userPipelines = useMemo(() => pipelines.filter((p) => !p.builtin), [pipelines]);
+  // A pipeline assembled from a recipe is written into workspace.yaml under the
+  // epic's own id and belongs to that one epic — it is a record of what ran, not
+  // a workflow to start something else with. Listing them made "Your pipelines"
+  // grow by one dead row per epic, each looking like a reusable choice.
+  const userPipelines = useMemo(
+    () => pipelines.filter((p) => !p.builtin && !p.derivedFrom),
+    [pipelines],
+  );
+  // Everything the picker will actually show — the fallback selection has to
+  // come from here, or it can land on a pipeline that has no row.
+  const selectablePipelines = useMemo(
+    () => pipelines.filter((p) => !p.derivedFrom),
+    [pipelines],
+  );
+  const hasWorkflows = selectablePipelines.length > 0 || recipes.length > 0;
+  // Most steps first. The list is a coverage ladder, not a menu of equals:
+  // dropping a step drops a guarantee, so reading top-down reads from "every
+  // gate kept" down to "one phase only". Source order was authored by task
+  // type, which put the six-step full flow third and gave no way to see what
+  // a shorter row gives up. Ties keep their authored order.
+  const sortedRecipes = useMemo(
+    () => [...recipes].sort((a, b) => b.steps.length - a.steps.length),
+    [recipes],
+  );
   const aidlcPipelines = useMemo(() => pipelines.filter((p) => p.builtin), [pipelines]);
 
   // Live mirrors of the inputs so the (deps-frozen) host-message listener can
@@ -192,12 +242,19 @@ export function StartEpicModal({
   // selection valid: fall back to a pipeline when `auto` has no recipes, or
   // fill in a pipeline id once one exists.
   useEffect(() => {
-    if (selected.kind === 'auto' && recipes.length === 0 && pipelines[0]) {
-      setSelected({ kind: 'pipeline', id: pipelines[0].id });
-    } else if (selected.kind === 'pipeline' && !selected.id && pipelines[0]) {
-      setSelected({ kind: 'pipeline', id: pipelines[0].id });
+    const first = selectablePipelines[0];
+    if (selected.kind === 'auto' && recipes.length === 0 && first) {
+      setSelected({ kind: 'pipeline', id: first.id });
+    } else if (selected.kind === 'pipeline' && !selected.id && first) {
+      setSelected({ kind: 'pipeline', id: first.id });
+    } else if (selected.kind === 'recipe' && !recipes.some((r) => r.id === selected.id)) {
+      // The hand-picked recipe vanished (preset swapped) — don't submit a target
+      // the workspace no longer defines.
+      setSelected(recipes.length > 0
+        ? { kind: 'auto' }
+        : first ? { kind: 'pipeline', id: first.id } : { kind: 'auto' });
     }
-  }, [pipelines, recipes, selected]);
+  }, [selectablePipelines, recipes, selected]);
 
   // Host messages: classifier verdict + external requirement loads.
   useEffect(() => {
@@ -414,7 +471,24 @@ export function StartEpicModal({
     setDuplicateWarning(null);
   };
 
-  const effectiveRecipeId = selected.kind === 'auto' ? suggestion?.recipeId : undefined;
+  // A hand-picked recipe is the target as-is; `auto` resolves through the
+  // classifier's current verdict.
+  const effectiveRecipeId = selected.kind === 'recipe'
+    ? selected.id
+    : selected.kind === 'auto' ? suggestion?.recipeId : undefined;
+
+  // Stage 6 (`maintain`) reads `docs/epics/<id>/signal.json`, and this modal has
+  // no field that writes one. Its skill then does the honest thing — writes an
+  // `incident.md` saying the signal is missing and stops — which shows up as a
+  // green run with an empty diagnosis. That silence is the reason for the
+  // warning: the recipe stays pickable (the user may have dropped the file in
+  // by hand), but nobody should reach it by accident.
+  const needsSignal = useMemo(
+    () => (effectiveRecipeId
+      ? recipes.find((r) => r.id === effectiveRecipeId)?.steps.includes('maintain') ?? false
+      : false),
+    [effectiveRecipeId, recipes],
+  );
 
   const selectedAgents = useMemo<string[]>(() => {
     if (selected.kind === 'pipeline') {
@@ -436,19 +510,11 @@ export function StartEpicModal({
     return out;
   }, [selectedAgents, agentMeta]);
 
-  useEffect(() => {
-    setInputs((cur) => {
-      const next = { ...cur };
-      let changed = false;
-      for (const cap of capabilities) {
-        if (!(cap in next)) {
-          const def = CAPABILITY_PROMPTS[cap]?.defaultValue ?? '';
-          if (def) { next[cap] = def; changed = true; }
-        }
-      }
-      return changed ? next : cur;
-    });
-  }, [capabilities]);
+  // Shown in the collapsed header so folding never hides that values are set.
+  const filledCapCount = useMemo(
+    () => capabilities.filter((c) => (inputs[c] ?? '').trim()).length,
+    [capabilities, inputs],
+  );
 
   // Empty field falls back to the suggested next id (shown as placeholder).
   const effectiveId = epicId.trim() || nextEpicId;
@@ -464,7 +530,7 @@ export function StartEpicModal({
 
   const targetError = selected.kind === 'pipeline'
     ? (!selected.id ? 'Pick a pipeline' : null)
-    : (!effectiveRecipeId ? 'Add a task description and click “Suggest recipe”, or pick a pipeline' : null);
+    : (!effectiveRecipeId ? 'Add a task description for Auto to classify, or pick a recipe / pipeline yourself' : null);
   const projectError = !hasFolder && extraProjects.length === 0
     ? 'Add at least one project to start an epic'
     : null;
@@ -477,9 +543,9 @@ export function StartEpicModal({
       const v = (inputs[cap] ?? '').trim();
       if (v) { cleanInputs[cap] = v; }
     }
-    const target = selected.kind === 'auto'
-      ? { kind: 'recipe' as const, id: effectiveRecipeId! }
-      : { kind: 'pipeline' as const, id: selected.id };
+    const target = selected.kind === 'pipeline'
+      ? { kind: 'pipeline' as const, id: selected.id }
+      : { kind: 'recipe' as const, id: effectiveRecipeId! };
     onSubmit({
       target,
       epicId: effectiveId,
@@ -487,6 +553,7 @@ export function StartEpicModal({
       description: description.trim(),
       inputs: cleanInputs,
       extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
+      strictMode,
     });
     onClose();
   };
@@ -645,7 +712,7 @@ export function StartEpicModal({
             <ListOrdered className="h-3 w-3" />
             Workflow
           </label>
-          <div className="max-h-56 overflow-y-auto rounded-md border border-border">
+          <div className="max-h-72 overflow-y-auto rounded-md border border-border">
             {!hasFolder && !hasWorkflows && extraProjects.length === 0 ? (
               <div className="px-3 py-4 text-center text-[11px] text-muted-foreground">
                 Add a project above first — pipelines load from the project's workspace.
@@ -666,6 +733,21 @@ export function StartEpicModal({
                     onClick={() => setSelected({ kind: 'auto' })}
                   />
                 )}
+                {recipes.length > 0 && (
+                  <GroupHeader label="Recipes (right-sized)" />
+                )}
+                {sortedRecipes.map((r) => (
+                  <WorkflowRow
+                    key={`r:${r.id}`}
+                    id={r.id}
+                    active={selected.kind === 'recipe' && selected.id === r.id}
+                    suggested={suggestion?.recipeId === r.id ? suggestion.confidence : undefined}
+                    stepCount={r.steps.length}
+                    steps={r.steps}
+                    description={r.description}
+                    onClick={() => setSelected({ kind: 'recipe', id: r.id })}
+                  />
+                ))}
                 {userPipelines.length > 0 && (
                   <GroupHeader label="Your pipelines" />
                 )}
@@ -702,6 +784,46 @@ export function StartEpicModal({
               </>
             )}
           </div>
+          {needsSignal && (
+            <div className="mt-1.5 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+              <div className="min-w-0 text-[10.5px] leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground">This recipe needs a signal.</span>{' '}
+                <code className="font-mono text-foreground">{effectiveRecipeId}</code> runs the unattended{' '}
+                <code className="font-mono text-foreground">maintain</code> phase, which reads{' '}
+                <code className="font-mono text-foreground">signal.json</code> from the epic folder. Started from here
+                there is no such file, so the run goes green and <code className="font-mono text-foreground">incident.md</code>{' '}
+                just says the signal was missing.
+                {onReportSignal && (
+                  <button
+                    type="button"
+                    onClick={() => { onClose(); onReportSignal(); }}
+                    className="ml-1 font-semibold text-primary underline underline-offset-2 hover:text-primary/80"
+                  >
+                    Report a signal instead
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          <label className="mt-1.5 flex cursor-pointer items-start gap-2 rounded-md border border-border bg-card/50 px-3 py-2">
+            <input
+              type="checkbox"
+              checked={!strictMode}
+              onChange={(e) => setStrictMode(!e.target.checked)}
+              className="mt-0.5 h-3 w-3 shrink-0 accent-primary"
+            />
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
+                <Gauge className="h-3 w-3 text-muted-foreground" />
+                Depth: proportional
+              </span>
+              <span className="mt-0.5 block text-[10.5px] leading-relaxed text-muted-foreground">
+                Artifacts cover only what this change needs — no non-functional, risk
+                or alternatives sections. Best for an epic the size of one task.
+              </span>
+            </span>
+          </label>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -721,6 +843,19 @@ export function StartEpicModal({
             />
             {idError && trimmedId && (
               <div className="mt-1 text-[10.5px] text-destructive">{idError}</div>
+            )}
+            {!idError && epicIdPrefixNeedsSetup && (
+              <div className="mt-1 flex items-start gap-1.5 text-[10.5px] leading-relaxed text-warning">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="text-muted-foreground">
+                  This id has no prefix of yours in it — a colleague may already be
+                  using it. Set{' '}
+                  <code className="font-mono text-foreground">
+                    {epicIdPrefixSuggestion ? `epic id prefix ${epicIdPrefixSuggestion}` : 'an epic id prefix'}
+                  </code>{' '}
+                  in the sidebar to name them apart.
+                </span>
+              </div>
             )}
           </div>
           <div>
@@ -855,15 +990,28 @@ export function StartEpicModal({
 
         {capabilities.length > 0 && (
           <div>
-            <div className="mb-1 flex items-baseline gap-1.5">
+            <button
+              type="button"
+              onClick={() => setCapsOpen((v) => !v)}
+              aria-expanded={capsOpen}
+              className="mb-1 flex w-full items-baseline gap-1.5 text-left"
+              title={capsOpen ? 'Collapse capability inputs' : 'Expand capability inputs'}
+            >
+              <ChevronRight
+                className={cn(
+                  'h-3 w-3 shrink-0 self-center text-muted-foreground transition-transform',
+                  capsOpen && 'rotate-90',
+                )}
+              />
               <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
                 Capability inputs
               </span>
               <span className="text-[10px] text-muted-foreground">
-                ({capabilities.length} from {selected.kind})
+                ({capabilities.length} from {selected.kind}
+                {!capsOpen && filledCapCount > 0 ? ` · ${filledCapCount} filled` : ''})
               </span>
-            </div>
-            <div className="space-y-2">
+            </button>
+            <div className={cn('space-y-2', !capsOpen && 'hidden')}>
               {capabilities.map((cap) => {
                 const meta = CAPABILITY_PROMPTS[cap];
                 return (

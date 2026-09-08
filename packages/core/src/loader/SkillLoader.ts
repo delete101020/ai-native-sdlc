@@ -13,20 +13,10 @@
  */
 
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 import type { SkillConfig } from '../schema/WorkspaceSchema';
-
-/**
- * Expand a leading `~/` to the user's home directory. Built-in presets use
- * this form so workspace.yaml stays portable across machines while still
- * pointing at the extension-installed defaults under `~/.claude/skills/`.
- */
-function expandHome(p: string): string {
-  if (p.startsWith('~/')) { return path.join(os.homedir(), p.slice(2)); }
-  return p;
-}
+import { expandHome } from '../util/paths';
 
 export class SkillNotFoundError extends Error {
   constructor(public readonly skillId: string, public readonly tried: string[]) {

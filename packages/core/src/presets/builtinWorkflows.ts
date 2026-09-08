@@ -25,6 +25,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { artifactLanguageSection } from '../loader/artifactLanguage';
+import { strictModeSection } from '../loader/strictMode';
+import { CODING_MODEL, PLANNING_MODEL } from './models';
 import { renderTemplate } from './templateRenderer';
 
 /**
@@ -101,7 +104,7 @@ const PHASES: PhaseDef[] = [
     // command body) — the Plan phase runs it up front when the gate rule fires
     // (≥3 open questions, or any high-impact one), then writes the confirmed
     // choices into PRD.md's `## Discovery decisions` section. It is NOT a phase.
-    id: 'plan', name: 'Plan', persona: 'po', skillFiles: ['prd', 'discovery-gate'], model: 'claude-opus-4-7',
+    id: 'plan', name: 'Plan', persona: 'po', skillFiles: ['prd', 'discovery-gate'], model: PLANNING_MODEL,
     description: 'Scaffold the epic and write the PRD.',
     inputs: 'Jira ticket, business context, Figma designs',
     outputs: 'Epic doc + PRD with measurable acceptance criteria',
@@ -113,7 +116,7 @@ const PHASES: PhaseDef[] = [
     // GH-77: Prototype phase — propose UI visually (multiple options) before design.
     // Reads PRD (incl. Discovery decisions) to generate UI variants.
     // Uses discovery-gate for method selection + option choice (like #76).
-    id: 'prototype', name: 'Prototype', persona: 'designer', skillFiles: ['prototype', 'discovery-gate'], model: 'claude-opus-4-7',
+    id: 'prototype', name: 'Prototype', persona: 'designer', skillFiles: ['prototype', 'discovery-gate'], model: PLANNING_MODEL,
     description: 'Propose the UI visually with multiple design options.',
     inputs: 'PRD + discovery decisions, user preference for design method',
     outputs: 'UI prototype options (HTML) + PROTOTYPE.md with chosen option',
@@ -127,7 +130,7 @@ const PHASES: PhaseDef[] = [
     // writing the implementation plan (approach, boundaries, which files, edge
     // cases), it runs the gate instead of asking inline, then finishes
     // TECH-DESIGN.md from the answers.
-    id: 'design', name: 'Design', persona: 'tech-lead', skillFiles: ['tech-design', 'discovery-gate'], model: 'claude-opus-4-7',
+    id: 'design', name: 'Design', persona: 'tech-lead', skillFiles: ['tech-design', 'discovery-gate'], model: PLANNING_MODEL,
     description: 'Design the implementation approach.',
     inputs: 'PRD, prototype, existing code, dependency graph',
     outputs: 'Architecture, API contract, DI plan, file impact list',
@@ -137,7 +140,7 @@ const PHASES: PhaseDef[] = [
     dependsOn: ['prototype'],
   },
   {
-    id: 'test-plan', name: 'Test Plan', persona: 'qa', skillFiles: ['test-plan'], model: 'claude-sonnet-4-6',
+    id: 'test-plan', name: 'Test Plan', persona: 'qa', skillFiles: ['test-plan'], model: CODING_MODEL,
     description: 'Plan how the feature will be verified.',
     inputs: 'PRD acceptance criteria, tech design, ITS / device matrix',
     outputs: 'Test cases (UT / UI / integration / performance), device matrix',
@@ -147,7 +150,7 @@ const PHASES: PhaseDef[] = [
     dependsOn: ['prototype'],
   },
   {
-    id: 'implement', name: 'Implement', persona: 'developer', skillFiles: ['implement', 'unit-test'], model: 'claude-sonnet-4-6',
+    id: 'implement', name: 'Implement', persona: 'developer', skillFiles: ['implement', 'unit-test'], model: CODING_MODEL,
     description: 'Build the feature on a feature branch and write its unit tests.',
     inputs: 'Tech design, test plan, project coding rules',
     outputs: 'Code + unit tests on feature branch, PR opened',
@@ -159,7 +162,7 @@ const PHASES: PhaseDef[] = [
   },
   {
     id: 'generate-test-cases', name: 'Generate Test Cases', persona: 'qa',
-    skillFiles: ['generate-test-cases'], model: 'claude-sonnet-4-6',
+    skillFiles: ['generate-test-cases'], model: CODING_MODEL,
     description: 'Concrete, executable test cases derived from the test plan.',
     inputs: 'Test plan, acceptance criteria',
     outputs: 'Executable test cases (UI/IT scripts, fixtures, data) + TEST-CASES.md',
@@ -169,7 +172,7 @@ const PHASES: PhaseDef[] = [
     dependsOn: ['test-plan'],
   },
   {
-    id: 'execute-test', name: 'Execute Test', persona: 'qa', skillFiles: ['execute-test', 'test-report'], model: 'claude-sonnet-4-6',
+    id: 'execute-test', name: 'Execute Test', persona: 'qa', skillFiles: ['execute-test', 'test-report'], model: CODING_MODEL,
     description: 'Run the test cases and write the test report.',
     inputs: 'Feature branch, test plan, test cases, UAT environment',
     outputs: 'Test execution + TEST-REPORT with pass/fail, defects, go/no-go',
@@ -237,6 +240,13 @@ export interface RecipeDef {
   id: string;
   description: string;
   steps: string[];
+  /**
+   * Per-step review-gate overrides, keyed by phase id. Without one, a step
+   * keeps the gates its phase declares, so every recipe over a pipeline
+   * agrees about where a human has to stand — which is rarely right for
+   * every task type. Only the fields present override; the rest inherit.
+   */
+  gates?: Record<string, { human_review?: boolean; auto_review?: boolean; auto_review_runner?: string }>;
 }
 
 export interface BuiltinWorkflow {
@@ -314,7 +324,7 @@ const SDLC_RECIPES: RecipeDef[] = [
  */
 const SPECKIT_PHASES: PhaseDef[] = [
   {
-    id: 'specify', name: 'Specify', persona: 'analyst', skillFiles: ['specify'], model: 'claude-opus-4-7',
+    id: 'specify', name: 'Specify', persona: 'analyst', skillFiles: ['specify'], model: PLANNING_MODEL,
     description: 'Turn a feature description into a structured, testable spec.',
     inputs: 'Feature description, business context, Jira ticket, Figma designs',
     outputs: 'SPEC.md — user scenarios, functional requirements, testable acceptance criteria',
@@ -323,7 +333,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     capabilities: ['jira', 'figma', 'core-business', 'web'],
   },
   {
-    id: 'clarify', name: 'Clarify', persona: 'analyst', skillFiles: ['clarify'], model: 'claude-opus-4-7',
+    id: 'clarify', name: 'Clarify', persona: 'analyst', skillFiles: ['clarify'], model: PLANNING_MODEL,
     description: 'Surface and resolve underspecified areas of the spec.',
     inputs: 'SPEC.md, open questions',
     outputs: 'SPEC.md updated with a Clarifications section (Q/A pairs resolved)',
@@ -337,7 +347,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     // collide with the SDLC bundle's globals (developer/qa/tech-lead/implement).
     // Global install keys files by source filename, so a bare `tech-lead.md`
     // here would overwrite SDLC's when both workflows are installed.
-    id: 'plan', name: 'Plan', persona: 'speckit-tech-lead', skillFiles: ['plan'], model: 'claude-opus-4-7',
+    id: 'plan', name: 'Plan', persona: 'speckit-tech-lead', skillFiles: ['plan'], model: PLANNING_MODEL,
     description: 'Derive the technical implementation plan from the spec.',
     inputs: 'SPEC.md, existing code, dependency graph, constitution (workspace standard)',
     outputs: 'PLAN.md — architecture, data model, contracts, tech choices honoring the constitution',
@@ -347,7 +357,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     dependsOn: ['clarify'],
   },
   {
-    id: 'tasks', name: 'Tasks', persona: 'speckit-tech-lead', skillFiles: ['tasks'], model: 'claude-sonnet-4-6',
+    id: 'tasks', name: 'Tasks', persona: 'speckit-tech-lead', skillFiles: ['tasks'], model: CODING_MODEL,
     description: 'Break the plan into an ordered, dependency-aware task list.',
     inputs: 'PLAN.md, SPEC.md acceptance criteria',
     outputs: 'TASKS.md — numbered tasks with dependencies, each traceable to a requirement',
@@ -357,7 +367,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     dependsOn: ['plan'],
   },
   {
-    id: 'analyze', name: 'Analyze', persona: 'speckit-qa', skillFiles: ['analyze'], model: 'claude-sonnet-4-6',
+    id: 'analyze', name: 'Analyze', persona: 'speckit-qa', skillFiles: ['analyze'], model: CODING_MODEL,
     description: 'Cross-check spec ↔ plan ↔ tasks for consistency and coverage before build.',
     inputs: 'SPEC.md, PLAN.md, TASKS.md',
     outputs: 'ANALYSIS.md — coverage matrix, gaps, contradictions, go/no-go',
@@ -367,7 +377,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     dependsOn: ['tasks'],
   },
   {
-    id: 'implement', name: 'Implement', persona: 'speckit-developer', skillFiles: ['speckit-implement'], model: 'claude-sonnet-4-6',
+    id: 'implement', name: 'Implement', persona: 'speckit-developer', skillFiles: ['speckit-implement'], model: CODING_MODEL,
     description: 'Execute the task list on a feature branch.',
     inputs: 'TASKS.md, PLAN.md, SPEC.md, project coding rules',
     outputs: 'Code on feature branch, PR opened, tasks checked off',
@@ -400,6 +410,187 @@ const SPECKIT_RECIPES: RecipeDef[] = [
   },
 ];
 
+/**
+ * AI-Native SDLC workflow — the six-stage lifecycle from the AI-Native SDLC
+ * Playbook (https://claude.com/blog/the-ai-native-sdlc-playbook):
+ *
+ *     intent → spec → build-plan → implement → verify → review → maintain
+ *
+ * Artifact names follow the playbook (`intent.md`, `spec.md`, `plan.md`,
+ * `incident.md`), which is why they are lowercase and unprefixed where the
+ * other two workflows use SHOUTING-CASE.
+ *
+ * `maintain` is stage 6 and closes the loop: it turns a production signal into
+ * a diagnosis and then into the `intent.md` of a *new* epic, which re-enters at
+ * stage 1. It is declared last in the chain so the DAG stays linear, but the
+ * `native-incident` recipe runs it alone — a signal does not wait for a feature
+ * epic to finish.
+ *
+ * Note the phase id `build-plan`: the playbook calls its stage-3 artifact
+ * `plan.md`, but `plan` as a *phase id* is already taken by the AIDLC workflow
+ * with a different meaning (scaffold the epic + write the PRD). Since the
+ * shortcut command description in `CANONICAL_PHASES` is shared across
+ * pipelines, the id differs while the artifact keeps the playbook's name.
+ *
+ * Every agents/ and skills/ filename carries a `native-` prefix because
+ * globalDefaultsInstaller writes all workflows' files into the single flat
+ * `~/.claude/{agents,skills}/aidlc-<file>.md` namespace.
+ */
+const AINATIVE_PHASES: PhaseDef[] = [
+  {
+    id: 'intent', name: 'Intent', persona: 'native-originator', skillFiles: ['native-intent'], model: PLANNING_MODEL,
+    description: "Capture the originator's problem as intent.md.",
+    inputs: 'A raw idea, a ticket, a support thread',
+    outputs: 'intent.md — problem, who hurts, cost, evidence, done-looks-like',
+    artifact: 'intent.md',
+    humanReview: true, autoReview: false,
+    capabilities: ['jira', 'core-business', 'web'],
+  },
+  {
+    id: 'spec', name: 'Spec', persona: 'native-product-owner', skillFiles: ['native-spec'], model: PLANNING_MODEL,
+    description: 'Collapse requirements and design into spec.md.',
+    inputs: 'intent.md, CLAUDE.md, project skills, existing product docs',
+    outputs: 'spec.md — testable requirements, acceptance criteria, flagged concerns',
+    artifact: 'spec.md',
+    humanReview: true, autoReview: false,
+    capabilities: ['jira', 'figma', 'core-business', 'web'],
+    dependsOn: ['intent'],
+  },
+  {
+    id: 'build-plan', name: 'Build Plan', persona: 'native-engineer', skillFiles: ['native-build-plan'], model: PLANNING_MODEL,
+    description: 'Plan the implementation before writing code.',
+    inputs: 'spec.md, CLAUDE.md, the codebase (via ast-graph)',
+    outputs: 'plan.md — files, order, risks, proofs, feedback loop',
+    artifact: 'plan.md',
+    humanReview: true, autoReview: false,
+    capabilities: ['github', 'files'],
+    dependsOn: ['spec'],
+  },
+  {
+    id: 'implement', name: 'Implement', persona: 'native-engineer', skillFiles: ['native-implement'], model: CODING_MODEL,
+    description: 'Build the feature against the approved plan.',
+    inputs: 'plan.md, spec.md, CLAUDE.md',
+    outputs: 'Feature branch + PR, implement.md with executed proofs',
+    artifact: 'implement.md',
+    humanReview: true, autoReview: false,
+    capabilities: ['github', 'files'],
+    dependsOn: ['build-plan'],
+  },
+  {
+    id: 'verify', name: 'Verify', persona: 'native-verifier', skillFiles: ['native-verify'], model: CODING_MODEL,
+    description: 'Independent verdict on whether the build meets the spec.',
+    inputs: 'spec.md, plan.md, the branch',
+    outputs: 'verify.md — per-criterion verdict with evidence',
+    artifact: 'verify.md',
+    humanReview: true, autoReview: false,
+    capabilities: ['github', 'files'],
+    dependsOn: ['implement'],
+  },
+  {
+    id: 'review', name: 'Review', persona: 'native-reviewer', skillFiles: ['native-review'], model: CODING_MODEL,
+    description: 'Review the diff against policy before it ships.',
+    inputs: 'The diff, CLAUDE.md, the loaded skills, spec.md, verify.md',
+    outputs: 'review.md — findings traced to the policy line they violate, plus a ship/hold verdict',
+    artifact: 'review.md',
+    humanReview: true, autoReview: false,
+    // `github` is a *declarative permission*, not runtime wiring: it says this
+    // agent may read GitHub, and stays inert until a github MCP server is
+    // configured. The phase itself reads the diff locally and needs no remote
+    // (Q2, locked — see AI_NATIVE_SDLC_ALIGNMENT.md).
+    capabilities: ['github', 'files'],
+    dependsOn: ['verify'],
+  },
+  {
+    id: 'maintain', name: 'Maintain', persona: 'native-operator', skillFiles: ['native-maintain'], model: CODING_MODEL,
+    description: 'Turn a production signal into a diagnosis, and into the next epic.',
+    inputs: 'A signal (source, observedAt, symptom, scope, evidence), the shipped code, spec.md',
+    outputs: 'incident.md — what happened, why, and the intent.md of the follow-up epic',
+    artifact: 'incident.md',
+    // The only phase with no human gate: a signal arrives unattended, so the
+    // phase has to run unattended too. The human gate has not disappeared — it
+    // moved to stage 1 of the epic this phase opens, where `intent.md` is
+    // reviewed like any other intent.
+    humanReview: false, autoReview: false,
+    capabilities: ['github', 'files'],
+    // Linear in the full pipeline so the DAG stays a chain, but stage 6 is
+    // normally entered on its own via the `native-incident` recipe: a signal
+    // does not wait for a feature epic to finish.
+    dependsOn: ['review'],
+  },
+];
+
+/**
+ * Recipes for the AI-Native SDLC workflow, keyed by task type.
+ */
+const AINATIVE_RECIPES: RecipeDef[] = [
+  {
+    id: 'native-quick',
+    description: 'Small, well-understood change — intent straight to plan, no separate spec.',
+    steps: ['intent', 'build-plan', 'implement', 'verify'],
+  },
+  {
+    id: 'native-lite',
+    description:
+      'Small change with a precedent already in the codebase — no spec, no separate verify. ' +
+      'The human gates sit up front, on intent and build-plan, where a wrong direction is ' +
+      'cheapest to correct; implement and review then run to the end unattended. ' +
+      'Trade-off: review is the only quality gate left, and nobody reads it before the ' +
+      'branch is finished — prefer native-fix when the change has no precedent to follow.',
+    steps: ['intent', 'build-plan', 'implement', 'review'],
+    // Spelled out for all four steps, including the two that would inherit
+    // `true` anyway: where the humans stand is the point of this recipe, so
+    // it should be readable off the recipe without opening the pipeline.
+    gates: {
+      intent: { human_review: true },
+      'build-plan': { human_review: true },
+      implement: { human_review: false },
+      review: { human_review: false },
+    },
+  },
+  {
+    id: 'native-fix',
+    description:
+      'Bug fix / refactor / tech debt — no spec (there is no new behaviour to specify), ' +
+      'but both quality gates kept: verify then review.',
+    steps: ['intent', 'build-plan', 'implement', 'verify', 'review'],
+  },
+  {
+    id: 'native-full',
+    description: 'Full AI-Native flow: intent → spec → build-plan → implement → verify → review.',
+    steps: ['intent', 'spec', 'build-plan', 'implement', 'verify', 'review'],
+  },
+  {
+    id: 'native-hotfix',
+    description:
+      'Production is burning and the cause is already known — straight to plan, ship, review. ' +
+      'Trade-off: no intent.md means the engineer starts with only the epic description as ' +
+      'context, and skipping verify removes the independent check exactly when haste makes ' +
+      'errors likeliest. Prefer native-fix unless the clock genuinely forbids it.',
+    steps: ['build-plan', 'implement', 'review'],
+  },
+  {
+    id: 'native-align',
+    description:
+      'Agree on scope before engineering starts — stop once acceptance criteria exist, write no code.',
+    steps: ['intent', 'spec'],
+  },
+  {
+    id: 'native-spike',
+    description: 'Capture the problem only — no spec, no code.',
+    steps: ['intent'],
+  },
+  {
+    id: 'native-audit',
+    description: 'Judge a diff that already exists against policy — no epic work, review only.',
+    steps: ['review'],
+  },
+  {
+    id: 'native-incident',
+    description: 'A production signal arrived — diagnose it and open the follow-up epic.',
+    steps: ['maintain'],
+  },
+];
+
 export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
   {
     id: 'aidlc-workflow',
@@ -420,6 +611,18 @@ export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
       'Spec-driven development (GitHub Spec Kit): Specify → Clarify → Plan → Tasks → Analyze → Implement. Constitution lives in the workspace SDLC standard. Analyst / Tech Lead / QA / Developer.',
     phases: SPECKIT_PHASES,
     recipes: SPECKIT_RECIPES,
+  },
+  {
+    id: 'ai-native-pipeline',
+    pipelineId: 'ai-native-full',
+    name: 'AI-Native SDLC',
+    templatesDir: 'ainative',
+    description:
+      'The AI-Native SDLC Playbook, stages 1-6: Intent → Spec → Build Plan → Implement → Verify → Review → Maintain. ' +
+      'Artifacts follow the playbook (intent.md, spec.md, plan.md, incident.md). Originator / Product Owner / Engineer / Verifier / Reviewer / Operator, ' +
+      'with verification and review each run by a fresh-context agent rather than the session that wrote the code, and maintain closing the loop back to stage 1.',
+    phases: AINATIVE_PHASES,
+    recipes: AINATIVE_RECIPES,
   },
 ];
 
@@ -669,6 +872,7 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
         description: r.description,
         from: workflow.pipelineId,
         steps: r.steps,
+        ...(r.gates ? { gates: r.gates } : {}),
       })),
       sidebar: {
         views: [
@@ -884,10 +1088,25 @@ export function builtinClaudeCommand(
   phase: PhaseDef,
   skillBody: string,
   epicRoot: string,
+  /**
+   * Pipeline id whose `.aidlc/aidlc-templates/<id>/` holds the blank artifact
+   * templates. Passing it adds a line telling the agent to read the template
+   * for its own artifact before writing.
+   *
+   * This used to need no saying: `scaffoldEpic` copied the templates into the
+   * epic's `artifacts/`, and the agent found its shape already sitting at the
+   * path it was about to write to. That copy is gone — a file present before
+   * anything ran made `markStepDone`'s existence check pass on an empty epic —
+   * so the pointer has to be explicit instead.
+   */
+  templatesPipelineId?: string,
 ): string {
   const isFilePath = !phase.artifact.includes('<') && !phase.artifact.includes('>');
+  const templateHint = templatesPipelineId
+    ? ` Read \`.aidlc/aidlc-templates/${templatesPipelineId}/${phaseArtifactFileName(phase)}\` first and follow its structure — it is the blank template for this artifact, and the steps downstream read it expecting those sections.`
+    : '';
   const artifactInstruction = isFilePath
-    ? `3. Write your output to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.artifact}\`. The AIDLC validator checks for this file when the step is marked done.`
+    ? `3. Write your output to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.artifact}\`.${templateHint} The AIDLC validator checks for this file when the step is marked done — the folder starts empty, so every file in it is one an agent wrote.`
     : `3. Complete the work (${phase.artifact}), then write a summary to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.id.toUpperCase()}-SUMMARY.md\` so the AIDLC validator has a file to check.`;
 
   return `---
@@ -906,6 +1125,10 @@ The user invoked you with epic id \`$ARGUMENTS\`.
 2. Read \`${epicRoot}/$ARGUMENTS/inputs.json\` for capability inputs (Jira ticket, Figma URL, files glob, GitHub repo, etc.).
 ${artifactInstruction}
 4. When finished, summarize what you produced and tell the user to click **"Mark step done"** in the AIDLC panel to advance the pipeline.
+
+${artifactLanguageSection(null)}
+
+${strictModeSection(null)}
 `;
 }
 

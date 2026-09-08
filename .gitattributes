@@ -1,0 +1,21 @@
+# Line endings: LF in the repository *and* in the working tree, on every machine.
+#
+# `core.autocrlf=true` on Windows gives the working tree CRLF while macOS gets
+# LF, so the same file has two byte representations depending on which machine
+# it was checked out on. Two things in this repo care:
+#
+#   - `.claude/hooks/*.sh` and `*.py` are executed directly. A CRLF shebang is
+#     a syntax error to a POSIX interpreter, so a Windows checkout produces
+#     hooks that cannot run.
+#   - Generated artifacts inherit the line endings of the template they were
+#     read from (templateRenderer joins on \n, but hands back an unrendered
+#     body verbatim), so artifacts differ by authoring machine.
+#
+# `text=auto` still lets git detect binary content on its own; the media files
+# are pinned anyway so no heuristic has to be right about them.
+* text=auto eol=lf
+
+*.png  binary
+*.gif  binary
+*.mp4  binary
+*.vsix binary

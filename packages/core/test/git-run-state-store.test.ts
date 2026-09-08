@@ -91,7 +91,10 @@ describe('GitRunStateStore — multi-user sync through a shared remote', () => {
     expect(branches).toContain('aidlc-state');
     // The code branch is untouched — no run json leaked onto main's tree.
     expect(fs.existsSync(path.join(userA, 'runs'))).toBe(false);
-  });
+    // Two clones, two worktrees and four push/pull round trips of real git —
+    // comfortably over vitest's 5s default on Windows once other git-backed
+    // suites are running in parallel.
+  }, 30_000);
 
   it('delete on one clone removes the run on the other', () => {
     const remote = seededBareRemote();

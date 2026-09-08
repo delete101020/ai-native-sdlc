@@ -18,6 +18,10 @@
   },
   "private": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/delete101020/ai-native-sdlc"
+  },
   "dependencies": {
     "js-yaml": "^4.1.1",
     "zod": "^4.4.2"

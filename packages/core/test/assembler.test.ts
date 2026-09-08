@@ -103,6 +103,43 @@ describe('assemblePipeline', () => {
     ws.recipes.push({ id: 'broken', steps: ['plan'] });
     expect(() => assemblePipeline(ws, { recipeId: 'broken' })).toThrow(/unresolved references/);
   });
+
+  it('applies per-step gate overrides from the recipe, and inherits the rest', () => {
+    const ws = workspace();
+    ws.recipes.push({
+      id: 'gated',
+      steps: ['plan', 'design', 'implement'],
+      // plan drops its inherited human gate, implement gains one; design says
+      // nothing and must keep what the pipeline gave it.
+      gates: { plan: { human_review: false }, implement: { human_review: true } },
+    });
+    const p = assemblePipeline(ws, { recipeId: 'gated' });
+    const byName = Object.fromEntries(
+      p.steps.map((s) => [(s as { name: string }).name, s as { human_review: boolean }]),
+    );
+    expect(byName.plan.human_review).toBe(false);
+    expect(byName.design.human_review).toBe(true);
+    expect(byName.implement.human_review).toBe(true);
+  });
+
+  it('carries an auto_review override with its runner onto the step', () => {
+    const ws = workspace();
+    ws.recipes.push({
+      id: 'validated',
+      steps: ['implement'],
+      gates: { implement: { auto_review: true, auto_review_runner: '.aidlc/validators/ci.mjs' } },
+    });
+    const p = assemblePipeline(ws, { recipeId: 'validated' });
+    const step = p.steps[0] as { auto_review: boolean; auto_review_runner?: string };
+    expect(step.auto_review).toBe(true);
+    expect(step.auto_review_runner).toBe('.aidlc/validators/ci.mjs');
+  });
+
+  it('refuses an auto_review override with no runner to run it', () => {
+    const ws = workspace();
+    ws.recipes.push({ id: 'stuck', steps: ['implement'], gates: { implement: { auto_review: true } } });
+    expect(() => assemblePipeline(ws, { recipeId: 'stuck' })).toThrow(/auto_review_runner/);
+  });
 });
 
 describe('collectWorkspaceRefIssues', () => {
@@ -122,5 +159,12 @@ describe('collectWorkspaceRefIssues', () => {
     ws.recipes.push({ id: 'x', steps: ['nonexistent-step'] });
     const issues = collectWorkspaceRefIssues(ws);
     expect(issues.some((i) => i.code === 'unknown-recipe-step')).toBe(true);
+  });
+
+  it('flags a gate override keyed to a step the recipe does not run', () => {
+    const ws = workspace();
+    ws.recipes.push({ id: 'y', steps: ['plan'], gates: { design: { human_review: false } } });
+    const issues = collectWorkspaceRefIssues(ws);
+    expect(issues.some((i) => i.code === 'unknown-recipe-gate')).toBe(true);
   });
 });

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { validateWorkspace, WORKSPACE_DIR } from '@aidlc/core';
+import { validateWorkspace, WORKSPACE_DIR, resolveDeclaredPath } from '@aidlc/core';
 import { requireYaml, writeYaml, existingIds } from '../yamlIO';
 import { SKILL_TEMPLATES, TEMPLATE_IDS, findTemplate } from '../skillTemplates';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
@@ -57,7 +57,7 @@ export function registerSkill(program: Command): void {
         console.log(chalk.dim(`  Wrote skill file: ${skillPath}`));
       } else {
         // --path: reference an existing file
-        const absPath = path.resolve(root, opts.path!);
+        const absPath = resolveDeclaredPath(root, opts.path!);
         if (!fs.existsSync(absPath)) {
           console.error(chalk.red(`Skill file not found: ${opts.path}`));
           process.exit(1);
@@ -125,7 +125,7 @@ export function registerSkill(program: Command): void {
         return;
       }
       if (typeof skill.path === 'string') {
-        const abs = path.resolve(root, skill.path);
+        const abs = resolveDeclaredPath(root, skill.path);
         if (!fs.existsSync(abs)) {
           console.error(chalk.red(`Skill file not found: ${skill.path}`));
           process.exit(1);

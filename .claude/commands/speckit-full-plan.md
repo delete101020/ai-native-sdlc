@@ -9,7 +9,7 @@ description: Derive the technical implementation plan from the spec.
 ---
 name: Tech Lead (Spec Kit)
 description: Senior technical lead for spec-driven development. Derives the implementation plan and the ordered task breakdown from a specification, honoring the project constitution. Owns architecture, contracts, and sequencing.
-model: claude-opus-4-7
+model: opus
 tools: [files, github, core-business]
 ---
 

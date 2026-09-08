@@ -1,7 +1,7 @@
-import * as os from 'os';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import {
+  claudeConfigDir,
   BUILTIN_WORKFLOWS,
   DEFAULT_GLOBAL_WORKFLOW_IDS,
   installWorkflowGlobalsByIds,
@@ -14,7 +14,9 @@ import {
 import { cliTemplatesRoot } from '../templatesRoot';
 
 /**
- * Manage the built-in workflow agents + skills installed under `~/.claude/`.
+ * Manage the built-in workflow agents + skills installed under the active
+ * Claude config dir (`~/.claude`, or whatever `CLAUDE_CONFIG_DIR` points at —
+ * on a multi-account machine that is how the accounts are told apart).
  * The extension exposes install/uninstall as palette commands; this gives the
  * same control from the terminal — notably `uninstall`, which had no CLI path
  * (run it before removing the extension to clean up global files).
@@ -42,7 +44,7 @@ export function registerGlobals(program: Command): void {
         return;
       }
 
-      console.log(chalk.bold('\nBuilt-in workflow globals (~/.claude/)'));
+      console.log(chalk.bold(`\nBuilt-in workflow globals (${claudeConfigDir()})`));
       for (const r of rows) {
         const mark = r.installed ? chalk.green('✔ installed') : chalk.dim('· not installed');
         console.log(`  ${chalk.cyan(r.id.padEnd(24))} ${mark}`);
@@ -72,7 +74,7 @@ export function registerGlobals(program: Command): void {
           ` ${chalk.bold(r.workflow)} — wrote ${r.written.length}, skipped ${r.skipped.length}`,
         );
       }
-      console.log(chalk.dim('  Files live under ~/.claude/agents and ~/.claude/skills'));
+      console.log(chalk.dim(`  Files live under ${claudeConfigDir()}/{agents,skills}`));
 
       // Annotation + epic-memory tooling (renderer, annotron, epic-memory, and
       // the /annotate-artifact + /epic-context skills). Same payload the VS Code
@@ -114,27 +116,27 @@ export function registerGlobals(program: Command): void {
 
   // ── memory-hook ─────────────────────────────────────────────────────────────
   // Opt-in UserPromptSubmit hook that auto-loads an epic's memory whenever a
-  // prompt refers to that epic. Toggles the entry in ~/.claude/settings.json.
+  // prompt refers to that epic. Toggles the entry in the active Claude config
+  // dir's settings.json (`~/.claude` unless CLAUDE_CONFIG_DIR moves it).
   const hook = cmd
     .command('memory-hook <action>')
     .description('Toggle the epic-memory auto-load hook (action: enable | disable | status)')
     .action((action: string) => {
-      const home = os.homedir();
       if (action === 'status') {
-        const on = isEpicMemoryHookEnabled(home);
+        const on = isEpicMemoryHookEnabled();
         console.log(`Epic-memory hook: ${on ? chalk.green('enabled') : chalk.dim('disabled')}`);
         return;
       }
       if (action === 'enable') {
         // Ensure the hook script (and the rest of the tooling) is present first.
         installAnnotationTools(cliTemplatesRoot());
-        const r = setEpicMemoryHook(true, home);
+        const r = setEpicMemoryHook(true);
         console.log(chalk.green('✔') + ` Epic-memory hook enabled${r.changed ? '' : ' (already on)'}.`);
         console.log(chalk.dim('  A prompt that mentions an epic now auto-loads its epic-memory.json.'));
         return;
       }
       if (action === 'disable') {
-        const r = setEpicMemoryHook(false, home);
+        const r = setEpicMemoryHook(false);
         console.log(chalk.yellow('↓') + ` Epic-memory hook disabled${r.changed ? '' : ' (already off)'}.`);
         return;
       }

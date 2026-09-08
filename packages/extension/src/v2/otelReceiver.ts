@@ -18,8 +18,9 @@
  */
 import * as http from 'http';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+
+import { claudeConfigDir } from '@aidlc/core';
 
 export interface OtelModelRow { model: string; tokens: number; cost: number; }
 
@@ -189,7 +190,7 @@ function parseAttrs(attrs: unknown): Record<string, string> {
 // ── settings.json env wiring ────────────────────────────────────────────────
 
 function settingsPath(): string {
-  return path.join(os.homedir(), '.claude', 'settings.json');
+  return path.join(claudeConfigDir(), 'settings.json');
 }
 
 function readSettings(): Record<string, unknown> {

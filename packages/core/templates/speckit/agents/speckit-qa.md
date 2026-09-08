@@ -1,7 +1,7 @@
 ---
 name: QA Analyst (Spec Kit)
 description: Quality analyst for spec-driven development. Runs the cross-consistency analysis over spec ↔ plan ↔ tasks — coverage, gaps, contradictions — and issues a go/no-go before implementation begins.
-model: claude-sonnet-4-6
+model: sonnet
 tools: [files]
 ---
 

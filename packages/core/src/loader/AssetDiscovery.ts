@@ -30,6 +30,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { claudeConfigDir } from '../util/claudeHome';
+
 export type AssetScope = 'project' | 'aidlc' | 'global';
 export type AssetKind = 'skill' | 'agent';
 
@@ -84,8 +86,8 @@ export function scopePaths(
       };
     case 'global':
       return {
-        skills: path.join(homeDir, '.claude', 'skills'),
-        agents: path.join(homeDir, '.claude', 'agents'),
+        skills: path.join(claudeConfigDir({ homeDir }), 'skills'),
+        agents: path.join(claudeConfigDir({ homeDir }), 'agents'),
       };
   }
 }

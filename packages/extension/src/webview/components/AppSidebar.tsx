@@ -1,4 +1,4 @@
-import { useState, useCallback, type MouseEvent as ReactMouseEvent } from 'react';
+import { useState, useEffect, useCallback, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   Bot,
   GitBranch,
@@ -19,6 +19,12 @@ import {
   HelpCircle,
   ListTree,
   Github,
+  Languages,
+  Fingerprint,
+  Check,
+  Clipboard,
+  ScanEye,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -26,14 +32,20 @@ import type {
   RecentEpicRef,
   TemplateRef,
   McpServerInfo,
+  ActiveRun,
+  AgentActivity,
+  AgentActivityMap,
+  EpicIdPrefixSource,
 } from '@/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { SavePresetModal } from './SavePresetModal';
 import { LoadDemoModal } from './LoadDemoModal';
 import { ThemeToggle } from './ThemeToggle';
+import { AgentRunningBanner } from './AgentRunningBanner';
 import { postMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
 
 interface CollapseState {
+  activeRuns: boolean;
   recentEpics: boolean;
   workflows: boolean;
   mcpServers: boolean;
@@ -44,6 +56,8 @@ interface PersistedUi {
 }
 
 const DEFAULT_COLLAPSED: CollapseState = {
+  // The one section that is asking the user to do something — never starts shut.
+  activeRuns: false,
   recentEpics: false,
   workflows: false,
   mcpServers: true,
@@ -114,6 +128,17 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
               </button>
             )}
 
+            {state.configExists && <ArtifactLanguageRow value={state.artifactLanguage} />}
+
+            {state.configExists && (
+              <EpicIdPrefixRow
+                value={state.epicIdPrefix}
+                source={state.epicIdPrefixSource}
+                suggestion={state.epicIdPrefixSuggestion}
+                needsSetup={state.epicIdPrefixNeedsSetup}
+              />
+            )}
+
             {!state.configExists && (
               <div className="rounded-md border border-dashed border-border bg-surface/50 p-3 text-[11px] text-muted-foreground leading-relaxed">
                 No <code className="rounded bg-primary/10 px-1 py-0.5 font-mono text-primary">workspace.yaml</code> yet — open the Builder from the title bar to scaffold one.
@@ -145,6 +170,15 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
 
                 <StatsGrid state={state} />
 
+                {state.activeRuns.length > 0 && (
+                  <ActiveRunsSection
+                    runs={state.activeRuns}
+                    activity={state.agentActivity ?? {}}
+                    collapsed={collapsed.activeRuns}
+                    onToggle={() => toggleSection('activeRuns')}
+                  />
+                )}
+
                 {state.recentEpics.length > 0 && (
                   <RecentEpicsSection
                     epics={state.recentEpics}
@@ -161,7 +195,6 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
               project={state.projectTemplates}
               configExists={state.configExists}
               workspaceName={state.workspaceName}
-              autopilotEnabled={state.autopilotEnabled}
               collapsed={collapsed.workflows}
               onToggle={() => toggleSection('workflows')}
             />
@@ -180,6 +213,169 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
       <Footer hasFolder={state.hasFolder} />
 
     </aside>
+  );
+}
+
+/**
+ * The languages offered by name. The setting takes free text — the prompt
+ * section quotes whatever is there back at the model — so this list is a
+ * convenience, not a whitelist; a value set by hand in the YAML is preserved
+ * and shown as its own option.
+ */
+const ARTIFACT_LANGUAGES = [
+  'English',
+  'Vietnamese',
+  'Japanese',
+  'Korean',
+  'Chinese',
+  'French',
+  'German',
+  'Spanish',
+];
+
+/**
+ * Picks the language every artifact's prose is written in.
+ *
+ * Unset is a real choice, not a missing one: it means "no opinion", the phase
+ * prompts emit no language section at all, and each agent infers a language
+ * from the epic brief. That inference is per-phase, which is how a workspace
+ * ends up with a Vietnamese intent and an English spec — the pipeline's whole
+ * premise is that phase N+1 reads phase N.
+ */
+function ArtifactLanguageRow({ value }: { value: string | null }) {
+  const current = value ?? '';
+  const known = current === '' || ARTIFACT_LANGUAGES.includes(current);
+  return (
+    <label
+      className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground"
+      title="artifact_language in workspace.yaml — the language agents write artifact prose in. Headings, field labels and identifiers stay English either way."
+    >
+      <Languages className="h-3.5 w-3.5 shrink-0" />
+      <span className="shrink-0">Artifact language</span>
+      <select
+        value={current}
+        onChange={(e) => postMessage({ type: 'setArtifactLanguage', language: e.target.value })}
+        className="ml-auto min-w-0 rounded border border-border bg-surface px-1.5 py-0.5 text-[11px] text-foreground"
+      >
+        <option value="">No preference</option>
+        {!known && <option value={current}>{current}</option>}
+        {ARTIFACT_LANGUAGES.map((lang) => (
+          <option key={lang} value={lang}>{lang}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/**
+ * Sets the two letters that scope this checkout's suggested epic ids.
+ *
+ * Unset is the historical behaviour and stays available: the Start-Epic
+ * suggestion is then `EPIC-<nnn>`, numbered across the whole folder. With two
+ * letters set it becomes `EPIC-<yymmdd>-<XX>-<nnn>`, the date read locally, and
+ * the counter restarts each day within this prefix. Nothing renames an epic
+ * that already exists.
+ */
+/**
+ * The two letters that scope this checkout's epic ids.
+ *
+ * The row has two faces. Once `.aidlc/user.yaml` names a prefix it is the
+ * quiet input it always was. Until then it is a warning, because the unset
+ * state used to be an empty box with a "none" placeholder — indistinguishable
+ * from a box someone had already looked at and left alone, which is how a
+ * whole team ends up sharing one person's initials.
+ *
+ * Two things are deliberately *not* done here. A derived prefix is offered,
+ * never applied: guessing someone's initials and stamping them on every epic
+ * they open is the same mistake as inheriting a colleague's. And there is no
+ * pop-up on activation — leaving the prefix unset is a legitimate choice for a
+ * one-person repo, and nagging the people who made it correctly is worse than
+ * a warning they can see when they look.
+ */
+function EpicIdPrefixRow({ value, source, suggestion, needsSetup }: {
+  value: string | null;
+  source: EpicIdPrefixSource;
+  suggestion: string | null;
+  needsSetup: boolean;
+}) {
+  // Unset rows open on the suggestion so accepting it is one click; set rows
+  // open on the real value so the field never lies about what is in effect.
+  const initial = needsSetup ? (suggestion ?? '') : (value ?? '');
+  const [draft, setDraft] = useState(initial);
+  useEffect(() => { setDraft(initial); }, [initial]);
+
+  const invalid = draft !== '' && !/^[A-Za-z]{2}$/.test(draft);
+  const save = (next: string) => {
+    if (next !== '' && !/^[A-Za-z]{2}$/.test(next)) { return; }
+    postMessage({ type: 'setEpicIdPrefix', prefix: next.toUpperCase() });
+  };
+  const commit = () => {
+    if (invalid) { return; }
+    const next = draft.toUpperCase();
+    // While unset, committing the untouched suggestion is the whole point, so
+    // this cannot short-circuit on "same as current" the way the settled row does.
+    if (needsSetup || next !== (value ?? '')) { save(next); }
+  };
+
+  const field = (
+    <input
+      value={draft}
+      maxLength={2}
+      placeholder="none"
+      spellCheck={false}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
+      className={`w-14 rounded border bg-surface px-1.5 py-0.5 text-center text-[11px] uppercase text-foreground ${invalid ? 'border-destructive' : 'border-border'}`}
+    />
+  );
+
+  if (!needsSetup) {
+    return (
+      <label
+        className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground"
+        title="epic_id_prefix in .aidlc/user.yaml — two letters of your own, so a new epic is suggested as EPIC-260908-NG-001 instead of a number a colleague may already be using. This file is gitignored: your prefix stays yours. Clear it for plain EPIC-001."
+      >
+        <Fingerprint className="h-3.5 w-3.5 shrink-0" />
+        <span className="shrink-0">Epic ID prefix</span>
+        <span className="ml-auto">{field}</span>
+      </label>
+    );
+  }
+
+  return (
+    <div className="w-full rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-foreground">
+      <div className="flex items-center gap-2 font-medium">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
+        <span>No epic id prefix of your own</span>
+      </div>
+      <p className="mt-1 text-muted-foreground">
+        {source === 'workspace' ? (
+          <>
+            <code className="font-mono text-foreground">{value}</code> comes from the shared{' '}
+            <code className="font-mono">workspace.yaml</code>, so everyone who pulls it files
+            their epics under it. Claim two letters of your own.
+          </>
+        ) : (
+          <>New epics are named <code className="font-mono text-foreground">EPIC-001</code> — a
+          number a colleague may already be using. Two letters of your own keep them apart.</>
+        )}
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        {field}
+        <button
+          type="button"
+          onClick={commit}
+          disabled={invalid || draft === ''}
+          className="rounded-md border border-warning/50 bg-warning/20 px-2 py-1 text-[10.5px] font-semibold text-foreground transition-colors hover:bg-warning/30 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Use {draft.toUpperCase() || '—'}
+        </button>
+        {suggestion && (
+          <span className="text-[10px] text-muted-foreground">from your git user.name</span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -420,6 +616,240 @@ function SectionHeader({
   );
 }
 
+/**
+ * Pipeline runs with `status === 'running'`.
+ *
+ * The host has always computed `activeRuns`, but nothing rendered it — so a run
+ * started from the Builder's Run button had no surface at all once its toast
+ * faded, and the toast's own "click Mark step done in the sidebar" pointed at a
+ * section that did not exist. This is that section.
+ *
+ * Runs that belong to an epic get a link into the Epics view rather than a
+ * second, thinner copy of the epic UI; the step controls stay here either way
+ * because acting on the current step is the whole reason to look at this list.
+ */
+function ActiveRunsSection({
+  runs,
+  activity,
+  collapsed,
+  onToggle,
+}: {
+  runs: ActiveRun[];
+  activity: AgentActivityMap;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div>
+      <SectionHeader
+        label="Active Runs"
+        collapsed={collapsed}
+        onToggle={onToggle}
+        trailing={
+          <span className="text-[10px] tabular-nums text-muted-foreground">{runs.length}</span>
+        }
+      />
+      {!collapsed && (
+        <div className="mt-1.5 space-y-1.5">
+          {runs.map((r) => (
+            <ActiveRunCard key={r.runId} run={r} activity={activity[r.runId] ?? null} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const RUN_STEP_STATUS: Record<string, { label: string; cls: string }> = {
+  awaiting_work: { label: 'Awaiting work', cls: 'border-warning/40 bg-warning/15 text-warning' },
+  awaiting_auto_review: { label: 'Auto-review', cls: 'border-primary/40 bg-primary/15 text-primary' },
+  awaiting_review: { label: 'Awaiting review', cls: 'border-primary/40 bg-primary/15 text-primary' },
+  rejected: { label: 'Rejected', cls: 'border-destructive/40 bg-destructive/15 text-destructive' },
+  pending: { label: 'Pending', cls: 'border-border bg-secondary text-muted-foreground' },
+  approved: { label: 'Approved', cls: 'border-success/40 bg-success/15 text-success' },
+};
+
+function ActiveRunCard({
+  run,
+  activity,
+}: {
+  run: ActiveRun;
+  activity: AgentActivity | null;
+}) {
+  const status = RUN_STEP_STATUS[run.currentStepStatus] ?? {
+    label: run.currentStepStatus || 'unknown',
+    cls: 'border-border bg-secondary text-muted-foreground',
+  };
+  // The commands below resolve the current step themselves when handed only a
+  // runId, so the sidebar never has to reason about step indices.
+  const act = (type: string) => () => postMessage({ type, runId: run.runId });
+  const missingRequires = run.requires.filter((r) => !r.exists);
+  // Same rule as the epic card: while an agent we launched is still on this
+  // run, there is nothing yet to mark done, approve or reject.
+  const busy = !!activity;
+  const busyTitle = 'An agent is still working on this run — wait for it, or dismiss the banner above';
+
+  return (
+    <div className="rounded-md border border-border bg-card/50 px-2.5 py-2 text-[11px]">
+      <div className="flex items-center gap-1.5">
+        {run.epicId ? (
+          <button
+            type="button"
+            onClick={() => postMessage({ type: 'openEpic', id: run.epicId })}
+            title={`Open ${run.epicId} in the Epics view`}
+            className="truncate font-mono text-[10px] font-bold text-primary hover:underline"
+          >
+            {run.runId}
+          </button>
+        ) : (
+          <span className="truncate font-mono text-[10px] font-bold text-primary">
+            {run.runId}
+          </span>
+        )}
+        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+          {run.currentStepIdx + 1}/{run.totalSteps}
+        </span>
+        <button
+          type="button"
+          onClick={act('openRunState')}
+          title="Open the run JSON"
+          className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <FileCode2 className="h-3 w-3" />
+        </button>
+      </div>
+
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+        <span
+          className={cn(
+            'rounded-full border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider',
+            status.cls,
+          )}
+        >
+          {status.label}
+        </span>
+        <span className="truncate text-muted-foreground">{run.currentAgent}</span>
+        {run.revision > 1 && (
+          <span className="text-[9px] text-muted-foreground">rev {run.revision}</span>
+        )}
+      </div>
+
+      {run.currentSlashCommand && run.currentStepStatus === 'awaiting_work' && (
+        <button
+          type="button"
+          onClick={() =>
+            postMessage({
+              type: 'copyCommand',
+              command: `${run.currentSlashCommand} ${run.runId}`,
+            })
+          }
+          title="Copy this command to the clipboard"
+          className="mt-1.5 flex w-full items-center gap-1.5 rounded border border-border bg-surface/60 px-1.5 py-1 font-mono text-[10px] text-foreground hover:bg-accent"
+        >
+          <Clipboard className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">
+            {run.currentSlashCommand} {run.runId}
+          </span>
+        </button>
+      )}
+
+      {activity && <AgentRunningBanner activity={activity} className="mt-1.5" />}
+
+      {(run.rejectReason || run.feedback) && (
+        <div className="mt-1.5 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[10px] leading-snug text-muted-foreground">
+          {run.rejectReason || run.feedback}
+        </div>
+      )}
+
+      {missingRequires.length > 0 && (
+        <div className="mt-1.5 text-[10px] leading-snug text-warning">
+          Missing input{missingRequires.length === 1 ? '' : 's'}:{' '}
+          <span className="font-mono">{missingRequires.map((r) => r.path).join(', ')}</span>
+        </div>
+      )}
+
+      {run.produces.length > 0 && (
+        <div className="mt-1.5 space-y-0.5">
+          {run.produces.map((p) => (
+            <button
+              key={p.path}
+              type="button"
+              onClick={() => postMessage({ type: 'openArtifact', path: p.path })}
+              title={p.exists ? `Open ${p.path}` : `${p.path} — not written yet`}
+              className="flex w-full items-center gap-1.5 text-left font-mono text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              <span
+                className={cn(
+                  'h-1.5 w-1.5 shrink-0 rounded-full',
+                  p.exists ? 'bg-success' : 'border border-muted-foreground/50',
+                )}
+              />
+              <span className="truncate">{p.path}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-1.5 flex flex-wrap gap-1">
+        {run.currentStepStatus === 'awaiting_work' && (
+          <RunAction icon={<Check className="h-2.5 w-2.5" />} label="Mark step done" onClick={act('markStepDone')} primary disabled={busy} title={busy ? busyTitle : undefined} />
+        )}
+        {run.currentStepStatus === 'awaiting_auto_review' && (
+          <RunAction icon={<ScanEye className="h-2.5 w-2.5" />} label="Run auto-review" onClick={act('runAutoReview')} primary disabled={busy} title={busy ? busyTitle : undefined} />
+        )}
+        {run.currentStepStatus === 'awaiting_review' && (
+          <>
+            <RunAction icon={<Check className="h-2.5 w-2.5" />} label="Approve" onClick={act('approveStep')} primary disabled={busy} title={busy ? busyTitle : undefined} />
+            <RunAction icon={<X className="h-2.5 w-2.5" />} label="Reject" onClick={act('rejectStep')} disabled={busy} title={busy ? busyTitle : undefined} />
+          </>
+        )}
+        {run.currentStepStatus === 'rejected' && (
+          <RunAction icon={<RefreshCw className="h-2.5 w-2.5" />} label="Rerun" onClick={act('rerunStep')} primary disabled={busy} title={busy ? busyTitle : undefined} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RunAction({
+  icon,
+  label,
+  onClick,
+  primary,
+  disabled,
+  title,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+        primary
+          ? 'border-primary/40 bg-primary/15 text-primary'
+          : 'border-border bg-card text-muted-foreground',
+        disabled
+          ? 'cursor-not-allowed opacity-40'
+          : primary
+          ? 'hover:bg-primary/25'
+          : 'hover:bg-accent hover:text-foreground',
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
 function RecentEpicsSection({
   epics,
   epicsCount,
@@ -454,11 +884,12 @@ function RecentEpicsSection({
               key={e.id}
               role="button"
               tabIndex={0}
-              onClick={() => postMessage({ type: 'openEpicState', path: e.statePath })}
+              title={`Open ${e.id} in the Epics view`}
+              onClick={() => postMessage({ type: 'openEpic', id: e.id })}
               onKeyDown={(ev) => {
                 if (ev.key === 'Enter' || ev.key === ' ') {
                   ev.preventDefault();
-                  postMessage({ type: 'openEpicState', path: e.statePath });
+                  postMessage({ type: 'openEpic', id: e.id });
                 }
               }}
               className="flex cursor-pointer items-center gap-2 rounded-md border border-border bg-card/50 px-2.5 py-1.5 text-[11px] transition-colors hover:bg-accent"
@@ -598,7 +1029,6 @@ function WorkflowsSection({
   project,
   configExists,
   workspaceName,
-  autopilotEnabled,
   collapsed,
   onToggle,
 }: {
@@ -606,7 +1036,6 @@ function WorkflowsSection({
   project: TemplateRef[];
   configExists: boolean;
   workspaceName: string;
-  autopilotEnabled: boolean;
   collapsed: boolean;
   onToggle: () => void;
 }) {
@@ -646,7 +1075,6 @@ function WorkflowsSection({
               {builtins.map((t) => (
                 <TemplateRow key={t.id} template={t} builtin onApply={onApplyClick} />
               ))}
-              <AutopilotRow enabled={autopilotEnabled} />
             </>
           )}
           {project.length > 0 && (
@@ -760,65 +1188,6 @@ function TemplateRow({
   );
 }
 
-// The AIDLC Autopilot entry in the Common workflows. It isn't a template you
-// apply — it's a behavior gated by the `aidlc.autopilot.enabled` setting — so
-// the row mirrors that setting: "Coming soon" (disabled look) when off, "On"
-// (active look) when enabled. Clicking either state deep-links to the setting
-// so the user can flip it. The shared concept blurb frames the feature.
-const AUTOPILOT_CONCEPT =
-  'AIDLC Autopilot\n\n' +
-  "Reads your project's real context — codebase, tests, spec, and design — " +
-  'sizes the epic, then drafts a plan tailored to it: which agents run in ' +
-  'which phases, what to clarify first, and which phases to add. A near-' +
-  'superpower that stays grounded in your business and codebase, not generic ' +
-  'boilerplate.';
-
-function AutopilotRow({ enabled }: { enabled: boolean }) {
-  const tip = useTooltip();
-  const tipText =
-    AUTOPILOT_CONCEPT +
-    (enabled
-      ? '\n\n✅ On — runs automatically when you start an epic. Click to manage the setting.'
-      : '\n\n🚧 Coming soon — ships disabled. Click to enable the experimental `aidlc.autopilot.enabled` setting.');
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => postMessage({ type: 'openAutopilotSetting' })}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          postMessage({ type: 'openAutopilotSetting' });
-        }
-      }}
-      onMouseEnter={tip.onMouseEnter}
-      onMouseLeave={tip.onMouseLeave}
-      className={cn(
-        'flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px] transition-colors',
-        enabled
-          ? 'border-border bg-card/50 hover:bg-accent'
-          : 'border-dashed border-border bg-card/30 opacity-60 hover:opacity-100',
-      )}
-    >
-      <Zap className={cn('h-3 w-3 shrink-0', enabled ? 'text-primary opacity-80' : 'text-muted-foreground')} />
-      <span className={cn('shrink-0 truncate font-semibold max-w-[40%]', enabled ? 'text-primary' : 'text-muted-foreground')}>
-        AIDLC Autopilot
-      </span>
-      <span className="truncate text-muted-foreground">· Auto-plan epics from your project context</span>
-      <span
-        className={cn(
-          'ml-auto shrink-0 rounded-sm border px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider',
-          enabled
-            ? 'border-primary/40 text-primary'
-            : 'border-border text-muted-foreground',
-        )}
-      >
-        {enabled ? 'On' : 'Coming soon'}
-      </span>
-      {tip.pos && <Tooltip pos={tip.pos} text={tipText} />}
-    </div>
-  );
-}
 
 function Footer({ hasFolder }: { hasFolder: boolean }) {
   const v = typeof window !== 'undefined' ? window.EXTENSION_VERSION : undefined;

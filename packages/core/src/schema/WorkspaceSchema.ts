@@ -59,7 +59,11 @@ const AgentSchema = z.preprocess(
   /** Skill ids — every entry must reference a skill in the workspace `skills` list. */
   skills: z.array(z.string().min(1)).min(1, 'Agent must reference at least one skill'),
   model: z.string().optional(),
-  runner: z.enum(['default', 'custom']).default('default'),
+  // `default` keeps meaning Claude Code: renaming it to `claude` would
+  // invalidate every workspace.yaml already on disk and buy nothing
+  // (MULTI_PROVIDER_ALIGNMENT.md P0/D1). A closed enum is what lets
+  // `aidlc validate` reject a typo instead of failing at spawn time.
+  runner: z.enum(['default', 'custom', 'codex', 'gemini']).default('default'),
   /** Required when runner === 'custom'. Relative path to .js or .ts file. */
   runner_path: z.string().optional(),
   /** Per-agent env overrides (layered over workspace.environment). */
@@ -206,6 +210,14 @@ const PipelineBudgetSchema = z.object({
 
 const PipelineSchema = z.object({
   id: z.string().min(1),
+  /**
+   * Set by {@link assemblePipeline} to the pipeline the recipe drew its steps
+   * from. An assembled pipeline is named after its epic (`EPIC-001`), so
+   * without this there is nothing left tying it back to `ai-native-full` —
+   * and artifact templates live under the *source* id. Absent on hand-authored
+   * pipelines, which are their own source.
+   */
+  derived_from: z.string().min(1).optional(),
   steps: z.array(PipelineStepSchema).min(1),
   on_failure: z.enum(['stop', 'continue']).default('stop'),
   budget: PipelineBudgetSchema.optional(),
@@ -227,6 +239,13 @@ const PipelineSchema = z.object({
  * must already exist in the workspace (seeded by a preset or hand-authored),
  * which {@link collectWorkspaceRefIssues} verifies.
  */
+/** One step's gate overrides inside a recipe. Omitted fields inherit. */
+const RecipeGateSchema = z.object({
+  human_review: z.boolean().optional(),
+  auto_review: z.boolean().optional(),
+  auto_review_runner: z.string().min(1).optional(),
+});
+
 const RecipeSchema = z.object({
   id: z.string().min(1),
   /** One-line summary shown in pickers / `aidlc pipeline recipes`. */
@@ -241,6 +260,16 @@ const RecipeSchema = z.object({
    * in the source pipeline by its `name` (or `agent` id when unnamed).
    */
   steps: z.array(z.string().min(1)).min(1, 'Recipe must list at least one step'),
+  /**
+   * Per-step review-gate overrides, keyed by the same step identifier used in
+   * `steps`. Without them a recipe inherits `human_review` / `auto_review`
+   * from the source pipeline's step, so every recipe drawn from one pipeline
+   * agrees about where a human has to stand — which is rarely what the task
+   * types want: a small, well-understood change wants the gates early (intent,
+   * plan) and none after, a risky one wants them everywhere. Only the fields
+   * present override; the rest inherit.
+   */
+  gates: z.record(z.string(), RecipeGateSchema).optional(),
 });
 
 export type PipelineStepConfig = z.infer<typeof PipelineStepSchema>;
@@ -364,7 +393,8 @@ export interface WorkspaceRefIssue {
     | 'unknown-step-skill'
     | 'unknown-agent-skill'
     | 'unknown-recipe-source'
-    | 'unknown-recipe-step';
+    | 'unknown-recipe-step'
+    | 'unknown-recipe-gate';
   /** Human-readable, ready to print. */
   message: string;
   /** Dotted path into the workspace, e.g. `pipelines.sdlc-full.steps.design`. */
@@ -448,6 +478,18 @@ export function collectWorkspaceRefIssues(config: WorkspaceConfig): WorkspaceRef
           code: 'unknown-recipe-step',
           message: `Recipe "${recipe.id}" references step "${stepId}" which is not in pipeline "${source.id}". Available: ${[...sourceStepIds].join(', ')}`,
           path: `recipes.${recipe.id}.steps`,
+        });
+      }
+    }
+    // A gate keyed to a step the recipe doesn't run is dead config that still
+    // reads as if it were in force — usually a step dropped from `steps`
+    // without its override following it out.
+    for (const stepId of Object.keys(recipe.gates ?? {})) {
+      if (!recipe.steps.includes(stepId)) {
+        issues.push({
+          code: 'unknown-recipe-gate',
+          message: `Recipe "${recipe.id}" overrides gates for step "${stepId}", which it does not run. Steps: ${recipe.steps.join(', ')}`,
+          path: `recipes.${recipe.id}.gates`,
         });
       }
     }
@@ -543,6 +585,43 @@ const SidebarSchema = z.object({
   views: z.array(SidebarViewSchema).default([]),
 });
 
+// ── Providers (MULTI_PROVIDER_ALIGNMENT.md §P3) ────────────────────
+
+/**
+ * What one model costs, in USD per million tokens. Declared by the user, not
+ * shipped by AIDLC: a published rate goes stale silently and the real number
+ * depends on the account's discounts and credits. See `runs/pricing.ts`.
+ */
+const ProviderRateSchema = z.object({
+  input_per_mtok: z.number().nonnegative(),
+  output_per_mtok: z.number().nonnegative(),
+});
+
+/**
+ * Per-provider facts AIDLC cannot know on the user's behalf.
+ *
+ * ```yaml
+ * providers:
+ *   codex:
+ *     model_aliases:
+ *       sonnet: gpt-5-codex        # "when an agent asks for sonnet, run this"
+ *     rates:
+ *       "*": { input_per_mtok: 1.25, output_per_mtok: 10.0 }
+ * ```
+ *
+ * Both maps are opt-in and both are claims only the user can make: one asserts
+ * that two models from different vendors are interchangeable for their work,
+ * the other asserts what they are actually billed. Absent, an agent on that
+ * provider runs on the CLI's own default model with blind cost accounting —
+ * and `aidlc doctor` says exactly that rather than inventing either number.
+ */
+const ProviderSchema = z.object({
+  /** Claude tier alias (or any `model:` value) → concrete model id, lowercased keys. */
+  model_aliases: z.record(z.string(), z.string()).default({}),
+  /** Model id → rate. The key `*` applies to every model of this provider. */
+  rates: z.record(z.string(), ProviderRateSchema).default({}),
+});
+
 // ── Top-level workspace ────────────────────────────────────────────
 
 export const WorkspaceSchema = z.object({
@@ -564,6 +643,48 @@ export const WorkspaceSchema = z.object({
    */
   standard: z.string().min(1).optional(),
 
+  /**
+   * Natural language for artifact prose (`vi`, `Vietnamese`, `ja`, …). Unset
+   * ⇒ no opinion: the phase prompt carries no language section and the model
+   * infers from context, which is the historical behaviour.
+   *
+   * Free string, not an enum, for the same reason `standard` is: the value is
+   * handed to a model, which understands far more language names than we
+   * could enumerate. See `loader/artifactLanguage.ts` for what it governs —
+   * prose only, never the document skeleton.
+   */
+  artifact_language: z.string().min(1).optional(),
+
+  /**
+   * Two letters that separate this checkout's epic ids from a colleague's, as
+   * in `EPIC-260908-NG-001`. Unset keeps the plain `EPIC-<nnn>` scheme.
+   *
+   * Validated, unlike `artifact_language`, because the value is not handed to
+   * a model to interpret — it is spliced into a directory name, a branch name
+   * and a slash-command argument, where a typo is a folder nobody finds again.
+   * See `loader/epicId.ts`.
+   */
+  epic_id_prefix: z.string().regex(/^[A-Za-z]{2}$/, 'epic_id_prefix must be exactly two letters').optional(),
+
+  /**
+   * Whether an epic's artifacts are committed to a branch of their own as each
+   * step passes its human gate. See `runs/EpicArtifactCommit.ts`.
+   *
+   * `off` (the default) keeps the historical behaviour: artifacts stay dirty in
+   * the working tree until something else commits them. `on_approve` writes a
+   * commit onto `<ref_prefix><runId>` at every approval, using git plumbing —
+   * HEAD, the index and the checkout are never touched, and the branch is
+   * created lazily at the first approval rather than when the epic is created.
+   *
+   * This does not move the artifacts: `docs/epics/` stays tracked on the user's
+   * own branch so they still ship with the PR. The epic branch is a second,
+   * durable home for them.
+   */
+  artifact_commit: z.object({
+    mode: z.enum(['off', 'on_approve']).default('off'),
+    ref_prefix: z.string().min(1).default('epic/'),
+  }).optional(),
+
   agents: z.array(AgentSchema).default([]),
   skills: z.array(SkillSchema).default([]),
   /** Workspace-wide environment, layered under per-agent env. */
@@ -572,6 +693,12 @@ export const WorkspaceSchema = z.object({
   pipelines: z.array(PipelineSchema).default([]),
   /** Task-type → pipeline recipes. See {@link RecipeSchema}. */
   recipes: z.array(RecipeSchema).default([]),
+
+  /**
+   * Per-provider model aliases + billing rates, keyed by `runner` id
+   * (`codex`, `gemini`, …). See {@link ProviderSchema}.
+   */
+  providers: z.record(z.string(), ProviderSchema).default({}),
 
   state: StateSchema.optional(),
   /** Where run state is persisted (file | git). Defaults to local file. */
@@ -585,7 +712,10 @@ export type SkillConfig = z.infer<typeof SkillSchema>;
 export type SlashCommandConfig = z.infer<typeof SlashCommandSchema>;
 export type PipelineConfig = z.infer<typeof PipelineSchema>;
 export type PipelineBudget = z.infer<typeof PipelineBudgetSchema>;
+export type ProviderConfig = z.infer<typeof ProviderSchema>;
+export type ProviderRate = z.infer<typeof ProviderRateSchema>;
 export type RecipeConfig = z.infer<typeof RecipeSchema>;
+export type RecipeGateConfig = z.infer<typeof RecipeGateSchema>;
 export type StateConfig = z.infer<typeof StateSchema>;
 export type SidebarConfig = z.infer<typeof SidebarSchema>;
 export type SidebarView = z.infer<typeof SidebarViewSchema>;

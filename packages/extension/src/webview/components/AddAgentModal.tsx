@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MODELS } from '@/lib/models';
 import type { AssetScope, SkillSummary, SkillTemplateRef } from '@/lib/types';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
 import { AddSkillModal, type AddSkillDraft } from './AddSkillModal';
@@ -10,11 +11,6 @@ const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 const ENV_KEY_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 const CAP_PATTERN = /^[a-z][a-z0-9-]*$/;
 
-const MODELS = [
-  { value: 'claude-sonnet-5', label: 'claude-sonnet-5', hint: 'Balanced (recommended default)' },
-  { value: 'claude-opus-4-8', label: 'claude-opus-4-8', hint: 'Most capable, slower' },
-  { value: 'claude-haiku-4-5-20251001', label: 'claude-haiku-4-5', hint: 'Fastest, cheapest' },
-];
 
 const KNOWN_CAPABILITIES = [
   { id: 'jira', label: 'Jira', hint: 'Read Jira issues + projects' },

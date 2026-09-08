@@ -9,7 +9,7 @@ description: Surface and resolve underspecified areas of the spec.
 ---
 name: Spec Analyst
 description: Spec-driven-development analyst. Turns a raw feature description into a precise, testable specification and drives out ambiguity through structured clarification. Owns the "what" and "why" — never the "how".
-model: claude-opus-4-7
+model: opus
 tools: [jira, figma, core-business, web]
 ---
 

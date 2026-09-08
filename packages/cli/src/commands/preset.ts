@@ -7,6 +7,9 @@ import {
   BUILTIN_WORKFLOWS,
   loadBuiltinPreset,
   installWorkflowGlobalsByIds,
+  provisionWorkflowFiles,
+  relativeEpicRoot,
+  CODING_MODEL,
 } from '@aidlc/core';
 import { readYaml, requireYaml, writeYaml, YamlDocument } from '../yamlIO';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
@@ -32,7 +35,7 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
         id: 'reviewer',
         name: 'Code Reviewer',
         skills: ['code-reviewer'],
-        model: 'claude-sonnet-4-5',
+        model: CODING_MODEL,
         capabilities: ['files', 'github'],
         description: 'Reviews diffs for bugs, security issues, and perf regressions.',
         outputs: 'Structured table with severity / category / verdict, plus PASS or FAIL verdict.',
@@ -55,7 +58,7 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
         id: 'release-writer',
         name: 'Release Notes Writer',
         skills: ['release-notes'],
-        model: 'claude-sonnet-4-5',
+        model: CODING_MODEL,
         description: 'Summarises git commits into user-facing release notes.',
         outputs: 'Markdown release notes grouped by ✨ New / 🛠 Improved / 🐛 Fixed.',
       });
@@ -70,42 +73,72 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
   {
     id: 'sdlc',
     description: 'AIDLC SDLC pipeline (parallel): Plan → (Design ∥ Test Plan) → Implement (+unit-test) ∥ Generate Test Cases → Execute Test (+report)',
-    apply(_root, doc) {
-      // Shared with the extension: build the workspace shape (agents, skills,
-      // slash commands, pipeline) from the canonical built-in workflow in
-      // @aidlc/core. The shape is template-independent — only the composed
-      // skill *bodies* read template files, which the CLI doesn't write here
-      // (skills resolve to ~/.claude/skills/aidlc-*.md, installed by the
-      // extension or `aidlc` global install).
-      const workflow = BUILTIN_WORKFLOWS[0];
-      const templatesRoot = cliTemplatesRoot();
-      // Install the composed agent/skill markdown into ~/.claude so the
-      // workspace.yaml skill paths (~/.claude/skills/aidlc-*.md) resolve —
-      // same files the extension installs. Idempotent + marker-guarded.
-      installWorkflowGlobalsByIds(templatesRoot, [workflow.id]);
-      const preset = loadBuiltinPreset(templatesRoot, workflow);
-      const ws = preset.workspace as {
-        agents?: Array<Record<string, unknown>>;
-        skills?: Array<Record<string, unknown>>;
-        slash_commands?: Array<Record<string, unknown>>;
-        pipelines?: Array<Record<string, unknown>>;
-        recipes?: Array<Record<string, unknown>>;
-      };
-      for (const a of ws.agents ?? []) { addIfMissing(doc.agents, a); }
-      for (const s of ws.skills ?? []) { addIfMissing(doc.skills, s); }
-      for (const p of ws.pipelines ?? []) { addIfMissing(doc.pipelines, p); }
-      const cmds = doc.slash_commands;
-      for (const c of ws.slash_commands ?? []) {
-        if (!cmds.some((x) => x.name === c.name)) { cmds.push(c); }
-      }
-      // Recipes drive `aidlc epic start --brief` (auto-suggest): the classifier
-      // matches the brief to a recipe, then assembles a right-sized pipeline.
-      const docRecipes = (Array.isArray(doc.recipes) ? doc.recipes : (doc.recipes = [])) as Array<Record<string, unknown>>;
-      for (const r of ws.recipes ?? []) { addIfMissing(docRecipes, r); }
-      return doc;
+    apply(root, doc) {
+      return applyBuiltinWorkflow('aidlc-workflow', root, doc);
+    },
+  },
+  {
+    id: 'ai-native',
+    description: 'AI-Native SDLC (playbook stages 1-6): Intent → Spec → Build Plan → Implement → Verify → Review → Maintain',
+    apply(root, doc) {
+      return applyBuiltinWorkflow('ai-native-pipeline', root, doc);
     },
   },
 ];
+
+/**
+ * Merge a built-in workflow's workspace shape (agents, skills, slash commands,
+ * pipeline, recipes) into `doc`.
+ *
+ * Shared with the extension, and so are the project files: `.claude/commands/`
+ * and `.aidlc/aidlc-templates/<pipelineId>/` are written through the same core
+ * helper the panel uses. They used to be extension-only, which meant a
+ * CLI-applied workspace declared `/ai-native-full-intent` in `slash_commands`
+ * with no file behind it — the panel's "Run with Claude" button then launched
+ * a command Claude did not know — and scaffolded every epic with an empty
+ * `artifacts/`.
+ *
+ * Looked up by id rather than by position: `BUILTIN_WORKFLOWS` is an ordered
+ * list that grows, so an index would silently bind to the wrong workflow.
+ */
+function applyBuiltinWorkflow(workflowId: string, root: string, doc: YamlDocument): YamlDocument {
+  const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === workflowId);
+  if (!workflow) {
+    throw new Error(
+      `Unknown built-in workflow \`${workflowId}\`. Known: ${BUILTIN_WORKFLOWS.map((w) => w.id).join(', ')}`,
+    );
+  }
+  const templatesRoot = cliTemplatesRoot();
+  // Install the composed agent/skill markdown into ~/.claude so the
+  // workspace.yaml skill paths (~/.claude/skills/aidlc-*.md) resolve —
+  // same files the extension installs. Idempotent + marker-guarded.
+  installWorkflowGlobalsByIds(templatesRoot, [workflow.id]);
+  const preset = loadBuiltinPreset(templatesRoot, workflow);
+  const ws = preset.workspace as {
+    agents?: Array<Record<string, unknown>>;
+    skills?: Array<Record<string, unknown>>;
+    slash_commands?: Array<Record<string, unknown>>;
+    pipelines?: Array<Record<string, unknown>>;
+    recipes?: Array<Record<string, unknown>>;
+  };
+  for (const a of ws.agents ?? []) { addIfMissing(doc.agents, a); }
+  for (const s of ws.skills ?? []) { addIfMissing(doc.skills, s); }
+  for (const p of ws.pipelines ?? []) { addIfMissing(doc.pipelines, p); }
+  const cmds = doc.slash_commands;
+  for (const c of ws.slash_commands ?? []) {
+    if (!cmds.some((x) => x.name === c.name)) { cmds.push(c); }
+  }
+  // Recipes drive `aidlc epic start --brief` (auto-suggest): the classifier
+  // matches the brief to a recipe, then assembles a right-sized pipeline.
+  const docRecipes = (Array.isArray(doc.recipes) ? doc.recipes : (doc.recipes = [])) as Array<Record<string, unknown>>;
+  for (const r of ws.recipes ?? []) { addIfMissing(docRecipes, r); }
+
+  // The slash commands just merged into `doc` name files that have to exist,
+  // and `scaffoldEpic` seeds `artifacts/` from the template dir. Written after
+  // the merge so `epicRoot` reflects any `state.root` the workspace declares.
+  provisionWorkflowFiles(templatesRoot, root, workflow, preset, { epicRoot: relativeEpicRoot(doc) });
+  return doc;
+}
 
 // ── User presets (stored in .aidlc/presets/*.json) ────────────────────────────
 

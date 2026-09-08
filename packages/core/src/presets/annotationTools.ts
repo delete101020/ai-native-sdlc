@@ -30,8 +30,9 @@
  */
 
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+
+import { claudeConfigDir } from '../util/claudeHome';
 
 const SKILL_MARKER = '<!-- AIDLC annotation tool — reinstalled by AIDLC; hand edits are overwritten -->';
 const SKILL_MARKER_KEY = 'AIDLC annotation tool';
@@ -45,9 +46,9 @@ export function installAnnotationTools(
   bundleRoot: string,
   log?: (msg: string) => void,
 ): AnnotationToolsReport {
-  const home = os.homedir();
-  const toolsDest = path.join(home, '.claude', 'tools');
-  const skillsDest = path.join(home, '.claude', 'skills');
+  const claudeDir = claudeConfigDir();
+  const toolsDest = path.join(claudeDir, 'tools');
+  const skillsDest = path.join(claudeDir, 'skills');
 
   const rendererSrc = path.join(bundleRoot, 'tools', 'md-to-html.mjs');
   const markedSrc = path.join(bundleRoot, 'tools', 'vendor', 'marked.esm.mjs');
@@ -86,7 +87,7 @@ export function installAnnotationTools(
     removeIfOurs(path.join(skillsDest, `aidlc-${name}.md`), log);
   }
 
-  log?.(`annotationTools: installed renderer + annotron + epic-memory + skills into ${path.join(home, '.claude')}`);
+  log?.(`annotationTools: installed renderer + annotron + epic-memory + skills into ${claudeDir}`);
   return { installed: true };
 }
 
@@ -151,10 +152,15 @@ function groupHasOurHook(g: HookGroup): boolean {
     && g.hooks.some((h) => typeof h.command === 'string' && h.command.includes(HOOK_SCRIPT));
 }
 
-/** Is the epic-memory auto-load hook currently enabled in ~/.claude/settings.json? */
-export function isEpicMemoryHookEnabled(home: string): boolean {
+/**
+ * Is the epic-memory auto-load hook currently enabled in the active Claude
+ * config dir's `settings.json`? `configDir` overrides that resolution; callers
+ * normally omit it.
+ */
+export function isEpicMemoryHookEnabled(configDir?: string): boolean {
   try {
-    const settings = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf8'));
+    const dir = claudeConfigDir({ configDir });
+    const settings = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
     const groups = settings?.hooks?.UserPromptSubmit;
     return Array.isArray(groups) && groups.some((g: HookGroup) => groupHasOurHook(g));
   } catch {
@@ -164,24 +170,26 @@ export function isEpicMemoryHookEnabled(home: string): boolean {
 
 /**
  * Enable / disable the epic-memory auto-load hook by editing the
- * `hooks.UserPromptSubmit` list in ~/.claude/settings.json. Additive/subtractive
+ * `hooks.UserPromptSubmit` list in the active config dir's settings.json.
+ * Additive/subtractive
  * merge — never touches other hooks or settings. Returns whether a change was
  * written and the resulting state.
  */
 export function setEpicMemoryHook(
   enabled: boolean,
-  home: string,
+  configDir?: string,
   log?: (msg: string) => void,
 ): { changed: boolean; enabled: boolean } {
-  const settingsPath = path.join(home, '.claude', 'settings.json');
+  const dir = claudeConfigDir({ configDir });
+  const settingsPath = path.join(dir, 'settings.json');
   let settings: Record<string, unknown> = {};
   if (fs.existsSync(settingsPath)) {
     try {
       const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
       if (parsed && typeof parsed === 'object') { settings = parsed as Record<string, unknown>; }
     } catch {
-      log?.('epicMemoryHook: ~/.claude/settings.json is not valid JSON — skipping');
-      return { changed: false, enabled: isEpicMemoryHookEnabled(home) };
+      log?.(`epicMemoryHook: ${settingsPath} is not valid JSON — skipping`);
+      return { changed: false, enabled: isEpicMemoryHookEnabled(configDir) };
     }
   }
   const hooks = (settings.hooks && typeof settings.hooks === 'object'
@@ -195,7 +203,7 @@ export function setEpicMemoryHook(
   let changed = false;
 
   if (enabled && !has) {
-    const command = `node "${path.join(home, '.claude', 'tools', HOOK_SCRIPT)}"`;
+    const command = `node "${path.join(dir, 'tools', HOOK_SCRIPT)}"`;
     list.push({ hooks: [{ type: 'command', command }] });
     changed = true;
   } else if (!enabled && has) {

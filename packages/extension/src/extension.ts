@@ -14,7 +14,6 @@
  */
 
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { exec } from 'child_process';
 import * as yaml from 'js-yaml';
 
@@ -26,8 +25,13 @@ import { registerTokenMonitor } from './v2/tokenMonitor';
 import { registerAidlcMonitor } from './v2/aidlcMonitor';
 import { registerAstGraph } from './v2/astGraph';
 import { installAnnotationTools } from './v2/annotationToolsInstaller';
+import { registerClaudeAccounts } from './v2/claudeAccounts';
 import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './v2/epicsDirSync';
-import { WORKSPACE_DIR, WORKSPACE_FILENAME, activateBackendFromWorkspace } from '@aidlc/core';
+import {
+  WORKSPACE_DIR,
+  WORKSPACE_FILENAME,
+  activateBackendFromWorkspace,
+} from '@aidlc/core';
 
 /**
  * Select the run-state backend declared in the first workspace folder's
@@ -52,6 +56,15 @@ export function activate(context: vscode.ExtensionContext): void {
   // prompt. Keeps the global Claude folder clean by default. To remove
   // previously-installed files, run `aidlc.uninstallWorkflowGlobals` before
   // uninstalling the extension (VS Code has no reliable on-uninstall hook).
+
+  // Which Claude account this window talks to. Everything AIDLC writes under
+  // the global Claude folder — workflow agents/skills, the annotation tools,
+  // the epic-memory hook — and everything it reads back — the token monitor's
+  // session logs, MCP registration — goes through this one resolution, so a
+  // user running personal + work accounts sees one consistent account per
+  // window. Must run BEFORE the first thing that touches the folder
+  // (installAnnotationTools, immediately below).
+  registerClaudeAccounts(context, output);
 
   // Annotation tooling is the exception: a tiny, self-contained footprint
   // (renderer + vendored annotron + one skill) that makes /annotate-artifact
@@ -271,13 +284,19 @@ function checkCliInstalled(
  * Watcher for `<workspace>/.aidlc/workspace.yaml`. Returns null when no
  * workspace folder is open — caller should re-create the watcher when one
  * opens via `onDidChangeWorkspaceFolders`.
+ *
+ * The glob is written with forward slashes, deliberately, and every watcher
+ * below follows suit. These used to be built with `path.join`, which on
+ * Windows yields `.aidlc\runs\*.json` — and in a glob a backslash is an
+ * escape character, not a separator, so the pattern matched nothing and the
+ * watcher never fired. `RelativePattern` takes a glob, not a path.
  */
 function createWorkspaceYamlWatcher(): vscode.FileSystemWatcher | null {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) { return null; }
   const pattern = new vscode.RelativePattern(
     folder,
-    path.join(WORKSPACE_DIR, WORKSPACE_FILENAME),
+    `${WORKSPACE_DIR}/${WORKSPACE_FILENAME}`,
   );
   return vscode.workspace.createFileSystemWatcher(pattern);
 }
@@ -292,7 +311,7 @@ function createTemplatesWatcher(): vscode.FileSystemWatcher | null {
   if (!folder) { return null; }
   const pattern = new vscode.RelativePattern(
     folder,
-    path.join(WORKSPACE_DIR, 'templates', '*.json'),
+    `${WORKSPACE_DIR}/templates/*.json`,
   );
   return vscode.workspace.createFileSystemWatcher(pattern);
 }
@@ -334,7 +353,7 @@ function createRunsWatcher(): vscode.FileSystemWatcher | null {
   if (!folder) { return null; }
   const pattern = new vscode.RelativePattern(
     folder,
-    path.join(WORKSPACE_DIR, 'runs', '*.json'),
+    `${WORKSPACE_DIR}/runs/*.json`,
   );
   return vscode.workspace.createFileSystemWatcher(pattern);
 }

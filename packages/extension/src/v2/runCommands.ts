@@ -38,6 +38,7 @@ import {
   requestStepUpdate,
   submitAutoReviewVerdict,
   runAutoReview,
+  commitApprovedArtifacts,
   verifyRun,
   renderRunReport,
   PipelineRunError,
@@ -47,6 +48,7 @@ import type { PipelineConfig, RunState } from '@aidlc/core';
 
 import { readYaml } from './yamlIO';
 import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
+import { agentActivity } from './agentActivity';
 
 /**
  * Save the runtime RunState file AND mirror its display fields + per-step
@@ -54,16 +56,57 @@ import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
  * stays in sync. Mirror failures don't block the save — runs/ is the
  * authoritative source for the live machine; state.json is a snapshot for
  * git / offline review.
+ *
+ * When `prev` is supplied — every transition site passes it — the epic's
+ * artifacts are also committed to its own branch for each step that just
+ * reached `approved`, provided `artifact_commit.mode` is `on_approve`. The
+ * mirror runs first on purpose: state.json has to carry the approval before it
+ * goes into the commit beside the artifact it approves.
  */
-function saveRun(workspaceRoot: string, next: RunState): void {
+function saveRun(workspaceRoot: string, next: RunState, prev?: RunState): void {
   RunStateStore.save(workspaceRoot, next);
+  // Every transition passes through here, and a transition settles the
+  // question: whatever agent we dispatched for this run, the run has moved on
+  // without waiting for it. Marking a step done while Claude is still typing
+  // is the user's call to make — but once made, the "agent running" flag it
+  // overrode is stale and must not keep buttons disabled.
+  agentActivity.end(next.runId);
+  const doc = readYaml(workspaceRoot);
   try {
-    mirrorRunStateToEpic(workspaceRoot, next, readYaml(workspaceRoot));
+    mirrorRunStateToEpic(workspaceRoot, next, doc);
   } catch (err) {
     void vscode.window.showWarningMessage(
       `AIDLC: failed to mirror run state into epic state.json — ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+  if (!prev) { return; }
+
+  const result = commitApprovedArtifacts({ workspaceRoot, before: prev, after: next, doc });
+  if (result.committed) {
+    void vscode.window.setStatusBarMessage(
+      `AIDLC: artifacts committed to ${result.ref?.replace('refs/heads/', '')}`,
+      4000,
+    );
+  } else if (isArtifactCommitFailure(result.reason)) {
+    void vscode.window.showWarningMessage(
+      `AIDLC: could not commit epic artifacts — ${result.reason}`,
+    );
+  }
+}
+
+/**
+ * True when a non-commit is worth telling the user about. The helper reports
+ * the ordinary skips (feature off, nothing approved, nothing changed) through
+ * the same `reason` field as real failures, and a toast for those would fire on
+ * every reject and rerun in a workspace that never enabled the feature.
+ */
+function isArtifactCommitFailure(reason: string | undefined): boolean {
+  if (!reason) { return false; }
+  return !(
+    reason.startsWith('artifact_commit is off') ||
+    reason.startsWith('no step reached approved') ||
+    reason.startsWith('artifacts already committed')
+  );
 }
 
 function getRoot(): string | undefined {
@@ -87,6 +130,42 @@ function loadPipeline(root: string, pipelineId: string): PipelineConfig | undefi
   if (!doc) { return undefined; }
   const found = (doc.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
   return found;
+}
+
+/**
+ * The slash command wired to `agent` in `slash_commands`, leading `/` included.
+ * Null when nothing targets that agent.
+ *
+ * These notifications used to print `/${agent}` unconditionally, which is only
+ * correct when a command happens to be named after the agent it targets.
+ * `slash_commands` names are free text, so that guess sends people to a command
+ * that does not exist — worse than not naming one at all.
+ */
+function slashCommandForAgent(root: string, agent: string): string | null {
+  if (!agent) { return null; }
+  const doc = readYaml(root);
+  if (!doc) { return null; }
+  for (const c of doc.slash_commands) {
+    const target = (c as { agent?: unknown }).agent;
+    if (target !== agent || typeof c.name !== 'string' || !c.name) { continue; }
+    return c.name.startsWith('/') ? c.name : `/${c.name}`;
+  }
+  return null;
+}
+
+/**
+ * How to actually work a step that is now `awaiting_work`.
+ *
+ * Both halves of the old sentence were unreliable: the command was guessed from
+ * the agent id, and "Mark step done" was pointed at a sidebar section. The
+ * section exists now (Active Runs), so that half stands; the command is
+ * resolved rather than assumed.
+ */
+function howToWorkStep(root: string, agent: string, runId: string): string {
+  const cmd = slashCommandForAgent(root, agent);
+  return cmd
+    ? `Run ${cmd} ${runId} in Claude, then "Mark step done" on the run in the AIDLC sidebar.`
+    : `No slash command targets "${agent}" — invoke that agent yourself, then "Mark step done" on the run in the AIDLC sidebar.`;
 }
 
 /**
@@ -167,7 +246,7 @@ export async function startPipelineRunInlineCommand(
   const firstStep = pipeline.steps[0];
   const firstAgent = typeof firstStep === 'string' ? firstStep : firstStep.agent;
   void vscode.window.showInformationMessage(
-    `Started run "${rid}" — first step: ${firstAgent}. Run /${firstAgent} ${rid} in Claude, then click "Mark step done" in the sidebar.`,
+    `Started run "${rid}" — first step: ${firstAgent}. ${howToWorkStep(root, firstAgent, rid)}`,
   );
 }
 
@@ -224,17 +303,20 @@ export async function startPipelineRunCommand(pipelineIdArg?: string): Promise<v
   });
   if (!runId) { return; }
 
+  // The run is created under the trimmed id, so the message has to quote that
+  // one — otherwise a stray space makes the id it tells you to type wrong.
+  const rid = runId.trim();
   const state = startRun({
-    runId: runId.trim(),
+    runId: rid,
     pipeline: pickedPipeline.pipeline,
-    context: { epic: runId.trim() },
+    context: { epic: rid },
   });
   saveRun(root, state);
 
   const firstStep = pickedPipeline.pipeline.steps[0];
   const firstAgent = typeof firstStep === 'string' ? firstStep : firstStep.agent;
   void vscode.window.showInformationMessage(
-    `Started run "${runId}" — first step: ${firstAgent}. Run /${firstAgent} ${runId} in Claude, then click "Mark step done" in the sidebar.`,
+    `Started run "${rid}" — first step: ${firstAgent}. ${howToWorkStep(root, firstAgent, rid)}`,
   );
 }
 
@@ -280,8 +362,8 @@ export async function markStepDoneCommand(runIdArg?: string, stepIdxArg?: number
 
   try {
     const next = markStepDone({ state, pipeline, workspaceRoot: root, stepIdx });
-    saveRun(root, next);
-    notifyStepTransition(next, stepIdx);
+    saveRun(root, next, state);
+    notifyStepTransition(root, next, stepIdx);
   } catch (err) {
     surfaceRunError(err);
   }
@@ -317,7 +399,7 @@ export async function runAutoReviewCommand(runIdArg?: string, stepIdxArg?: numbe
       try {
         const verdict = await runAutoReview({ workspaceRoot: root, state, pipeline, stepIdx });
         const next = submitAutoReviewVerdict({ state, pipeline, verdict, stepIdx });
-        saveRun(root, next);
+        saveRun(root, next, state);
 
         const tag = verdict.decision === 'pass' ? '✅ pass' : '❌ reject';
         const followUp = next.steps[next.currentStepIdx];
@@ -366,8 +448,8 @@ export async function approveStepCommand(runIdArg?: string, stepIdxArg?: number)
   const stepIdx = resolveStepIdx(state, stepIdxArg, 'awaiting_review');
   try {
     const next = approveStep({ state, pipeline, stepIdx });
-    saveRun(root, next);
-    notifyStepTransition(next, stepIdx);
+    saveRun(root, next, state);
+    notifyStepTransition(root, next, stepIdx);
   } catch (err) {
     surfaceRunError(err);
   }
@@ -412,7 +494,7 @@ export async function rejectStepCommand(runIdArg?: string, stepIdxArg?: number):
       targetIdx: targetIdx === idx ? undefined : targetIdx,
       pipeline: pipeline ?? undefined,
     });
-    saveRun(root, next);
+    saveRun(root, next, state);
     if (targetIdx === idx) {
       void vscode.window.showInformationMessage(
         `Rejected step "${currentStep.agent}". Click "Rerun" in the sidebar when ready.`,
@@ -458,7 +540,7 @@ export async function rejectStepInlineCommand(
       targetIdx: targetIdx === idx ? undefined : targetIdx,
       pipeline: pipeline ?? undefined,
     });
-    saveRun(root, next);
+    saveRun(root, next, state);
     if (targetIdx === idx) {
       void vscode.window.showInformationMessage(
         `Rejected step "${currentStep.agent}". Click "Rerun" in the sidebar when ready.`,
@@ -539,7 +621,7 @@ export async function rerunStepCommand(runIdArg?: string, stepIdxArg?: number): 
 
   try {
     const next = rerunStep({ state, feedback: feedback.trim() || undefined, stepIdx });
-    saveRun(root, next);
+    saveRun(root, next, state);
     void vscode.window.showInformationMessage(
       `Step "${step.agent}" reset (revision ${next.steps[stepIdx].revision}). Run the slash command again, then "Mark step done".`,
     );
@@ -567,7 +649,7 @@ export async function rerunStepInlineCommand(
 
   try {
     const next = rerunStep({ state, feedback: feedback.trim() || undefined, stepIdx });
-    saveRun(root, next);
+    saveRun(root, next, state);
     void vscode.window.showInformationMessage(
       `Step "${step.agent}" reset (revision ${next.steps[stepIdx].revision}). Run the slash command again, then "Mark step done".`,
     );
@@ -605,7 +687,7 @@ export async function requestStepUpdateInlineCommand(
       stepIdx,
       feedback: feedback.trim() || undefined,
     });
-    saveRun(root, next);
+    saveRun(root, next, state);
     const target = next.steps[stepIdx];
     void vscode.window.showInformationMessage(
       `Step "${target.agent}" reopened (revision ${target.revision}). Downstream steps reset to pending — work them again after this one.`,
@@ -814,7 +896,7 @@ function resolveStepIdx(
   return match >= 0 ? match : state.currentStepIdx;
 }
 
-function notifyStepTransition(next: RunState, prevIdx: number): void {
+function notifyStepTransition(root: string, next: RunState, prevIdx: number): void {
   if (next.status === 'completed') {
     void vscode.window.showInformationMessage(
       `Pipeline "${next.pipelineId}" completed for run "${next.runId}". 🎉`,
@@ -825,13 +907,13 @@ function notifyStepTransition(next: RunState, prevIdx: number): void {
   if (next.currentStepIdx === prevIdx) {
     // Same step — must be awaiting_review
     void vscode.window.showInformationMessage(
-      `Step "${step.agent}" produced its artifacts. Awaiting your review in the sidebar.`,
+      `Step "${step.agent}" produced its artifacts. Awaiting your review under Active Runs in the AIDLC sidebar.`,
     );
     return;
   }
   // Advanced
   void vscode.window.showInformationMessage(
-    `Advanced to step "${step.agent}". Run /${step.agent} ${next.runId} in Claude, then "Mark step done".`,
+    `Advanced to step "${step.agent}". ${howToWorkStep(root, step.agent, next.runId)}`,
   );
 }
 

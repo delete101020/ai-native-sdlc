@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { Command } from 'commander';
@@ -10,17 +11,43 @@ import {
   isInsideClaudeCodeSession,
   hasClaudeLogin,
   buildClaudeSpawnEnv,
+  resolveDeclaredPath,
+  claudeConfigDir,
+  isDefaultClaudeConfigDir,
+  PersonaLoader,
+  epicPipelineReport,
+  planEpicPipelineExtraction,
+  findProjectInstructions,
+  DefaultRunner,
+  CodexRunner,
+  NO_HARNESS_CAPABILITIES,
+  claudeJsonPath,
+  readProjectMcpServer,
+  isCodexMcpConfigured,
+  isClaudeTierAlias,
+  resolveProviderModel,
+  providerAliases,
+  ratesFromConfig,
+  type HarnessCapabilities,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
+import { readYaml } from '../yamlIO';
 
 interface Check {
   label: string;
   pass: boolean;
   info?: string;
+  /**
+   * Advisory rather than broken. Printed yellow and excluded from the exit
+   * code — a phase that will run without a persona is worth saying out loud,
+   * but it is a legitimate configuration, not a failure.
+   */
+  warn?: boolean;
 }
 
 function ok(label: string, info?: string): Check   { return { label, pass: true,  info }; }
 function fail(label: string, info?: string): Check  { return { label, pass: false, info }; }
+function warn(label: string, info?: string): Check  { return { label, pass: true,  info, warn: true }; }
 
 /** Claude Code reads flags like CLAUDE_CODE_USE_BEDROCK=1 as truthy on presence. */
 function envTruthy(v: string | undefined): boolean {
@@ -99,10 +126,179 @@ function detectAuth(claudeBin: string): Check {
 function printSection(title: string, checks: Check[]): void {
   console.log(chalk.bold(`\n${title}`));
   for (const c of checks) {
-    const icon   = c.pass ? chalk.green('✔') : chalk.red('✘');
+    const icon   = !c.pass ? chalk.red('✘') : c.warn ? chalk.yellow('⚠') : chalk.green('✔');
     const detail = c.info ? chalk.dim(`  ${c.info}`) : '';
     console.log(`  ${icon}  ${c.label}${detail}`);
   }
+}
+
+/**
+ * Harness parity — what each agent will actually receive in its prompt.
+ *
+ * A step's prompt is composed of three layers (persona, project instructions,
+ * skills) plus the ast-graph MCP server, and a harness supplies some of them
+ * natively while AIDLC inlines the rest. When a layer is supplied by neither,
+ * the phase runs blind: it still produces an artifact, just a worse one, and
+ * nothing in the run output says why. This section is that warning, before the
+ * run rather than after it. See MULTI_PROVIDER_ALIGNMENT.md §4c.
+ */
+function parityChecks(
+  root: string,
+  ws: NonNullable<Awaited<ReturnType<typeof WorkspaceLoader.load>>>,
+): Check[] {
+  const checks: Check[] = [];
+  const personas = new PersonaLoader(root);
+
+  // Runner capabilities, resolved statically. A custom runner is not loaded
+  // here — running a user's module during a diagnostic would be a surprise —
+  // so it is reported under the same conservative assumption the composer
+  // makes: the harness supplies nothing and every layer gets inlined.
+  const capsFor = (runner: string): HarnessCapabilities => {
+    if (runner === 'default') { return new DefaultRunner().capabilities; }
+    if (runner === 'codex') { return new CodexRunner().capabilities; }
+    return NO_HARNESS_CAPABILITIES;
+  };
+
+  // Which instruction file each harness ends up bound by. Reported per runner
+  // rather than once, because the answer genuinely differs: a repo carrying both
+  // CLAUDE.md and AGENTS.md gives each harness the file written for it, and a
+  // single line here would name one of them and quietly mislead about the other.
+  const runners = [...new Set(ws.config.agents.map((a) => a.runner))];
+  for (const runner of runners) {
+    const caps = capsFor(runner);
+    const label = runners.length > 1 ? `project instructions (${runner})` : 'project instructions';
+    if (caps.projectInstructions) {
+      checks.push(ok(label, `${caps.instructionFile ?? 'its own file'}, read by the harness`));
+      continue;
+    }
+    const instructions = findProjectInstructions(root, caps.instructionFile);
+    checks.push(instructions
+      ? ok(label, `${instructions.relPath}, inlined into the prompt`)
+      : warn(label,
+          `none of ${['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'].join(' / ')} found — phases run without the repo's conventions`));
+  }
+
+  for (const agent of ws.config.agents) {
+    const caps = capsFor(agent.runner);
+    const persona = personas.load(agent.id);
+
+    if (persona) {
+      const via = caps.persona ? 'loaded by the harness' : 'inlined into the prompt';
+      checks.push(ok(`persona "${agent.id}"`, `${persona.scope} scope, ${via}`));
+    } else if (caps.persona) {
+      checks.push(warn(`persona "${agent.id}"`, 'no persona file — the harness will find nothing to load'));
+    } else {
+      checks.push(warn(`persona "${agent.id}"`,
+        `no persona file in ${personas.searchPaths().length} scopes — this agent runs with skills only`));
+    }
+  }
+
+  // ast-graph. Registration is now checked against each CLI's own config, which
+  // is a file read rather than a subprocess, so doctor stays offline and still
+  // stops implying that a graph on disk means a harness can reach it (G1).
+  const graphDb = path.join(root, '.ast-graph', 'graph.db');
+  if (!fs.existsSync(graphDb)) {
+    checks.push(warn('ast-graph', 'no .ast-graph/graph.db — run "AIDLC: Rescan AST Graph" to build it'));
+    return checks;
+  }
+  checks.push(ok('ast-graph', 'graph built'));
+
+  for (const runner of runners) {
+    if (runner === 'default') {
+      const server = readProjectMcpServer(root, 'ast-graph', claudeJsonPath());
+      checks.push(server
+        ? ok('ast-graph via claude', 'registered for this project')
+        : warn('ast-graph via claude',
+            'not in this project\'s MCP config — run "AIDLC: Rescan AST Graph" in VS Code'));
+    } else if (runner === 'codex') {
+      checks.push(isCodexMcpConfigured('ast-graph', os.homedir())
+        ? ok('ast-graph via codex', 'declared in ~/.codex/config.toml (per-user, not per-project)')
+        : warn('ast-graph via codex',
+            'not in ~/.codex/config.toml — run "aidlc mcp register --runner codex"'));
+    } else {
+      checks.push(warn(`ast-graph via ${runner}`,
+        'AIDLC has no MCP registration for this runner — its phases run without the graph'));
+    }
+  }
+
+  return checks;
+}
+
+/**
+ * Providers: is each configured CLI actually here, which concrete model will
+ * each agent run on, and do we know what any of it costs
+ * (MULTI_PROVIDER_ALIGNMENT.md §P3).
+ *
+ * The cost lines exist because P0/D5 requires a blind provider to be named out
+ * loud. A budget ceiling that silently sums a Codex step as $0 is not a
+ * ceiling, and the moment to learn that is before a run, not after a bill.
+ */
+function providerChecks(
+  ws: NonNullable<Awaited<ReturnType<typeof WorkspaceLoader.load>>>,
+): Check[] {
+  const checks: Check[] = [];
+  const runners = [...new Set(ws.config.agents.map((a) => a.runner))].sort();
+  const rates = ratesFromConfig(ws.config.providers);
+
+  for (const runner of runners) {
+    if (runner === 'custom') { continue; }
+
+    // `default` is Claude, already probed in its own section above.
+    if (runner !== 'default') {
+      // Pinning provider CLI versions is still open (§6 q1); reporting the
+      // build the flags were written against is the cheap half of the answer.
+      try {
+        const bin = execSync(`which ${runner}`, { encoding: 'utf8', timeout: 5000 }).trim();
+        checks.push(ok(`${runner} binary on PATH`, bin));
+        try {
+          const version = execSync(`${runner} --version`, {
+            encoding: 'utf8', timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'],
+          }).trim();
+          checks.push(ok(`${runner} --version`, version.split('\n')[0]));
+        } catch {
+          checks.push(warn(`${runner} --version`, 'binary present but --version failed'));
+        }
+      } catch {
+        checks.push(fail(`${runner} binary on PATH`,
+          `agents declare runner: ${runner}, but that CLI is not installed`));
+      }
+    }
+
+    // Cost accounting, per provider.
+    if (runner === 'default') {
+      checks.push(ok('cost accounting (default)', 'claude reports total_cost_usd — measured'));
+    } else if (rates[runner]) {
+      const models = Object.keys(rates[runner]).join(', ');
+      checks.push(ok(`cost accounting (${runner})`,
+        `estimated from providers.${runner}.rates (${models}) — not a measured cost`));
+    } else {
+      checks.push(warn(`cost accounting (${runner})`,
+        `no rates declared — steps on ${runner} sum as $0 against the budget. `
+        + `Set providers.${runner}.rates in workspace.yaml to enforce a ceiling.`));
+    }
+  }
+
+  // Which concrete model each agent ends up on, after alias resolution.
+  for (const agent of ws.config.agents) {
+    if (agent.runner === 'custom' || !agent.model) { continue; }
+    const aliases = providerAliases(ws.config.providers, agent.runner);
+    const resolved = resolveProviderModel(agent.runner, agent.model, aliases);
+
+    if (agent.runner === 'default') {
+      checks.push(ok(`model "${agent.id}"`, `${agent.model} — resolved by Claude Code`));
+    } else if (resolved && resolved !== agent.model) {
+      checks.push(ok(`model "${agent.id}"`,
+        `${agent.model} → ${resolved} (providers.${agent.runner}.model_aliases)`));
+    } else if (resolved) {
+      checks.push(ok(`model "${agent.id}"`, `${resolved}, passed to ${agent.runner} verbatim`));
+    } else if (isClaudeTierAlias(agent.model)) {
+      checks.push(warn(`model "${agent.id}"`,
+        `"${agent.model}" is a Claude tier alias — ${agent.runner} will use its own default model. `
+        + `Declare providers.${agent.runner}.model_aliases.${agent.model} to pin one.`));
+    }
+  }
+
+  return checks;
 }
 
 export function registerDoctor(program: Command): void {
@@ -186,6 +382,17 @@ export function registerDoctor(program: Command): void {
       // they're "Not authenticated" (issue #55).
       claudeChecks.push(detectAuth(claudeBin));
 
+      // Which account's folder AIDLC reads and writes. Worth stating even in
+      // the default case: when a user runs several Claude accounts, "the skills
+      // installed but the session can't see them" is always this line.
+      const configDir = claudeConfigDir();
+      claudeChecks.push(ok('Claude config dir', isDefaultClaudeConfigDir()
+        ? configDir
+        : `${configDir} (from CLAUDE_CONFIG_DIR)`));
+      claudeChecks.push(fs.existsSync(configDir)
+        ? ok('config dir exists')
+        : fail('config dir exists', `${configDir} not found — run \`claude\` once to create it`));
+
       emitSection('Claude', claudeChecks);
 
       // ── Skills ────────────────────────────────────────────────────────────
@@ -195,7 +402,7 @@ export function registerDoctor(program: Command): void {
             // SkillLoader will validate; for now mark as assumed-ok
             skillChecks.push(ok(`skill "${skill.id}"`, 'builtin'));
           } else if (skill.path) {
-            const absPath = path.resolve(root, skill.path);
+            const absPath = resolveDeclaredPath(root, skill.path);
             if (fs.existsSync(absPath)) {
               skillChecks.push(ok(`skill "${skill.id}"`, skill.path));
             } else {
@@ -210,7 +417,7 @@ export function registerDoctor(program: Command): void {
         // Custom runner paths
         for (const agent of ws.config.agents) {
           if (agent.runner === 'custom' && agent.runner_path) {
-            const absPath = path.resolve(root, agent.runner_path);
+            const absPath = resolveDeclaredPath(root, agent.runner_path);
             if (fs.existsSync(absPath)) {
               skillChecks.push(ok(`runner "${agent.id}"`, agent.runner_path));
             } else {
@@ -223,6 +430,12 @@ export function registerDoctor(program: Command): void {
         if (skillChecks.length > 0) {
           emitSection('Skills & runners', skillChecks);
         }
+      }
+
+      // ── Harness parity ───────────────────────────────────────────────────
+      if (ws) {
+        emitSection('Harness parity', parityChecks(root, ws));
+        emitSection('Providers', providerChecks(ws));
       }
 
       // ── Run state ────────────────────────────────────────────────────────
@@ -251,6 +464,48 @@ export function registerDoctor(program: Command): void {
       }
 
       emitSection('Runs', runChecks);
+
+      // ── Epic pipelines ───────────────────────────────────────────────────
+      //
+      // An epic's pipeline lives in its own directory, not in the shared
+      // workspace.yaml. Two things can go wrong there and both are quiet:
+      // a file that no longer parses (the epic loses its pipeline), and a
+      // definition that exists in both places (the epic file wins, and the
+      // inline copy reads as if it were in force).
+      const epicDoc = readYaml(root);
+      if (epicDoc) {
+        const epicPipeChecks: Check[] = [];
+        const report = epicPipelineReport(epicDoc);
+        const merged = report?.merged.length ?? 0;
+        if (merged > 0) {
+          epicPipeChecks.push(ok(
+            `${merged} epic-owned pipeline${merged !== 1 ? 's' : ''}`,
+            report!.merged.join(', '),
+          ));
+        }
+        for (const bad of report?.unreadable ?? []) {
+          epicPipeChecks.push(fail(
+            path.relative(root, bad.file).split(path.sep).join('/'),
+            bad.reason,
+          ));
+        }
+        for (const clash of report?.conflicts ?? []) {
+          epicPipeChecks.push(warn(
+            `"${clash.pipelineId}" defined twice`,
+            'the epic file wins — delete the inline block from .aidlc/workspace.yaml',
+          ));
+        }
+        const pending = planEpicPipelineExtraction(root, epicDoc);
+        if (pending.length > 0) {
+          epicPipeChecks.push(warn(
+            `${pending.length} epic pipeline${pending.length !== 1 ? 's' : ''} still inline`,
+            'shared file, shared merge conflicts — move them: aidlc epic pipeline extract',
+          ));
+        }
+        if (epicPipeChecks.length > 0) {
+          emitSection('Epic pipelines', epicPipeChecks);
+        }
+      }
 
       // ── Runtime ──────────────────────────────────────────────────────────
       const nodeVersion = process.versions.node;

@@ -1,7 +1,7 @@
 ---
 name: QA Engineer
 description: Senior QA / Test Lead agent. Designs test strategy across unit, integration, end-to-end, performance, accessibility, and UAT for web, mobile, desktop, backend, and CLI products.
-model: claude-sonnet-4-6
+model: sonnet
 tools: [files, jira, core-business, its]
 ---
 

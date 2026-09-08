@@ -57,6 +57,8 @@ function runClaude(
     delete env.CLAUDE_CODE_ENTRYPOINT;
     delete env.CLAUDE_CODE_SESSION_ID;
     delete env.CLAUDE_CODE_EXECPATH;
+    // …and pin the configured Claude account, if the user runs more than one.
+    Object.assign(env, claudeConfigEnv());
     const proc = spawn('claude', args, { cwd: opts.cwd, stdio: ['ignore', 'pipe', 'pipe'], env });
     let out = '';
     let err = '';
@@ -164,6 +166,8 @@ function describeExecError(err: unknown): string {
 import * as jsYaml from 'js-yaml';
 import { readYaml, writeYaml, type YamlDocument } from './yamlIO';
 import {
+  claudeConfigDir,
+  claudeConfigEnv,
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
   stepAgentId,
@@ -171,10 +175,13 @@ import {
   normalizeStep,
   discoverAssets,
   RunStateStore,
+  describeGateEffect,
+  type EpicStepGateChange,
   startRun,
   targetPath,
   validateWorkspace,
   assemblePipeline,
+  stageEpicPipeline,
   recipePipelineId,
   PipelineAssembleError,
   heuristicClassify,
@@ -183,10 +190,27 @@ import {
   slugEpicId,
   scaffoldEpic,
   epicsRoot,
+  STRICT_MODE_KEY,
+  commandBodyIsStale,
+  resolveEpicIdPrefixChain,
+  readUserConfig,
+  readGitUserName,
+  suggestEpicId,
   EpicScaffoldError,
+  parseSignal,
+  SignalParseError,
+  openIncidentEpic,
+  openFollowUpEpic,
+  followUpEpicId,
+  followUpIdFor,
+  readEpicSignal,
+  existingEpicIds as epicIdsOnDisk,
+  SIGNAL_FILE,
+  type Signal,
   installAnnotationTools,
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
+  expandHome,
 } from '@aidlc/core';
 import { SKILL_TEMPLATES } from './skillTemplates';
 import {
@@ -206,6 +230,7 @@ import {
 import { resolveTechStackForRoot } from './techStackResolver';
 import { artifactLookupKeys } from './techStackDetector';
 import { uninstallWorkflowGlobalsByIds, installWorkflowGlobalsByIds } from './globalDefaultsInstaller';
+import { provisionDeclaredWorkflows, relativeEpicRoot } from '@aidlc/core';
 import { PresetStore } from './presetStore';
 import type {
   PipelineStepConfig,
@@ -220,6 +245,7 @@ import type {
 import { promptStepConfig, type PipelineStepConfigDraft } from './wizards';
 import {
   listEpics,
+  epicPinningPipeline,
   enrichEpicsWithUsage,
   mirrorRunStateToEpic,
   type EpicSummary as CoreEpicSummary,
@@ -235,10 +261,51 @@ import { pickAndReadTextFile } from './pickAndReadTextFile';
 import { scaffoldRequirementAnalysis } from './requirementWizard';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
+import { agentActivity, type AgentActivityMap } from './agentActivity';
+import { execRunToCompletion } from './execRun';
 
 // ── Shared helper: open/reuse the Claude terminal and send a slash command ───
 
 const CLAUDE_TERMINAL_NAME = 'AIDLC · Claude';
+
+/**
+ * Stage 6's two recipes, kept in step with `packages/cli/src/commands/maintain.ts`
+ * so the UI and `aidlc maintain` open the same shape of epic.
+ *
+ * The follow-up is `native-fix`, not `native-full`: the work that comes out of a
+ * diagnosis is a change to code that already exists, and the CLI's fuller default
+ * is there for the unattended case where nobody is around to right-size it.
+ */
+const INCIDENT_RECIPE = 'native-incident';
+const FOLLOW_UP_RECIPE = 'native-fix';
+
+/**
+ * Epics already opened from `incidentEpicId`, newest last.
+ *
+ * Matched on `from_epic` in inputs.json — the provenance `openFollowUpEpic`
+ * writes — rather than on the `<incident>-FIX` id shape. The id is a naming
+ * convenience the user is free to override at creation time; the input is the
+ * actual edge, and it is what the UI draws the link from.
+ */
+function followUpsOfIncident(
+  root: string,
+  doc: { state?: unknown } | null,
+  incidentEpicId: string,
+): string[] {
+  const dir = epicsRoot(root, doc);
+  const out: string[] = [];
+  for (const id of epicIdsOnDisk(root, doc)) {
+    const file = path.join(dir, id, 'inputs.json');
+    if (!fs.existsSync(file)) { continue; }
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { from_epic?: unknown };
+      if (String(parsed.from_epic ?? '') === incidentEpicId) { out.push(id); }
+    } catch {
+      // A hand-edited inputs.json is the user's business; it just cannot be a link.
+    }
+  }
+  return out;
+}
 
 /**
  * Open (or reuse) the Claude REPL terminal and run `slash` immediately.
@@ -272,7 +339,9 @@ function runSlashCommandInClaude(slash: string, root: string): void {
     cwd,
     iconPath: new vscode.ThemeIcon('rocket'),
     location: vscode.TerminalLocation.Panel,
-    env: { DISABLE_AUTO_UPDATE: 'true', DISABLE_UPDATE_PROMPT: 'true' },
+    // `claudeConfigEnv()` pins the Claude account when the user runs more
+    // than one; empty (and so invisible) for a single-account machine.
+    env: { DISABLE_AUTO_UPDATE: 'true', DISABLE_UPDATE_PROMPT: 'true', ...claudeConfigEnv() },
   });
   terminal.show(false);
   let sent = false;
@@ -300,6 +369,12 @@ interface AgentSummary {
   skill?: string;
   skills?: string[];
   model?: string;
+  /**
+   * Which harness executes this agent (`default` = Claude Code, `codex`, …).
+   * Surfaced next to the model so a mixed pipeline shows, at a glance, which
+   * phases left Claude (MULTI_PROVIDER_ALIGNMENT.md §P3).
+   */
+  runner?: string;
   integrations?: string[];
   /** Human label of the built-in preset that contributed this entry (e.g. "SDLC Pipeline"). Absent for user-created entries. */
   builtinFrom?: string;
@@ -432,6 +507,15 @@ interface EpicSummaryUi {
   inputs: Record<string, string>;
   epicDir: string;
   existingArtifacts: string[];
+  /**
+   * `strict_mode` from the epic's state.json. Carried explicitly because the
+   * webview badge reads it: leave it out of this DTO and every epic arrives
+   * with `strictMode: undefined`, which renders as `Depth: proportional`
+   * regardless of what is on disk.
+   */
+  strictMode: boolean;
+  /** True when `signal.json` sits in the epic folder — an incident epic. */
+  hasSignal: boolean;
   createdAt: string;
   /** True for folders with no state.json/pipeline, synthesized from artifacts. */
   artifactsOnly?: boolean;
@@ -480,6 +564,10 @@ interface WorkspaceState {
   defaultPipeline?: PipelineSummary;
   /** Suggested next sequential id for the inline Start-Epic modal. */
   nextEpicId: string;
+  /** True when `.aidlc/user.yaml` names no prefix for this checkout. */
+  epicIdPrefixNeedsSetup: boolean;
+  /** Two letters derived from `git config user.name` to offer, or null. */
+  epicIdPrefixSuggestion: string | null;
   /** All existing epic ids (folders under epicRoot) — for uniqueness check. */
   existingEpicIds: string[];
   requirementRuns?: RequirementRunSummary[];
@@ -490,6 +578,12 @@ interface WorkspaceState {
   epicMemoryHookEnabled: boolean;
   /** Current epics directory (relative path from project root). */
   epicsDir: string;
+  /**
+   * Runs with an agent this window dispatched still working, keyed by run id.
+   * Lets the epic card show "agent running" instead of inviting the user to
+   * mark a step done that nobody has worked yet — see {@link agentActivity}.
+   */
+  agentActivity: AgentActivityMap;
 }
 
 const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
@@ -544,13 +638,17 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       runIds: [],
       skillTemplates: SKILL_TEMPLATE_REFS,
       nextEpicId: 'EPIC-001',
+      // No workspace yet: nothing to warn about until there is one.
+      epicIdPrefixNeedsSetup: false,
+      epicIdPrefixSuggestion: null,
       existingEpicIds: [],
       requirementRuns: [],
       initialView: 'epics',
       testAgentConfigExists: false,
       testAgentTargets: [],
-      epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
+      epicMemoryHookEnabled: isEpicMemoryHookEnabled(),
       epicsDir: DEFAULT_EPICS_DIR,
+      agentActivity: agentActivity.snapshot(),
     };
   }
 
@@ -625,13 +723,16 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       epicsCount: epics.length,
       runIds: listRunIds(root),
       skillTemplates: SKILL_TEMPLATE_REFS,
-      nextEpicId: suggestNextEpicId(epicIds0),
+      nextEpicId: suggestNextEpicId(root, epicIds0, null),
+      epicIdPrefixNeedsSetup: epicIdPrefixState(root, null).needsSetup,
+      epicIdPrefixSuggestion: epicIdPrefixState(root, null).suggestion,
       existingEpicIds: epicIds0,
       requirementRuns: scanRequirementRuns(root),
       initialView,
       ...(() => { const ta = readTestAgentTargets(root); return { testAgentConfigExists: ta.exists, testAgentTargets: ta.targets }; })(),
-      epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
+      epicMemoryHookEnabled: isEpicMemoryHookEnabled(),
       epicsDir: DEFAULT_EPICS_DIR,
+      agentActivity: agentActivity.snapshot(),
     };
   }
 
@@ -641,6 +742,15 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     id: String(p.id),
     on_failure: p.on_failure === 'continue' ? 'continue' : 'stop',
     builtin: BUILTIN_WORKFLOWS.some((w) => w.pipelineId === String(p.id)),
+    // A pipeline an epic is running against cannot have its step list
+    // reshaped — the epic's history is keyed by position, not by name.
+    ...(() => {
+      const owner = epicPinningPipeline(epics, String(p.id));
+      return owner ? { pinnedByEpic: owner.id } : {};
+    })(),
+    ...(typeof p.derived_from === 'string' && p.derived_from
+      ? { derivedFrom: p.derived_from }
+      : {}),
     steps: Array.isArray(p.steps)
       ? (p.steps as PipelineStepConfig[]).map((raw) => {
           const norm = normalizeStep(raw);
@@ -687,13 +797,16 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     defaultPipeline: BUILTIN_WORKFLOWS[0]
       ? getBuiltinPipelineSummary(BUILTIN_WORKFLOWS[0])
       : undefined,
-    nextEpicId: suggestNextEpicId(epicIds),
+    nextEpicId: suggestNextEpicId(root, epicIds, doc),
+      epicIdPrefixNeedsSetup: epicIdPrefixState(root, doc).needsSetup,
+      epicIdPrefixSuggestion: epicIdPrefixState(root, doc).suggestion,
     existingEpicIds: epicIds,
     requirementRuns: scanRequirementRuns(root),
     initialView,
     ...(() => { const ta = readTestAgentTargets(root); return { testAgentConfigExists: ta.exists, testAgentTargets: ta.targets }; })(),
-    epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
+    epicMemoryHookEnabled: isEpicMemoryHookEnabled(),
     epicsDir: epicRoot,
+    agentActivity: agentActivity.snapshot(),
   };
 }
 
@@ -803,13 +916,26 @@ function listEpicIdsFromDir(workspaceRoot: string, epicRoot: string): string[] {
   }
 }
 
-function suggestNextEpicId(existing: string[]): string {
-  const numbered = existing
-    .map((n) => n.match(/^EPIC-(\d+)$/i))
-    .filter((m): m is RegExpMatchArray => !!m)
-    .map((m) => parseInt(m[1], 10));
-  const next = numbered.length > 0 ? Math.max(...numbered) + 1 : 1;
-  return `EPIC-${String(next).padStart(3, '0')}`;
+/**
+ * The id the Start-Epic modal opens with. Scoped by this checkout's
+ * `epic_id_prefix` so two people on one repo are never offered the same one;
+ * with no prefix declared this is the plain `EPIC-<nnn>` it always was.
+ */
+function suggestNextEpicId(root: string, existing: string[], doc: unknown): string {
+  return suggestEpicId(existing, epicIdPrefixState(root, doc).prefix);
+}
+
+/**
+ * The prefix chain for this checkout, shared by the id suggester and the
+ * Start Epic modal's warning so the two can never disagree about whether a
+ * prefix has been chosen here.
+ */
+function epicIdPrefixState(root: string, doc: unknown) {
+  return resolveEpicIdPrefixChain({
+    user: readUserConfig(root),
+    workspace: doc as { epic_id_prefix?: unknown },
+    gitUserName: readGitUserName(root),
+  });
 }
 
 /**
@@ -914,7 +1040,11 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     inputs: e.inputs,
     epicDir,
     existingArtifacts,
+    // Cheap and exact: the file core writes is the only marker of an incident
+    // epic — the pipeline id is generated per epic and the recipe is not stored.
+    hasSignal: fs.existsSync(path.join(epicDir, SIGNAL_FILE)),
     createdAt: e.createdAt,
+    strictMode: e.strictMode,
     artifactsOnly: e.artifactsOnly,
     tokenUsage: e.tokenUsage
       ? { total: e.tokenUsage.total, hasOverlap: e.tokenUsage.hasOverlap }
@@ -967,10 +1097,15 @@ function mergeAgents(doc: YamlDocument | null, root: string, discovered: Discove
   // inherit their `skills:` array — the picker hides the AIDLC scope, so
   // without this overlay the per-step skill picker would be empty.
   const yamlSkillsById = new Map<string, string[]>();
+  // Same overlay for `runner`: a discovered `.md` file carries no runner of its
+  // own, but when workspace.yaml binds that id to a provider, the card should
+  // say so rather than implying every agent runs on Claude.
+  const yamlRunnerById = new Map<string, string>();
   if (doc) {
     for (const a of doc.agents) {
       const skills = extractSkillIds(a);
       if (skills.length > 0) { yamlSkillsById.set(String(a.id), skills); }
+      if (typeof a.runner === 'string') { yamlRunnerById.set(String(a.id), a.runner); }
     }
   }
 
@@ -986,6 +1121,7 @@ function mergeAgents(doc: YamlDocument | null, root: string, discovered: Discove
       filePath: a.filePath,
       description: fm.description,
       model: fm.model,
+      runner: yamlRunnerById.get(a.id),
       integrations: fm.tools,
       skill: resolvedSkills?.[0],
       skills: resolvedSkills,
@@ -1005,6 +1141,7 @@ function mergeAgents(doc: YamlDocument | null, root: string, discovered: Discove
       filePath: a.filePath,
       description: fm.description,
       model: fm.model,
+      runner: yamlRunnerById.get(a.id),
       integrations: fm.tools,
       skill: resolvedSkills?.[0],
       skills: resolvedSkills,
@@ -1022,7 +1159,7 @@ function mergeAgents(doc: YamlDocument | null, root: string, discovered: Discove
       const sid = String(s.id);
       const p = typeof s.path === 'string' ? s.path : '';
       if (!p) { continue; }
-      const expanded = expandHomePath(p);
+      const expanded = expandHome(p);
       skillPathById.set(sid, path.isAbsolute(expanded) ? expanded : path.resolve(root, expanded));
     }
 
@@ -1042,6 +1179,7 @@ function mergeAgents(doc: YamlDocument | null, root: string, discovered: Discove
         skill: skills[0],
         skills,
         model: typeof a.model === 'string' ? a.model : undefined,
+        runner: typeof a.runner === 'string' ? a.runner : undefined,
         integrations: Array.isArray(a.capabilities)
           ? (a.capabilities as unknown[]).map(String)
           : undefined,
@@ -1202,11 +1340,6 @@ function rewriteAgentFrontmatter(
   return `${lines.join('\n')}\n${bodyTrimmed}`;
 }
 
-function expandHomePath(p: string): string {
-  if (p.startsWith('~/')) { return path.join(os.homedir(), p.slice(2)); }
-  return p;
-}
-
 function mergeSkills(
   doc: YamlDocument | null,
   root: string,
@@ -1235,7 +1368,7 @@ function mergeSkills(
         continue;
       }
       const skillPath = typeof s.path === 'string' ? s.path : undefined;
-      const expanded = skillPath ? expandHomePath(skillPath) : '';
+      const expanded = skillPath ? expandHome(skillPath) : '';
       const abs = expanded
         ? (path.isAbsolute(expanded) ? expanded : path.resolve(root, expanded))
         : '';
@@ -1281,6 +1414,18 @@ export class WorkspaceWebview {
   private disposables: vscode.Disposable[] = [];
   private currentView: WorkspaceView;
 
+  /**
+   * An epic to expand once the React side is listening.
+   *
+   * `show()` creates the panel and returns immediately, but the webview only
+   * exists after its bundle has run and sent `ready`. A `focusEpic` posted in
+   * that gap is delivered to nobody — which turns "open EPIC-002" into "open
+   * the epics list", the exact failure this deep link is meant to avoid. Held
+   * here and flushed on `ready`.
+   */
+  private pendingFocusEpic: string | null = null;
+  private booted = false;
+
   static show(extensionUri: vscode.Uri, initialView: WorkspaceView = 'builder'): void {
     const column = vscode.ViewColumn.One;
     if (WorkspaceWebview.current) {
@@ -1311,6 +1456,24 @@ export class WorkspaceWebview {
   static triggerStartEpic(extensionUri: vscode.Uri): void {
     WorkspaceWebview.show(extensionUri, 'epics');
     void WorkspaceWebview.current?.panel.webview.postMessage({ type: 'triggerStartEpic' });
+  }
+
+  /** Same, for stage 6: open the Epics view and pop the Report-signal form. */
+  static triggerReportSignal(extensionUri: vscode.Uri): void {
+    WorkspaceWebview.show(extensionUri, 'epics');
+    void WorkspaceWebview.current?.panel.webview.postMessage({ type: 'openReportSignalModal' });
+  }
+
+  /**
+   * Open the Epics view with one epic expanded and scrolled into view.
+   *
+   * The sidebar's Recent Epics list used to open `state.json` in an editor.
+   * That is the storage format, not the thing the user clicked for: the run's
+   * own UI — steps, gates, actions — is what the epic *is* here.
+   */
+  static openEpic(extensionUri: vscode.Uri, epicId: string): void {
+    WorkspaceWebview.show(extensionUri, 'epics');
+    WorkspaceWebview.current?.focusEpic(epicId);
   }
 
   /**
@@ -1404,6 +1567,10 @@ export class WorkspaceWebview {
       this.disposables.push(breakdownWatcher);
     }
 
+    // Not a file change, but the same kind of event as far as the panel is
+    // concerned: something moved and the epic card is now out of date.
+    this.disposables.push(agentActivity.onDidChange(() => this.refresh()));
+
     this.refresh();
   }
 
@@ -1413,7 +1580,7 @@ export class WorkspaceWebview {
 
   private async refreshAsync(): Promise<void> {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (root) { this.ensureWorkflowTemplates(root); }
+    if (root) { this.ensureWorkflowProjectFiles(root); }
     const state = buildState(this.currentView);
     await mergeEpicTokenUsageInto(state);
     void this.panel.webview.postMessage({ type: 'state', state });
@@ -1422,6 +1589,18 @@ export class WorkspaceWebview {
   setView(view: WorkspaceView): void {
     this.currentView = view;
     void this.panel.webview.postMessage({ type: 'setView', view });
+  }
+
+  /**
+   * Ask the React side to switch to Epics and expand `epicId`. Deferred until
+   * `ready` when the panel was created a moment ago — see `pendingFocusEpic`.
+   */
+  focusEpic(epicId: string): void {
+    if (!this.booted) {
+      this.pendingFocusEpic = epicId;
+      return;
+    }
+    void this.panel.webview.postMessage({ type: 'focusEpic', epicId });
   }
 
   private dispose(): void {
@@ -1523,7 +1702,7 @@ export class WorkspaceWebview {
       void vscode.window.showInformationMessage(`Artifact chưa tồn tại: ${filename}`);
       return;
     }
-    const annotronBin = path.join(os.homedir(), '.claude', 'tools', 'annotron', 'bin', 'annotron');
+    const annotronBin = path.join(claudeConfigDir(), 'tools', 'annotron', 'bin', 'annotron');
     if (!fs.existsSync(annotronBin)) {
       void vscode.window.showWarningMessage(
         'Annotron chưa được cài (~/.claude/tools/annotron). Mở lại project để extension cài lại, hoặc dùng nút Feedback.',
@@ -1609,9 +1788,14 @@ export class WorkspaceWebview {
 
   private async handleMessage(msg: { type: string; [k: string]: unknown }): Promise<void> {
     switch (msg.type) {
-      case 'ready':
+      case 'ready': {
+        this.booted = true;
         this.refresh();
+        const pending = this.pendingFocusEpic;
+        this.pendingFocusEpic = null;
+        if (pending) { this.focusEpic(pending); }
         return;
+      }
 
       case 'setTheme': {
         const mode = String(msg.mode ?? '');
@@ -1886,6 +2070,27 @@ export class WorkspaceWebview {
         await vscode.window.showTextDocument(doc, { preview: false });
         return;
       }
+      case 'previewArtifactInVsCode': {
+        // VS Code's own Markdown preview. The annotron path below exists for
+        // diagrams — VS Code renders Mermaid only when the user has an
+        // extension for it — so this is offered alongside it, not instead of
+        // it. Unlike `openArtifactFile`, nothing here is editable.
+        //
+        // The fallback mirrors `openGettingStartedGuide`: the built-in
+        // markdown extension can be disabled, and a menu item that silently
+        // does nothing is worse than one that opens the source.
+        const epicDir = String(msg.epicDir ?? '');
+        const filename = String(msg.filename ?? '');
+        if (!epicDir || !filename) { return; }
+        const filePath = path.join(epicDir, 'artifacts', filename);
+        if (!fs.existsSync(filePath)) { return; }
+        const uri = vscode.Uri.file(filePath);
+        void vscode.commands.executeCommand('markdown.showPreview', uri).then(
+          undefined,
+          () => { void vscode.window.showTextDocument(uri, { preview: false }); },
+        );
+        return;
+      }
       case 'viewArtifact': {
         // Read-only preview: open the .md in annotron so diagrams render
         // (annotron renders Markdown itself), without the /annotate-artifact
@@ -1948,7 +2153,7 @@ export class WorkspaceWebview {
         if (enabled) {
           try { installAnnotationTools(this.extensionUri.fsPath); } catch { /* best-effort */ }
         }
-        const r = setEpicMemoryHook(enabled, os.homedir());
+        const r = setEpicMemoryHook(enabled);
         void vscode.window.showInformationMessage(
           enabled
             ? 'Epic-memory hook enabled — prompts that mention an epic auto-load its memory.'
@@ -2070,10 +2275,63 @@ export class WorkspaceWebview {
         await this.editAgentInline(draft as Record<string, unknown>);
         return;
       }
+      case 'setEpicStrictMode': {
+        const epicId = String(msg.epicId ?? '');
+        const root = this.getRootOrWarn();
+        if (!root || !epicId) { return; }
+        const doc = readYaml(root);
+        const file = path.join(epicsRoot(root, doc), epicId, 'state.json');
+        let state: Record<string, unknown>;
+        try {
+          // Read-modify-write: state.json also carries the mirrored run
+          // (stepStates, history), and none of that is ours to rewrite.
+          state = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+          state[STRICT_MODE_KEY] = msg.strict === true;
+          fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n', 'utf8');
+        } catch (err) {
+          void vscode.window.showWarningMessage(
+            `AIDLC: could not update strict_mode for ${epicId} — ${String(err)}`,
+          );
+          return;
+        }
+        this.refresh();
+        // Writing the key is not the same as the key being read. Command
+        // bodies are generated once and never overwritten, so an epic
+        // provisioned before this setting existed runs slash commands that
+        // have no `## Depth of work` section — the flag flips on disk, the
+        // badge changes, and every prompt stays exactly as it was. Say so,
+        // because nothing else will.
+        if (msg.strict !== true) {
+          const stale = this.stepCommandsIgnoringStrictMode(root, state);
+          if (stale.length > 0) {
+            void vscode.window.showWarningMessage(
+              `AIDLC: ${epicId} is now proportional, but ${stale.length} of its slash commands were generated before strict_mode existed and will ignore it (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? ', …' : ''}). Re-apply the preset to refresh them.`,
+              'Load Template',
+            ).then((pick) => {
+              if (pick === 'Load Template') {
+                void vscode.commands.executeCommand('aidlc.applyPreset');
+              }
+            });
+          }
+        }
+        return;
+      }
       case 'startEpicInline': {
         const draft = msg.draft;
         if (!draft || typeof draft !== 'object') { return; }
         await this.startEpicInline(draft as Record<string, unknown>);
+        return;
+      }
+      case 'reportSignal': {
+        const draft = msg.draft;
+        if (!draft || typeof draft !== 'object') { return; }
+        await this.reportSignal(draft as Record<string, unknown>);
+        return;
+      }
+      case 'openFollowUpEpic': {
+        const epicId = String(msg.epicId ?? '').trim();
+        if (!epicId) { return; }
+        await this.openFollowUp(epicId);
         return;
       }
       case 'classifyBrief': {
@@ -2109,6 +2367,32 @@ export class WorkspaceWebview {
           runId,
           feedback,
         );
+        return;
+      }
+      case 'execRun': {
+        const runId = String(msg.runId ?? '');
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!runId || !root) { return; }
+        const untilIdx = typeof msg.untilIdx === 'number' && Number.isInteger(msg.untilIdx)
+          ? msg.untilIdx
+          : undefined;
+        // Not awaited: the loop runs for as long as the pipeline takes, and the
+        // message handler is what the webview's next click goes through.
+        void execRunToCompletion(
+          root,
+          runId,
+          { autoApprove: msg.autoApprove === true, untilIdx },
+          () => this.refresh(),
+        );
+        return;
+      }
+      case 'clearAgentActivity': {
+        // The user's override: they can see the agent is finished even though
+        // no end signal reached us. Trusting them here is what keeps a missed
+        // signal from being a dead end.
+        const runId = String(msg.runId ?? '');
+        if (!runId) { return; }
+        agentActivity.end(runId);
         return;
       }
       case 'requestStepUpdate': {
@@ -2341,8 +2625,31 @@ export class WorkspaceWebview {
     }
   }
 
+  /**
+   * Refuse a step-shape edit while an epic's run state indexes into this
+   * pipeline. `epicPinningPipeline` explains why position is load-bearing;
+   * the short version is that the corruption is silent, so the guard has to
+   * live here and not only in the webview. Returns true when the caller
+   * must abort.
+   */
+  private refusePinnedStepEdit(pipelineId: string, verb: string): boolean {
+    const root = this.getRootOrWarn();
+    if (!root) { return true; }
+    const owner = epicPinningPipeline(listEpics(root, readYaml(root)), pipelineId);
+    if (!owner) { return false; }
+    void vscode.window.showWarningMessage(
+      `Cannot ${verb} in "${pipelineId}" — epic ${owner.id} is running against it. ` +
+      'Its recorded history is keyed by step position, so reshaping the list here ' +
+      'would re-point that history at different steps without any error. ' +
+      `To change the step list: aidlc epic step add|remove ${owner.id}, which moves ` +
+      `both together. To jump over a step already in flight: aidlc step skip ${owner.id} <step>`,
+    );
+    return true;
+  }
+
   private async reorderStep(pipelineId: string, fromIdx: number, toIdx: number): Promise<void> {
     if (!pipelineId || fromIdx < 0 || toIdx < 0) { return; }
+    if (this.refusePinnedStepEdit(pipelineId, 'reorder steps')) { return; }
     this.mutateYaml((doc) => {
       const p = doc.pipelines.find((x) => x.id === pipelineId);
       if (!p || !Array.isArray(p.steps)) { return false; }
@@ -2355,6 +2662,7 @@ export class WorkspaceWebview {
 
   private async deleteStep(pipelineId: string, idx: number): Promise<void> {
     if (!pipelineId || idx < 0) { return; }
+    if (this.refusePinnedStepEdit(pipelineId, 'remove a step')) { return; }
     this.mutateYaml((doc) => {
       const p = doc.pipelines.find((x) => x.id === pipelineId);
       if (!p || !Array.isArray(p.steps)) { return false; }
@@ -2543,6 +2851,48 @@ export class WorkspaceWebview {
       }
       p.steps[idx] = obj as unknown as PipelineStepConfig;
     });
+
+    this.reportGateEffect(root, pipelineId, idx, norm, draft);
+  }
+
+  /**
+   * Tell the user when a gate change cannot reach the step they changed it on.
+   *
+   * The step list is locked while an epic owns a pipeline but the gates are
+   * not, precisely because `human_review` and `auto_review` are read off the
+   * live pipeline when a step's work is submitted rather than copied into the
+   * run. The flip side is that a step which has already got past that point
+   * keeps the gate it had for this revision, and the toggle looks like it did
+   * nothing. Saying so is the whole job here — there is nothing to refuse,
+   * because the new setting is still right for the next time the step runs.
+   */
+  private reportGateEffect(
+    root: string,
+    pipelineId: string,
+    idx: number,
+    before: { human_review: boolean; auto_review: boolean },
+    after: { human_review: boolean; auto_review: boolean },
+  ): void {
+    const changes: EpicStepGateChange[] = [];
+    if (before.human_review !== after.human_review) {
+      changes.push({ gate: 'human_review', from: before.human_review, to: after.human_review });
+    }
+    if (before.auto_review !== after.auto_review) {
+      changes.push({ gate: 'auto_review', from: before.auto_review, to: after.auto_review });
+    }
+    if (changes.length === 0) { return; }
+
+    const owner = epicPinningPipeline(listEpics(root, readYaml(root)), pipelineId);
+    if (!owner) { return; }
+    const run = RunStateStore.load(root, owner.id);
+    const record = run?.steps[idx];
+    if (!record) { return; }
+
+    const note = describeGateEffect(record.status, changes);
+    if (!note) { return; }
+    void vscode.window.showInformationMessage(
+      `${owner.id}: step ${idx + 1} is ${record.status}. ${note}`,
+    );
   }
 
   /**
@@ -2937,26 +3287,23 @@ export class WorkspaceWebview {
 
     // Drop bundled artifact templates for this workflow so the epic's
     // artifacts/ folder gets a structured starting point on the very first run.
-    this.ensureWorkflowTemplates(root);
+    this.ensureWorkflowProjectFiles(root);
   }
 
   /**
-   * Ensure artifact templates exist for every known pipeline in this workspace.
+   * Ensure every built-in pipeline this workspace declares has its project
+   * files on disk: the artifact templates under
+   * `.aidlc/aidlc-templates/<pipelineId>/` that `scaffoldEpic` seeds a new
+   * epic from, and the `.claude/commands/` set the panel launches Claude with.
    *
-   * - SDLC (built-in): writes bundled templates from `templates/sdlc/artifacts/`
-   *   to `.aidlc/aidlc-templates/sdlc-full/` — idempotent, no file I/O if
-   *   files already exist.
-   * - Custom pipelines: templates are generated by `generatePipelineTemplates`
-   *   at pipeline-creation time; this method just ensures the directory exists.
+   * Pipelines that match no built-in workflow are skipped — a hand-authored or
+   * recipe-assembled one has no bundled files to install.
    *
-   * Called on every panel refresh so templates are always available before
-   * the user starts an epic.
+   * Called on every panel refresh, so a workspace set up by an older build or
+   * by `aidlc preset apply` heals itself. Idempotent: existing files are never
+   * overwritten, and nothing is written when everything is already there.
    */
-  private ensureWorkflowTemplates(root: string): void {
-    // For every built-in pipeline present in workspace.yaml, drop the
-    // bundled artifact templates into `.aidlc/aidlc-templates/<pipelineId>/`.
-    // No special-casing — every workflow extracts on first apply, idempotent
-    // on subsequent panel refreshes.
+  private ensureWorkflowProjectFiles(root: string): void {
     const doc = readYaml(root);
     if (!doc) { return; }
     // Resolve the project's tech stack once: `stacks` drives `{{#if}}` block
@@ -2965,18 +3312,14 @@ export class WorkspaceWebview {
     // implement.md). Pure file reads + string ops — safe on this refresh path.
     const stacks = resolveTechStackForRoot(root);
     const lookupKeys = artifactLookupKeys(root, resolvePrimaryStack(stacks));
-    for (const p of doc.pipelines) {
-      const pId = String(p.id);
-      const workflow = getBuiltinWorkflowByPipelineId(pId);
-      if (!workflow) { continue; }
-      const dir = path.join(root, WORKSPACE_DIR, 'aidlc-templates', pId);
-      fs.mkdirSync(dir, { recursive: true });
-      const templates = getBuiltinArtifactTemplates(this.extensionUri.fsPath, workflow, { stacks, lookupKeys });
-      for (const [fileName, content] of Object.entries(templates)) {
-        const dest = path.join(dir, fileName);
-        if (!fs.existsSync(dest)) { fs.writeFileSync(dest, content, 'utf8'); }
-      }
-    }
+    // Same writer the preset-apply path and the CLI use, so a workspace ends
+    // up with the same templates however it was set up.
+    provisionDeclaredWorkflows(
+      this.extensionUri.fsPath,
+      root,
+      doc.pipelines.map((p) => String(p.id)),
+      { stacks, lookupKeys, epicRoot: relativeEpicRoot(doc) },
+    );
 
     // Back-fill recipes for workspaces scaffolded before recipes existed, so
     // the Start-Epic "Auto" task-type suggestion has something to classify
@@ -3035,6 +3378,9 @@ export class WorkspaceWebview {
     }
 
     doc.pipelines.push(pipeline as unknown as Record<string, unknown>);
+    // The epic owns this pipeline: keep it in the epic's own file so two
+    // people starting epics never collide on one append point in workspace.yaml.
+    stageEpicPipeline(doc, pipelineId, epicId);
     try {
       validateWorkspace(doc, '.aidlc/workspace.yaml');
     } catch (err) {
@@ -3377,6 +3723,9 @@ export class WorkspaceWebview {
         inputs,
         extraProjects: extraProjects && extraProjects.length > 0 ? extraProjects : undefined,
         pipeline: pipelineCfg,
+        // Absent means strict — an older webview bundle that does not send the
+        // field gets the depth every epic worked at before it existed.
+        strictMode: draft.strictMode !== false,
         // aidlc-autopilot is experimental / "coming soon": off unless the user
         // opts in via the `aidlc.autopilot.enabled` setting.
         enableAutopilot: vscode.workspace
@@ -3437,6 +3786,305 @@ export class WorkspaceWebview {
       );
     }
     this.refresh();
+  }
+
+  /**
+   * Stage 6's front door on the UI — the counterpart of `aidlc maintain
+   * --signal`.
+   *
+   * The Start-Epic modal can select `native-incident` but cannot write the one
+   * input it reads, and the `native-maintain` skill's own rule when
+   * `signal.json` is missing is to say so and stop. That produced a green run
+   * with an empty diagnosis, which is worse than a refusal because nothing
+   * looks wrong. Here the signal is written by `openIncidentEpic` as part of
+   * scaffolding, so the epic cannot exist without it.
+   */
+  /**
+   * The epic's slash commands that cannot honour `strict_mode`, by command id.
+   *
+   * `writeWorkflowCommands` never overwrites an existing body, so a workspace
+   * provisioned before this setting shipped keeps commands with no
+   * `## Depth of work` section. Those bodies never look at `state.json`, which
+   * makes the toggle a lie for exactly the epics most likely to want it — the
+   * old ones. Empty when the epic has no pipeline binding, or when every body
+   * is current.
+   */
+  private stepCommandsIgnoringStrictMode(root: string, state: Record<string, unknown>): string[] {
+    const pipeline = typeof state.pipeline === 'string' ? state.pipeline : '';
+    if (!pipeline) { return []; }
+    const steps = Array.isArray(state.stepStates) ? (state.stepStates as Array<Record<string, unknown>>) : [];
+    const commandsDir = path.join(root, '.claude', 'commands');
+    const stale = new Set<string>();
+    for (const step of steps) {
+      const phase = typeof step.name === 'string' && step.name
+        ? step.name
+        : typeof step.agent === 'string' ? step.agent : '';
+      if (!phase) { continue; }
+      const id = pipelineCommandId(pipeline, phase);
+      try {
+        // A command that was never written is not stale — it is absent, and
+        // the headless runner composes that prompt itself.
+        const body = fs.readFileSync(path.join(commandsDir, `${id}.md`), 'utf8');
+        if (commandBodyIsStale(body)) { stale.add(`/${id}`); }
+      } catch { /* absent — see above */ }
+    }
+    return [...stale];
+  }
+
+  private async reportSignal(draft: Record<string, unknown>): Promise<void> {
+    const root = this.getRootOrWarn();
+    if (!root) { return; }
+
+    let signal: Signal;
+    try {
+      signal = parseSignal({
+        source: String(draft.source ?? ''),
+        observedAt: String(draft.observedAt ?? ''),
+        symptom: String(draft.symptom ?? ''),
+        scope: String(draft.scope ?? ''),
+        evidence: String(draft.evidence ?? ''),
+      });
+    } catch (err) {
+      void vscode.window.showWarningMessage(
+        err instanceof SignalParseError ? `AIDLC: ${err.message}` : String(err),
+      );
+      return;
+    }
+
+    const recipeId = String(draft.recipeId ?? INCIDENT_RECIPE);
+    // The recipe has to exist before it can be assembled — an empty project
+    // gets the AI-Native preset materialized the same way Start Epic does it.
+    const existing = readYaml(root) as { recipes?: Array<{ id?: unknown }> } | null;
+    const hasRecipe = Array.isArray(existing?.recipes)
+      && existing.recipes.some((r) => String(r.id) === recipeId);
+    if (!hasRecipe) {
+      const wf = BUILTIN_WORKFLOWS.find((w) => (w.recipes ?? []).some((r) => r.id === recipeId));
+      if (!wf) {
+        void vscode.window.showWarningMessage(`AIDLC: recipe "${recipeId}" is not defined in this workspace.`);
+        return;
+      }
+      this.ensureBuiltinInWorkspace(root, wf);
+    }
+
+    const epicId = String(draft.epicId ?? '').trim()
+      || followUpEpicId(signal, { taken: epicIdsOnDisk(root, readYaml(root)) });
+
+    const pipelineId = this.assembleRecipeForEpic(root, recipeId, epicId);
+    if (!pipelineId) { return; }
+
+    // Re-read: `assembleRecipeForEpic` wrote the generated pipeline out.
+    const doc = readYaml(root);
+    if (!doc) { return; }
+    const pipeline = (doc.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
+    if (!pipeline) {
+      void vscode.window.showWarningMessage(`AIDLC: generated pipeline "${pipelineId}" not found.`);
+      return;
+    }
+
+    let result;
+    try {
+      result = openIncidentEpic({
+        workspaceRoot: root, doc, signal, pipeline, epicId,
+        // Only a literal `true` asks for full depth. An older webview bundle
+        // sends no such field, and the incident default is the right answer for
+        // it — not the scaffold default.
+        strictMode: draft.strictMode === true,
+      });
+    } catch (err) {
+      void vscode.window.showWarningMessage(
+        err instanceof EpicScaffoldError
+          ? `AIDLC: ${err.message}`
+          : `Incident epic could not be opened: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+
+    this.refresh();
+    const agent = (pipeline.steps as unknown[] | undefined)?.map(stepAgentId)[0] ?? 'maintain';
+    void vscode.window
+      .showInformationMessage(
+        `Incident epic "${result.epicId}" opened. Run /${agent} ${result.epicId} in Claude to diagnose it.`,
+        'Open signal.json',
+      )
+      .then((choice) => {
+        if (choice === 'Open signal.json') {
+          void vscode.window.showTextDocument(vscode.Uri.file(result.signalPath));
+        }
+      });
+  }
+
+  /**
+   * Let the user right-size the follow-up epic before it is scaffolded.
+   *
+   * Recipes come from the workspace when it has them — a team that edited
+   * `native-fix` should be offered the version they edited — and from the
+   * built-ins otherwise. `native-incident` is filtered out: it is the recipe
+   * that produced the epic being followed up, and running it again would
+   * diagnose an already-diagnosed signal.
+   */
+  private async pickFollowUpRecipe(
+    doc: Record<string, unknown> | null,
+    current: string,
+    epicId: string,
+    incidentEpicId: string,
+    seeded: string,
+  ): Promise<string | null> {
+    type RecipeRow = { id: string; description?: string; steps?: unknown };
+    const fromDoc = Array.isArray(doc?.recipes) ? (doc!.recipes as RecipeRow[]) : [];
+    const rows: RecipeRow[] = fromDoc.length > 0
+      ? fromDoc
+      : BUILTIN_WORKFLOWS.flatMap((w) => (w.recipes ?? []) as RecipeRow[]);
+
+    const items = rows
+      .filter((r) => r.id && r.id !== INCIDENT_RECIPE)
+      .map((r) => {
+        const steps = Array.isArray(r.steps) ? (r.steps as unknown[]).map(String) : [];
+        return {
+          label: r.id === current ? `${r.id}  ✓` : r.id,
+          description: steps.length > 0 ? `${steps.length} steps · ${steps.join(' → ')}` : undefined,
+          detail: r.description ? String(r.description) : undefined,
+          id: r.id,
+        };
+      });
+    if (items.length === 0) {
+      void vscode.window.showWarningMessage('AIDLC: no recipes defined in this workspace.');
+      return null;
+    }
+
+    const picked = await vscode.window.showQuickPick(items, {
+      title: `Recipe for ${epicId}`,
+      placeHolder: `Follows ${incidentEpicId}. ${seeded}`,
+      matchOnDescription: true,
+      matchOnDetail: true,
+    });
+    return picked ? picked.id : null;
+  }
+
+  /**
+   * The other half of the loop: turn a diagnosed incident into the epic that
+   * fixes it.
+   *
+   * Nothing is copied out of `incident.md` here. The intent is rendered from the
+   * signal, and every field the signal cannot answer is written as an open
+   * question rather than filled with a plausible sentence — the same rule stage
+   * 1 works under. The epic starts at stage 1 with its human gate for exactly
+   * that reason.
+   */
+  private async openFollowUp(incidentEpicId: string): Promise<void> {
+    const root = this.getRootOrWarn();
+    if (!root) { return; }
+
+    const doc0 = readYaml(root);
+    const raw = readEpicSignal(root, doc0, incidentEpicId);
+    if (!raw) {
+      void vscode.window.showWarningMessage(
+        `AIDLC: "${incidentEpicId}" has no signal.json — a follow-up epic can only be derived from an incident epic.`,
+      );
+      return;
+    }
+    let signal: Signal;
+    try {
+      signal = parseSignal(raw);
+    } catch (err) {
+      void vscode.window.showWarningMessage(
+        `AIDLC: signal.json in "${incidentEpicId}" is malformed — ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+
+    // Already opened one? `followUpIdFor` will happily hand out `-FIX-2`, and
+    // there is a real case for it — one diagnosis can fork into two independent
+    // pieces of work. A second click on the same button two minutes later is not
+    // that case, and the old dialog read identically in both. Name the epics
+    // that already exist and make the user say "another".
+    const priors = followUpsOfIncident(root, doc0, incidentEpicId);
+    const epicId = followUpIdFor(incidentEpicId, epicIdsOnDisk(root, doc0));
+
+    let recipeId = FOLLOW_UP_RECIPE;
+    const RECIPE_BUTTON = 'Choose recipe…';
+    const seeded = `Its intent.md is seeded from the signal, with anything the signal does not answer left as an open question for stage 1.`;
+    const confirm = priors.length > 0
+      ? await vscode.window.showWarningMessage(
+          `${incidentEpicId} already has a follow-up epic. Open another?`,
+          {
+            modal: true,
+            detail: `Existing: ${priors.join(', ')}.\n\nA second follow-up only makes sense when the diagnosis splits into work that ships separately — otherwise continue in the epic you already have. The new one would be "${epicId}", running ${recipeId}.`,
+          },
+          'Open another',
+          RECIPE_BUTTON,
+        )
+      : await vscode.window.showInformationMessage(
+          `Open follow-up epic "${epicId}" from ${incidentEpicId}?`,
+          { modal: true, detail: `Runs the ${recipeId} recipe. ${seeded}` },
+          'Open epic',
+          RECIPE_BUTTON,
+        );
+    if (!confirm) { return; }
+
+    // `native-fix` is the right default, not the right answer every time: the
+    // work a diagnosis opens ranges from a one-file perf fix to a redesign, and
+    // paying for spec + verify + review on the former is the same
+    // disproportion `strict_mode` exists to stop. Offered rather than asked, so
+    // the common path is still two clicks.
+    if (confirm === RECIPE_BUTTON) {
+      const picked = await this.pickFollowUpRecipe(doc0, recipeId, epicId, incidentEpicId, seeded);
+      if (!picked) { return; }
+      recipeId = picked;
+    }
+
+    const existing = doc0 as { recipes?: Array<{ id?: unknown }> } | null;
+    const hasRecipe = Array.isArray(existing?.recipes)
+      && existing.recipes.some((r) => String(r.id) === recipeId);
+    if (!hasRecipe) {
+      const wf = BUILTIN_WORKFLOWS.find((w) => (w.recipes ?? []).some((r) => r.id === recipeId));
+      if (!wf) {
+        void vscode.window.showWarningMessage(`AIDLC: recipe "${recipeId}" is not defined in this workspace.`);
+        return;
+      }
+      this.ensureBuiltinInWorkspace(root, wf);
+    }
+
+    const pipelineId = this.assembleRecipeForEpic(root, recipeId, epicId);
+    if (!pipelineId) { return; }
+
+    const doc = readYaml(root);
+    if (!doc) { return; }
+    const pipeline = (doc.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
+    if (!pipeline) {
+      void vscode.window.showWarningMessage(`AIDLC: generated pipeline "${pipelineId}" not found.`);
+      return;
+    }
+
+    let result;
+    try {
+      result = openFollowUpEpic({
+        workspaceRoot: root,
+        doc,
+        signal,
+        pipeline,
+        fromEpicId: incidentEpicId,
+        epicId,
+      });
+    } catch (err) {
+      void vscode.window.showWarningMessage(
+        err instanceof EpicScaffoldError
+          ? `AIDLC: ${err.message}`
+          : `Follow-up epic could not be opened: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+
+    this.refresh();
+    void vscode.window
+      .showInformationMessage(
+        `Follow-up epic "${result.epicId}" opened at stage 1 — review its intent before specifying anything from it.`,
+        'Open intent.md',
+      )
+      .then((choice) => {
+        if (choice === 'Open intent.md') {
+          void vscode.window.showTextDocument(vscode.Uri.file(result.intentPath));
+        }
+      });
   }
 
   /**
@@ -3599,6 +4247,14 @@ export class WorkspaceWebview {
    * the YAML stays portable across machines.
    */
   private relPathFor(root: string, abs: string): string {
+    // A file in the active Claude config dir is written back as `~/.claude/…`
+    // even when that dir is a pinned account (`~/.claude-work`): the YAML then
+    // means "whichever account this window uses", and `expandHome` resolves it
+    // per account. Writing the literal account dir would pin the repo to one.
+    const claudeDir = claudeConfigDir();
+    if (abs === claudeDir || abs.startsWith(claudeDir + path.sep)) {
+      return path.posix.join('~/.claude', abs.slice(claudeDir.length).split(path.sep).join('/'));
+    }
     const home = os.homedir();
     if (abs.startsWith(home)) { return '~' + abs.slice(home.length); }
     const rel = path.relative(root, abs);
@@ -3913,6 +4569,23 @@ export class WorkspaceWebview {
       return;
     }
 
+    // The modal always sends the whole step array, so a gate-only edit and a
+    // structural one arrive looking identical. Compare the agent sequence:
+    // when it is unchanged nothing moved, and an epic's positional history is
+    // still valid — let it through rather than making gates uneditable for the
+    // whole life of an epic.
+    const shapeOf = (xs: string[]): string => xs.join('\u0000');
+    const oldShape = shapeOf(
+      (Array.isArray(pipeline.steps) ? (pipeline.steps as PipelineStepConfig[]) : [])
+        .map((raw) => normalizeStep(raw).agent),
+    );
+    const newShape = shapeOf(
+      stepsRaw.map((x) => String((x as { agent?: unknown }).agent ?? '')),
+    );
+    if (oldShape !== newShape && this.refusePinnedStepEdit(id, 'change the step list')) {
+      return;
+    }
+
     // Auto-sync workspace.yaml entries for any file-based agents the user
     // picked. Same mechanism as `addPipelineInline` — without this an
     // edit that swaps to a project/global agent would abort here even
@@ -4041,6 +4714,7 @@ export class WorkspaceWebview {
     stepName?: string,
   ): Promise<void> {
     if (!pipelineId || !parallelToAgent || !agentId) { return; }
+    if (this.refusePinnedStepEdit(pipelineId, 'add a step')) { return; }
     const root = this.getRootOrWarn();
     if (!root) { return; }
     const doc = readYaml(root);
@@ -4162,6 +4836,7 @@ export class WorkspaceWebview {
 
   private async addStepToPipeline(pipelineId: string, agentIdArg?: string, stepNameArg?: string): Promise<void> {
     if (!pipelineId) { return; }
+    if (this.refusePinnedStepEdit(pipelineId, 'add a step')) { return; }
     const root = this.getRootOrWarn();
     if (!root) { return; }
     const doc = readYaml(root);
@@ -4503,6 +5178,28 @@ export class WorkspaceWebview {
       return;
     }
     const epic = listEpics(root, doc).find((x) => x.id === epicId);
+    // `.aidlc/runs/` is gitignored and an epic that finished long ago may have
+    // no run file left, so "no run state" is not the same as "no progress".
+    // Starting here calls mirrorRunStateToEpic, which overwrites the epic's
+    // state.json with a fresh all-pending one — approvals, revisions, feedback
+    // and history gone, for a click that reads like it only creates something.
+    // The artifacts survive on disk, but the record of them being reviewed
+    // does not, so the epic has to be re-approved step by step to get back.
+    const doneSteps = epic?.stepDetails.filter((s) => s.status === 'done').length ?? 0;
+    if (epic && (epic.status === 'done' || doneSteps > 0)) {
+      const answer = await vscode.window.showWarningMessage(
+        `"${epicId}" already has ${doneSteps} completed step${doneSteps === 1 ? '' : 's'} recorded.`,
+        {
+          modal: true,
+          detail:
+            'Starting a run resets every step to pending and discards the approvals, '
+            + 'revisions and feedback in the epic\'s state.json. The artifact files are '
+            + 'not touched.\n\nTo carry this work forward instead, open a follow-up epic.',
+        },
+        'Start over',
+      );
+      if (answer !== 'Start over') { return; }
+    }
     const context: Record<string, string> = { epic: epicId };
     if (epic) {
       try {
@@ -4541,7 +5238,7 @@ export class WorkspaceWebview {
     const fallback = missingBundleHtml(this.extensionUri.fsPath, 'workspace.js', cspSource, nonce);
     if (fallback) { return fallback; }
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (root) { this.ensureWorkflowTemplates(root); }
+    if (root) { this.ensureWorkflowProjectFiles(root); }
     const initialState = buildState(this.currentView);
     const initialTheme = themeManager.current;
 

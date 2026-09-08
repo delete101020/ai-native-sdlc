@@ -29,6 +29,9 @@ import {
   assemblePipeline,
   PipelineAssembleError,
   heuristicClassify,
+  PLANNING_MODEL,
+  CODING_MODEL,
+  FAST_MODEL,
   type TaskTypeVerdict,
   type AssetScope,
   type AssetKind,
@@ -315,10 +318,17 @@ async function pickSkillSource(): Promise<SkillSource | undefined> {
 
 // ── addAgent ────────────────────────────────────────────────────────────
 
+// Aliases first, and they are the defaults: Claude Code resolves `sonnet` /
+// `opus` / `haiku` to the current generation of that tier, so an agent created
+// today does not need editing after the next model release. Pinned ids stay
+// available below for anyone who needs a specific generation.
 const MODEL_CHOICES = [
-  { label: 'claude-sonnet-5', description: 'Balanced (recommended default)', value: 'claude-sonnet-5' },
-  { label: 'claude-opus-4-8',   description: 'Most capable, slower', value: 'claude-opus-4-8' },
-  { label: 'claude-haiku-4-5',  description: 'Fastest, cheapest', value: 'claude-haiku-4-5-20251001' },
+  { label: CODING_MODEL,   description: 'Balanced — current Sonnet (recommended)', value: CODING_MODEL },
+  { label: PLANNING_MODEL, description: 'Most capable, slower — current Opus', value: PLANNING_MODEL },
+  { label: FAST_MODEL,     description: 'Fastest, cheapest — current Haiku', value: FAST_MODEL },
+  { label: 'claude-sonnet-5', description: 'Pinned id', value: 'claude-sonnet-5' },
+  { label: 'claude-opus-5',   description: 'Pinned id', value: 'claude-opus-5' },
+  { label: 'claude-haiku-4-5', description: 'Pinned id', value: 'claude-haiku-4-5-20251001' },
 ];
 
 export async function addAgentCommand(): Promise<void> {

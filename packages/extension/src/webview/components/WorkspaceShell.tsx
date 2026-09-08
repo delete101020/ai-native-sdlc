@@ -14,10 +14,20 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   const initial = state?.initialView ?? 'builder';
   const [view, setView] = useState<WorkspaceView>(initial);
   const [startEpicOpen, setStartEpicOpen] = useState(false);
+  // Handled here rather than in EpicsView because that view is only mounted
+  // while it is the active one — a `focusEpic` arriving while Builder is up
+  // would land on a component that does not exist yet. The nonce makes
+  // clicking the same epic twice a fresh request.
+  const [focusEpic, setFocusEpic] = useState<{ id: string; nonce: number } | null>(null);
 
   // Host can switch the view at runtime via openBuilder/openEpicsList.
   useEffect(() => {
     return onHostMessage((msg) => {
+      if (msg.type === 'focusEpic' && typeof msg.epicId === 'string') {
+        const id = msg.epicId;
+        setView('epics');
+        setFocusEpic((prev) => ({ id, nonce: (prev?.nonce ?? 0) + 1 }));
+      }
       if (msg.type === 'setView') {
         const next = msg.view;
         if (next === 'builder' || next === 'epics' || next === 'analyze' || next === 'tests') { setView(next); }
@@ -100,6 +110,8 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
             recipes={state.recipes ?? []}
             agentMeta={state.agentMeta}
             nextEpicId={state.nextEpicId}
+            epicIdPrefixNeedsSetup={state.epicIdPrefixNeedsSetup}
+            epicIdPrefixSuggestion={state.epicIdPrefixSuggestion}
             existingEpicIds={state.existingEpicIds}
             epicsDir={state.epicsDir}
             isFirstEpic={state.epics.length === 0}
@@ -121,7 +133,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
           {view === 'builder' ? (
             <BuilderView state={state} />
           ) : view === 'epics' ? (
-            <EpicsView state={state} />
+            <EpicsView state={state} focusEpic={focusEpic} />
           ) : view === 'analyze' ? (
             <AnalyzeView state={state} />
           ) : (

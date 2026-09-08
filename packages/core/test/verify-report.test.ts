@@ -118,7 +118,7 @@ describe('renderRunReport — markdown', () => {
     expect(md).toContain('- **Pipeline:** p1');
     expect(md).toContain('- **Status:** completed');
     expect(md).toContain('`epic`: E-1');
-    expect(md).toContain('| # | Step | Status | Rev | Duration | Cost |');
+    expect(md).toContain('| # | Step | Status | Rev | Engine | Duration | Cost |');
     // Uses the pipeline step `name` as label, not the agent id.
     expect(md).toContain('| 0 | plan | approved | 1 |');
     expect(md).toContain('| 1 | design | approved | 1 |');
@@ -142,5 +142,37 @@ describe('renderRunReport — markdown', () => {
     state.steps[1].costUsd = 0.34;
     const md = renderRunReport({ state, pipeline: PIPELINE });
     expect(md).toContain('- **Total cost:** $0.4600');
+  });
+
+  // A measured total and a partly-estimated one must not look the same. The
+  // whole point of P3's accounting split is that the report says which it has.
+  it('marks a total that contains an estimate as a lower bound', () => {
+    const state = completeRun(root);
+    state.steps[0].costUsd = 0.12;
+    state.steps[1].costUsd = 0.34;
+    state.steps[1].costEstimated = true;
+    const md = renderRunReport({ state, pipeline: PIPELINE });
+    expect(md).toContain('- **Total cost:** \u2265 ~$0.4600');
+    expect(md).toContain('includes estimates from declared rates');
+    expect(md).toContain('~$0.3400 est.');
+  });
+
+  it('says how many executed steps reported no cost at all', () => {
+    const state = completeRun(root);
+    state.steps[0].costUsd = 0.12;
+    const md = renderRunReport({ state, pipeline: PIPELINE });
+    expect(md).toContain('1 step reported no cost');
+  });
+
+  it('names the runner and resolved model per step', () => {
+    const state = completeRun(root);
+    state.steps[0].runner = 'codex';
+    state.steps[0].model = 'gpt-5-codex';
+    state.steps[1].runner = 'default';
+    const md = renderRunReport({ state, pipeline: PIPELINE });
+    expect(md).toContain('codex / gpt-5-codex');
+    // No model recorded ⇒ the provider CLI chose; show the runner alone
+    // rather than inventing a model name for the record.
+    expect(md).toContain('| default |');
   });
 });

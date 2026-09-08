@@ -16,6 +16,7 @@ import {
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { readYaml } from '../yamlIO';
 import { listEpics } from '../epicsList';
+import { saveRunState } from '../runHelpers';
 
 const RUNS_GLOB     = '.aidlc/runs/*.json';
 const WORKSPACE_YML = '.aidlc/workspace.yaml';
@@ -232,7 +233,7 @@ function handleAction(req: http.IncomingMessage, res: http.ServerResponse, root:
       return;
     }
 
-    RunStateStore.save(root, next);
+    saveRunState(root, next, state);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, state: next }));
   });

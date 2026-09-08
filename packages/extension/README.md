@@ -2,14 +2,31 @@
 
 **See what AI is building. Drive Claude through any pipeline you declare — and track every run, step, and token.**
 
-[![VS Code Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-Install-2b6cb0)](https://marketplace.visualstudio.com/items?itemName=hueanmy.aidlc)
-[![Open VSX](https://img.shields.io/open-vsx/v/hueanmy/aidlc?label=Open%20VSX&color=a259e6)](https://open-vsx.org/extension/hueanmy/aidlc)
-[![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](https://github.com/aidlc-io/aidlc/blob/main/LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/hueanmy)
+[![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](https://github.com/delete101020/ai-native-sdlc/blob/main/LICENSE)
+[![Build: local](https://img.shields.io/badge/build-local%20%2Evsix-6b7280)](https://github.com/delete101020/ai-native-sdlc)
+
+> **A local build.** This is a fork of [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc)
+> (published as `hueanmy.aidlc`), installed from a `.vsix` built out of
+> [`delete101020/ai-native-sdlc`](https://github.com/delete101020/ai-native-sdlc) — not from the Marketplace. It adds the
+> six-stage **AI-Native SDLC Playbook** workflow (`aidlc preset apply ai-native`),
+> a tooling-enforced approval gate, and a stage-6 incident loop that opens the
+> follow-up epic for you.
 
 Drive Claude through any pipeline you declare in a single `workspace.yaml` — visually from VS Code, or from the terminal. Agents, skills, pipelines, and epics share one source of truth; both surfaces stay in sync within ~200ms.
 
 ![aidlc demo](https://raw.githubusercontent.com/aidlc-io/aidlc/main/packages/extension/media/demo.gif)
+
+### New in 3.6 — multi-account Claude, living model defaults
+
+- 👥 **One window, one Claude account** — every global path AIDLC touches (globals install, annotation tools, asset discovery, MCP registration, the token monitor) now follows the active Claude config dir instead of a hardcoded `~/.claude`. Pin one per workspace with `aidlc.claude.configDir`, or switch with **AIDLC: Switch Claude Account**, which lists each saved account by the email signed in to it and offers a status bar shortcut.
+- 🧠 **Model defaults that don't age out** — presets, agent templates and all three model pickers offer Claude Code's aliases (`opus` · `sonnet` · `haiku`) first, so a workspace created today survives the next model release.
+- 🔢 **Sidebar counts match the Builder** — `AGENTS` / `SKILLS` count distinct ids across the aidlc, project and global scopes instead of summing an asset that is deliberately present in two of them.
+
+### New in 3.5 — the AI-Native SDLC Playbook
+
+- 🧭 **`ai-native-pipeline`**, a third built-in workflow: Intent → Spec → Plan → Build → Test → Deploy → Maintain, with `intent.md` / `spec.md` / `plan.md` / `verify.md` / `review.md` / `incident.md` as its artifacts. Apply it from the Builder or with `aidlc preset apply ai-native`.
+- 🛡️ **The stage-5 gate runs as a hook**, not a checklist — force-pushes to protected branches, staging credential-shaped files, and hand-edits of pipeline-owned run state are blocked at the tool call.
+- 🔁 **Stage 6 loops back to stage 1** — `aidlc maintain --signal <file>` turns a production signal into an incident epic; `aidlc maintain follow-up <epic>` opens the work it needs with `intent.md` already written. It is the one phase with no human gate; the gate moved to stage 1 of the epic it opens.
 
 ### New in 2.5
 
@@ -70,7 +87,7 @@ Both the extension and the `aidlc` CLI read and write the same files atomically 
 
 ## Getting Started
 
-1. Install **AIDLC** from the VS Code Marketplace or Open VSX.
+1. Install **AIDLC** from a locally built `.vsix` — this fork is published nowhere. Run `pnpm install && pnpm package:extension` in the repo, then `code --install-extension packages/extension/aidlc-<version>.vsix --force` and reload the window. Full walkthrough: [`ONBOARDING.md`](../../ONBOARDING.md).
 2. Open a workspace folder.
 3. The Welcome page auto-opens the **Get started with AIDLC** walkthrough — follow it for a guided tour, or skip ahead with the steps below.
 4. Run **AIDLC: Load Demo Project** — scaffolds a full pipeline plus 6 sample epics under `.aidlc/`.
@@ -108,12 +125,17 @@ All commands are available via `Cmd+Shift+P` (or `Ctrl+Shift+P`):
 - VS Code 1.85.0+ (or compatible: VSCodium, Cursor, Windsurf)
 - A workspace folder (single-file mode is not supported)
 - The Claude CLI on `PATH` for the default runner
-- Node.js 20+ to compile from source
+- Node.js 20+ — required, not optional: this build is installed by compiling it
+- If the upstream `hueanmy.aidlc` is also installed, disable one of them — both
+  contribute the same `aidlc.*` command ids
 
-## Sponsor
+## Credit
 
-If AIDLC saves you time, consider [sponsoring on GitHub](https://github.com/sponsors/hueanmy) ❤️ — it keeps the extension, the CLI, and the monitor maintained.
+Built on [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc) by
+[hueanmy](https://github.com/hueanmy). If it saves you time,
+[sponsor the original author](https://github.com/sponsors/hueanmy) ❤️.
 
 ## License
 
-MIT
+MIT — the original copyright line is kept; this fork's changes are added under
+the same terms.

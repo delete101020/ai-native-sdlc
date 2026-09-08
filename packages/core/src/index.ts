@@ -21,6 +21,8 @@ export type {
   SlashCommandConfig,
   PipelineConfig,
   PipelineBudget,
+  ProviderConfig,
+  ProviderRate,
   PipelineStepConfig,
   RecipeConfig,
   NormalizedStep,
@@ -56,6 +58,16 @@ export {
 export type { PhaseCatalogEntry, AdaptationVerdict } from './runs/PipelineAdapter';
 
 export {
+  commitApprovedArtifacts,
+  resolveArtifactCommitConfig,
+} from './runs/EpicArtifactCommit';
+export type {
+  ArtifactCommitConfig,
+  CommitApprovedArtifactsArgs,
+  CommitApprovedArtifactsResult,
+} from './runs/EpicArtifactCommit';
+
+export {
   scaffoldEpic,
   mirrorRunStateToEpic,
   mapStepStatusToEpic,
@@ -67,6 +79,47 @@ export type {
   ScaffoldEpicArgs,
   ScaffoldEpicResult,
 } from './runs/EpicScaffold';
+
+export {
+  planAddEpicStep,
+  planRemoveEpicStep,
+  planSetEpicStepGates,
+  commitEpicStepEdit,
+  describeGateEffect,
+  resolveStepRef,
+  EpicStepEditError,
+} from './runs/EpicStepEdit';
+export type {
+  EpicStepSpec,
+  EpicStepPosition,
+  EpicStepEditPlan,
+  EpicStepGateSpec,
+  EpicStepGateChange,
+  EpicStepGatePlan,
+  CommitEpicStepEditArgs,
+} from './runs/EpicStepEdit';
+
+// ── Stage 6: maintain, and the loop back to stage 1 ────────────────
+export { SignalSchema, parseSignal, isSignal, SignalParseError } from './maintain/Signal';
+export type { Signal } from './maintain/Signal';
+export {
+  openIncidentEpic,
+  openFollowUpEpic,
+  renderIntentMarkdown,
+  followUpEpicId,
+  followUpIdFor,
+  existingEpicIds,
+  readEpicSignal,
+  FOLLOW_UP_ARTIFACT,
+  SIGNAL_FILE,
+} from './maintain/IncidentLoop';
+export type {
+  OpenIncidentEpicArgs,
+  OpenIncidentEpicResult,
+  OpenFollowUpEpicArgs,
+  OpenFollowUpEpicResult,
+  RenderIntentOptions,
+} from './maintain/IncidentLoop';
 
 export { collectContext } from './epics/ContextCollector';
 export type { EpicContext } from './epics/ContextCollector';
@@ -91,6 +144,26 @@ export type {
 } from './loader/WorkspaceLoader';
 
 export {
+  EPIC_PIPELINE_FILENAME,
+  epicPipelinePath,
+  mergeEpicPipelines,
+  splitEpicPipelines,
+  writeEpicPipelines,
+  stageEpicPipeline,
+  unstageEpicPipeline,
+  epicOwningPipeline,
+  planEpicPipelineExtraction,
+  epicPipelineReport,
+} from './loader/EpicPipelineStore';
+export type {
+  EpicPipelineConflict,
+  MergeEpicPipelinesResult,
+  SplitEpicPipelinesResult,
+  ExternalEpicPipeline,
+  EpicPipelineExtraction,
+} from './loader/EpicPipelineStore';
+
+export {
   EnvResolver,
   EnvVarMissingError,
 } from './loader/EnvResolver';
@@ -101,6 +174,56 @@ export {
   SkillNotFoundError,
 } from './loader/SkillLoader';
 export type { SkillLoaderOptions } from './loader/SkillLoader';
+
+export { PersonaLoader, stripPersonaMetadata } from './loader/PersonaLoader';
+export type { LoadedPersona } from './loader/PersonaLoader';
+
+export {
+  findProjectInstructions,
+  PROJECT_INSTRUCTION_FILES,
+} from './loader/projectInstructions';
+export type { ProjectInstructions } from './loader/projectInstructions';
+
+export { composeAgentPrompt, stripPersonaDirectives } from './loader/promptComposer';
+// The workspace-wide artifact language, and the prompt section that states it.
+export {
+  ARTIFACT_LANGUAGE_HEADING,
+  artifactLanguageSection,
+  commandBodyPredatesArtifactLanguage,
+  resolveArtifactLanguage,
+} from './loader/artifactLanguage';
+// Per-checkout epic id prefix, and the id suggester both front doors share.
+export {
+  EPIC_ID_PREFIX_KEY,
+  EPIC_ID_PREFIX_PATTERN,
+  deriveEpicIdPrefix,
+  epicIdDateStamp,
+  resolveEpicIdPrefix,
+  resolveEpicIdPrefixChain,
+  suggestEpicId,
+} from './loader/epicId';
+export type { EpicIdPrefixResolution, EpicIdPrefixSource } from './loader/epicId';
+// The per-checkout settings file the prefix actually lives in.
+export {
+  USER_CONFIG_IGNORE_LINE,
+  USER_CONFIG_RELPATH,
+  ensureUserConfigIgnored,
+  readGitUserName,
+  readUserConfig,
+  userConfigPath,
+  writeUserEpicIdPrefix,
+} from './loader/userConfig';
+// Per-epic depth of work, and the prompt section that states it.
+export {
+  STRICT_MODE_HEADING,
+  STRICT_MODE_KEY,
+  commandBodyPredatesStrictMode,
+  epicStrictMode,
+  resolveEpicStrictMode,
+  strictModeSection,
+} from './loader/strictMode';
+export { commandBodyIsStale } from './presets/commandBodyFreshness';
+export type { ComposeInput, ComposedPrompt } from './loader/promptComposer';
 
 export {
   discoverAssets,
@@ -117,6 +240,19 @@ export type {
 export { RunnerRegistry } from './runner/RunnerRegistry';
 export { DefaultRunner } from './runner/DefaultRunner';
 export type { DefaultRunnerOptions } from './runner/DefaultRunner';
+export { CodexRunner } from './runner/CodexRunner';
+export type { CodexRunnerOptions } from './runner/CodexRunner';
+export {
+  claudeMcpRegistrar,
+  codexMcpRegistrar,
+  mcpRegistrarFor,
+  readProjectMcpServer,
+  codexConfigPath,
+  isCodexMcpConfigured,
+} from './runner/mcp';
+export type { McpRegistrar, McpCommand, StdioMcpServer } from './runner/mcp';
+export { createLineSink, createJsonSink } from './runner/ndjson';
+export type { LineSink } from './runner/ndjson';
 export { isInsideClaudeCodeSession, hasClaudeLogin, buildClaudeSpawnEnv } from './runner/claudeEnv';
 export {
   CustomRunnerLoader,
@@ -124,12 +260,17 @@ export {
 } from './runner/CustomRunnerLoader';
 export {
   RunnerValidationError,
+  NO_HARNESS_CAPABILITIES,
+  harnessCapabilities,
 } from './runner/types';
 export type {
   AidlcRunner,
   RunnerContext,
   RunnerResult,
+  AgentCliWrapper,
   ClaudeCliWrapper,
+  RunnerUsage,
+  HarnessCapabilities,
 } from './runner/types';
 
 // ── Pipeline runs (phase 1) ────────────────────────────────────────
@@ -154,7 +295,15 @@ export {
   PipelineRunError,
 } from './runs/PipelineRunner';
 export { checkBudget } from './runs/budget';
-export type { BudgetCheckArgs, BudgetVerdict } from './runs/budget';
+export type { BudgetCheckArgs, BudgetVerdict, CostAccounting, CostConfidence } from './runs/budget';
+export {
+  BUILTIN_RATES,
+  mergeRates,
+  ratesFromConfig,
+  providerAliases,
+  estimateCostUsd,
+} from './runs/pricing';
+export type { ModelRate, PricingTable, CostEstimate } from './runs/pricing';
 export { runExecLoop } from './runs/execEngine';
 export type { ExecOutcome, ExecOptions, ExecHooks } from './runs/execEngine';
 export { verifyRun } from './runs/verifyRun';
@@ -162,7 +311,17 @@ export type { VerifyReport, StepDrift } from './runs/verifyRun';
 export { renderRunReport } from './runs/runReport';
 export { runAutoReview, AutoReviewerError } from './runs/AutoReviewer';
 export type { AutoReviewerContext, AutoReviewerFn } from './runs/AutoReviewer';
-export { resolvePath } from './runs/RunState';
+export { resolvePath, stepIdentity, migrateRunState, RUN_STATE_SCHEMA_VERSION } from './runs/RunState';
+export {
+  reconcileRunSteps,
+  describeDrift,
+  withBackfilledStepNames,
+} from './runs/reconcileRun';
+export type {
+  RunReconciliation,
+  StepAlignment,
+  StepAlignmentKind,
+} from './runs/reconcileRun';
 export type {
   RunState,
   StepRecord,
@@ -200,7 +359,14 @@ export {
 } from './presets/builtinWorkflows';
 export type { BuiltinWorkflow, WorkspacePreset as BuiltinWorkspacePreset, WorkspaceRecipe, ArtifactTemplateOptions } from './presets/builtinWorkflows';
 
-// Global ~/.claude install of built-in agent/skill files (shared by ext + CLI).
+// Model tier the built-in presets, the CLI and the wizards all default to.
+// Aliases, not pinned ids, so a preset does not age out on the next release.
+export {
+  PLANNING_MODEL, CODING_MODEL, FAST_MODEL,
+  CLAUDE_TIER_ALIASES, isClaudeTierAlias, resolveProviderModel,
+} from './presets/models';
+
+// Global Claude-config-dir install of built-in agent/skill files (ext + CLI).
 export {
   installGlobalDefaults,
   installWorkflowGlobalsByIds,
@@ -233,6 +399,20 @@ export type {
   EligiblePhase,
   WriteCommandsResult,
 } from './presets/commandModel';
+// Project-file provisioning for a built-in workflow: `.claude/commands/*` and
+// `.aidlc/aidlc-templates/<pipelineId>/*`. Shared so `preset apply` produces
+// the same workspace from the CLI as it does from the extension.
+export {
+  writeWorkflowCommands,
+  writeWorkflowArtifactTemplates,
+  provisionWorkflowFiles,
+  provisionDeclaredWorkflows,
+  relativeEpicRoot,
+} from './presets/workflowProvisioning';
+export type {
+  ProvisionOptions,
+  ProvisionResult,
+} from './presets/workflowProvisioning';
 // Annotation + epic-memory tooling install (shared by ext + CLI).
 export {
   installAnnotationTools,
@@ -264,6 +444,24 @@ export type {
   TraceRule,
   ResolveStandardOptions,
 } from './profiles/StandardProfile';
+
+// Path helpers for resolving workspace.yaml-declared paths (`~/` aware).
+export { expandHome, resolveDeclaredPath } from './util/paths';
+
+// Claude account/config dir resolution — `~/.claude` unless the user separates
+// accounts with `CLAUDE_CONFIG_DIR` / the `aidlc.claude.configDir` setting.
+export {
+  setClaudeConfigDir,
+  getClaudeConfigDirOverride,
+  defaultClaudeConfigDir,
+  resolveClaudeConfigDir,
+  claudeConfigDir,
+  isDefaultClaudeConfigDir,
+  claudeJsonPath,
+  claudeConfigEnv,
+  remapClaudePath,
+} from './util/claudeHome';
+export type { ClaudeHomeOptions } from './util/claudeHome';
 
 // Shared help/knowledge content for `ask` + `guide` (CLI + extension).
 export { AIDLC_KNOWLEDGE, AIDLC_CLI_GUIDE_TEXT } from './help/aidlcGuide';

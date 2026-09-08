@@ -23,7 +23,9 @@ import {
   WorkspaceValidationError,
 } from '../schema/WorkspaceSchema';
 import { EnvResolver } from './EnvResolver';
+import { mergeEpicPipelines } from './EpicPipelineStore';
 import { SkillLoader } from './SkillLoader';
+import { PersonaLoader } from './PersonaLoader';
 import { RunnerRegistry } from '../runner/RunnerRegistry';
 import { resolveStandard } from '../profiles/StandardProfile';
 
@@ -55,6 +57,8 @@ export interface LoadedWorkspace {
   envResolver: EnvResolver;
   /** Skill loader pre-wired to this workspace's skill list. */
   skills: SkillLoader;
+  /** Persona loader — resolves `.claude/agents/<agent-id>.md` across all scopes. */
+  personas: PersonaLoader;
   /** Runner registry pre-wired to this workspace root. */
   runners: RunnerRegistry;
 }
@@ -64,6 +68,8 @@ export interface WorkspaceLoaderOptions {
   osEnv?: NodeJS.ProcessEnv;
   /** Override builtin skill paths. See SkillLoader. */
   builtins?: Record<string, string>;
+  /** Override the home dir used to resolve global-scope personas. Tests pin this. */
+  homeDir?: string;
   /**
    * What to do when `${env:VAR}` references an unset OS var.
    * Defaults to 'empty' (matches shell). Use 'throw' for strict CI.
@@ -112,6 +118,14 @@ export class WorkspaceLoader {
       throw new WorkspaceParseError('workspace.yaml is empty', configPath);
     }
 
+    // Epics keep their own pipeline in `docs/epics/<id>/pipeline.yaml`, out of
+    // the shared file. Splice them in before validation so cross-ref checks see
+    // one whole workspace, and so every consumer downstream still finds an
+    // epic's pipeline where it has always looked: `config.pipelines`.
+    const doc = parsed as Record<string, unknown>;
+    if (!Array.isArray(doc.pipelines)) { doc.pipelines = []; }
+    mergeEpicPipelines(workspaceRoot, doc as { pipelines: Array<Record<string, unknown>>; state?: unknown });
+
     const config = validateWorkspace(parsed, configPath);
 
     // Fail fast on an unknown `standard:` value (GH-69-AC03). Built-in ids and
@@ -131,6 +145,7 @@ export class WorkspaceLoader {
       skills: new SkillLoader(workspaceRoot, config.skills, {
         builtins: opts.builtins,
       }),
+      personas: new PersonaLoader(workspaceRoot, opts.homeDir),
       runners: new RunnerRegistry(workspaceRoot),
     };
   }

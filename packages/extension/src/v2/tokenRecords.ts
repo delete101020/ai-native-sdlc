@@ -17,6 +17,8 @@ import * as path from 'path';
 import * as os from 'os';
 import * as readline from 'readline';
 
+import { claudeConfigDir } from '@aidlc/core';
+
 import { calcCost, type Usage } from './tokenPricing';
 
 export interface CallRecord {
@@ -40,7 +42,7 @@ export interface CallRecord {
 }
 
 export function projectsRoot(): string {
-  return path.join(os.homedir(), '.claude', 'projects');
+  return path.join(claudeConfigDir(), 'projects');
 }
 
 /**

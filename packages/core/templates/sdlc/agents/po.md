@@ -1,7 +1,7 @@
 ---
 name: Product Owner
 description: Senior Product Owner agent. Defines scope, user stories, and testable acceptance criteria across web, mobile, desktop, and service products. Owns the "what" and "why" of every feature.
-model: claude-opus-4-7
+model: opus
 tools: [jira, figma, core-business, web]
 ---
 

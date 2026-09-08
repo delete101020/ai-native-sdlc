@@ -1,7 +1,7 @@
 # aidlc
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](https://github.com/aidlc-io/aidlc/blob/main/LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/hueanmy)
+[![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](https://github.com/delete101020/ai-native-sdlc/blob/main/LICENSE)
+[![Build: local](https://img.shields.io/badge/build-local%20link-6b7280)](https://github.com/delete101020/ai-native-sdlc)
 
 Terminal CLI for AIDLC — drives Claude through pipelines you declare in
 `.aidlc/workspace.yaml`. Manages the workspace, executes runs end-to-end via
@@ -23,14 +23,18 @@ epic's memory whenever a prompt mentions it. See the [`globals`](#globals--built
 
 ## Install
 
-```sh
-# From npm (when published)
-npm install -g aidlc
+This build is a fork of [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc) and is **not published to
+npm**. Build it from the repo:
 
-# From source (development)
+```sh
 pnpm install                                 # at repo root
-cd packages/cli && npm link                  # makes `aidlc` available globally
+pnpm -r compile
+cd packages/cli && pnpm bundle && npm link   # makes `aidlc` available globally
+aidlc --version                              # 3.5.1
 ```
+
+`npm link` points at the working tree, so a later `pnpm bundle` is enough to
+pick up changes — no reinstall.
 
 ## Prerequisites
 
@@ -110,6 +114,20 @@ run-state JSON files are parseable. Exit 1 on any failure (including skill /
 runner / runtime checks). `--json` emits every section as
 `{ ok, failures, sections }` — a parseable CI preflight.
 
+### `mcp` — give another CLI the ast-graph server
+
+```
+aidlc mcp status
+aidlc mcp register [--runner codex] [--dry-run]
+```
+
+The VS Code extension registers the `ast-graph` MCP server with Claude
+automatically, project-scoped. Codex keeps MCP servers in `~/.codex/config.toml`,
+which is per-user: registering there points every Codex session on the machine
+at this workspace's graph, so it stays an explicit command. `register` copies
+the binary and db path out of the registration Claude already has — run
+**AIDLC: Rescan AST Graph** in VS Code once first.
+
 ### `validate` — schema + cross-reference check
 
 ```
@@ -154,7 +172,7 @@ aidlc agent add --id <id> --name <n> --skill <skillId>
                 [--model claude-sonnet-4-5]
                 [--capabilities files,github,jira]
                 [--description "…"]
-                [--runner default|custom] [--runner-path .aidlc/runners/foo.js]
+                [--runner default|codex|custom] [--runner-path .aidlc/runners/foo.js]
 aidlc agent list [--json]
 aidlc agent show <id>
 aidlc agent remove <id>
@@ -164,6 +182,43 @@ aidlc agent run <id> [--message "…"] [--context k=v,…] [--dry-run]
 `agent run` is one-shot — spawns `claude` with the agent's skill + your
 message, streams to stdout, no run state created. Useful for quick checks and
 piping into shell scripts.
+
+**Runners.** `default` shells out to `claude`; `codex` shells out to
+`codex exec`; `custom` loads your own `runner_path` module. AIDLC composes the
+same three layers — persona, project instructions, skills — into whichever
+prompt that harness needs, so the phase is the same work either way. What
+differs is what the harness supplies by itself: Claude Code reads `CLAUDE.md`
+and gets it once, Codex is handed `AGENTS.md` (or `CLAUDE.md` when the repo has
+no `AGENTS.md`) inline. `aidlc doctor` prints the resolved layers per agent.
+
+Two things do *not* carry across on their own — a tier alias and a price — and
+both are settled in one place, the optional `providers:` block:
+
+```yaml
+providers:
+  codex:
+    model_aliases:
+      sonnet: gpt-5-codex                              # tier → concrete model
+    rates:
+      "*": { input_per_mtok: 1.25, output_per_mtok: 10.0 }   # USD per 1M tokens
+```
+
+`model_aliases` translates a `model:` value for one runner. Without it, a Claude
+tier alias (`opus` / `sonnet` / `haiku`) resolves to no `--model` at all and the
+provider CLI applies its own default. AIDLC ships **no** built-in tier map: saying
+`sonnet` equals some other vendor's model is a claim about your work that only you
+can make, and a guessed model id fails the run outright.
+
+`rates` prices the tokens a CLI reports, for the providers that report tokens
+rather than dollars (Codex does; Claude Code reports a measured
+`total_cost_usd`, which always wins). AIDLC ships **no** built-in prices either —
+a stale rate produces a plausible total instead of failing loudly, and your real
+rate depends on your account. Without rates, a Codex step still sums as $0 and
+`aidlc doctor` names it.
+
+Either way the number is labelled: a total containing an estimate prints as
+`≥ ~$2.5000 (includes estimates from declared rates)`, and one missing a step
+entirely says `1 step reported no cost`.
 
 ### Pipelines
 
@@ -215,6 +270,62 @@ In v2 an **epic** is a domain entity persisted on disk (one folder per epic
 with a `state.json`); it's distinct from a pipeline **run**. An epic can exist
 without a run, and a run can exist without an epic — `epic` reads the former,
 `run` / `status` read the latter.
+
+---
+
+### `maintain` — stage 6, the AI-Native return path
+
+Every other stage is entered by a person already looking at the screen. This one
+is entered by an alert, so it has a door a webhook forwarder, a cron job or a
+shell script can open.
+
+```
+aidlc maintain --signal signal.json          # register the signal as an incident epic
+aidlc maintain --signal -                    # …or read it from stdin
+aidlc maintain follow-up <incidentEpic>      # open the work the diagnosis found
+```
+
+A **signal** is five fields, and the schema is the contract — not the transport.
+A human pasting JSON, a Sentry webhook and an OTel threshold rule all fill the
+same shape, so adding a source later is an adapter, never a schema change:
+
+```json
+{
+  "source": "sentry",
+  "observedAt": "2026-08-30T02:14:00Z",
+  "symptom": "Checkout returns 500 for saved cards",
+  "scope": "~40 users/hour, EU region only",
+  "evidence": "TypeError: cannot read property token of undefined"
+}
+```
+
+`maintain` scaffolds an epic named after the symptom (`INC-CHECKOUT-RETURNS-500`,
+readable on purpose — the id ends up in a branch name and every later reference)
+and writes the payload to `<epic>/signal.json`, where the `native-maintain` skill
+looks for it. Then `/maintain <epic>` in Claude produces `incident.md`.
+
+The split into two commands is not ceremony. Whether a signal deserves five
+stages is a judgment made against the code, and it belongs to the Operator agent
+that runs *between* the two calls — not to the flag that woke it up. When the
+diagnosis does call for work, `follow-up` scaffolds the next epic with its
+`intent.md` already written, reading the signal back from the incident epic:
+
+```
+aidlc maintain follow-up INC-CHECKOUT-RETURNS-500 \
+  --problem "Customers with a saved card cannot complete a purchase." \
+  --who-hurts "Returning EU shoppers paying with a stored card." \
+  --done "A saved-card checkout succeeds under the failing condition." \
+  --question "Did this start with the 2026-08-29 deploy?"
+```
+
+Anything you leave out is written into the artifact as an explicit open question
+rather than filled with a plausible sentence — a gap a human can see gets
+answered, a fabricated line gets believed. The new epic starts at **stage 1
+behind its human gate**: an intent written by an agent at 3am from a single alert
+is exactly the kind of document that deserves a person's eyes. Pass
+`--intent <file>` to supply the markdown yourself, `--json` for machine callers.
+
+Requires the recipes the AI-Native preset ships (`aidlc preset apply ai-native`).
 
 ---
 
@@ -303,8 +414,19 @@ resets downstream steps), mirroring the extension's "Request update" action.
 Because `run exec --auto-approve` can drive a whole pipeline unattended (and a
 self-fixing agent loop can quietly escalate spend), a pipeline may declare an
 optional cost ceiling. After each step the autopilot sums the per-step LLM cost
-(claude's reported `total_cost_usd`) and stops once a ceiling is crossed. Manual
-`mark-done` is never gated.
+and stops once a ceiling is crossed. Manual `mark-done` is never gated.
+
+A step's cost is one of three things, and the guard treats them differently:
+
+| | Where it comes from | Counts toward the ceiling |
+|---|---|---|
+| **measured** | the CLI reported dollars (`claude`) | yes |
+| **estimated** | tokens × your `providers.<runner>.rates` | yes, and it says so |
+| **blind** | the CLI reported neither | no — it sums as $0 |
+
+An estimate is counted because the alternative is a provider with no ceiling at
+all. It is never presented as measured: the running line reads
+`budget: ≥ $2.5000 / $5.00 ($2.2500 estimated; 1 step reported no cost)`.
 
 ```yaml
 pipelines:
@@ -316,9 +438,8 @@ pipelines:
     steps: [...]
 ```
 
-`run exec` prints a running `budget: $spent / $max` line per step; on `pause` it
-stops and you can raise the budget or resume, on `fail` it exits non-zero (handy
-in CI).
+On `pause` the loop stops and you can raise the budget or resume; on `fail` it
+exits non-zero (handy in CI).
 
 ### `step` — direct step control
 
@@ -537,12 +658,16 @@ Runs and presets are local-only — gitignore `.aidlc/runs/` and
 | `aidlc run exec` fails with "missing artifacts" | The agent didn't produce the files declared in `pipeline.steps[].produces`. Check the paths or fix the agent's skill. |
 | `aidlc run start` rejects the runId | RunIds must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`. No spaces, no leading dashes. |
 | Pipeline step appears as a string in YAML, but I edited it as an object | Both forms are valid. The CLI writes string form when there's no metadata, object form when there's `human_review` or `produces`. |
+| A phase on `runner: codex` answers without the graph | Its MCP server is per-user and separate from Claude's. Run `aidlc mcp register --runner codex`, then `aidlc mcp status` to confirm. |
 | Custom runner not loading | `runner_path` must be `.js` / `.cjs` / `.mjs` (no TypeScript yet). Run `aidlc doctor` to check the file resolves. |
 
-## Sponsor
+## Credit
 
-If AIDLC saves you time, consider [sponsoring on GitHub](https://github.com/sponsors/hueanmy) ❤️ — it keeps the extension, the CLI, and the monitor maintained.
+Built on [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc) by
+[hueanmy](https://github.com/hueanmy). If it saves you time,
+[sponsor the original author](https://github.com/sponsors/hueanmy) ❤️.
 
 ## License
 
-MIT
+MIT — the original copyright line is kept; this fork's changes are added under
+the same terms.

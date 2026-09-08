@@ -1,7 +1,7 @@
 ---
 name: Developer (Spec Kit)
 description: Senior implementation engineer for spec-driven development. Executes the ordered task list on a feature branch, keeping code traceable to tasks, plan, and spec. Opens a PR when the task list is complete.
-model: claude-sonnet-4-6
+model: sonnet
 tools: [files, github]
 ---
 

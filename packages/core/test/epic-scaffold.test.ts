@@ -53,10 +53,6 @@ describe('slugEpicId', () => {
 describe('scaffoldEpic — on-disk layout', () => {
   it('creates folder + artifacts + state.json + inputs.json + run state', () => {
     const root = tmpRoot();
-    // Seed an artifact template the scaffold should copy.
-    const tplDir = path.join(root, '.aidlc', 'aidlc-templates', PIPELINE.id);
-    fs.mkdirSync(tplDir, { recursive: true });
-    fs.writeFileSync(path.join(tplDir, 'PRD.md'), '# template');
 
     const result = scaffoldEpic({
       workspaceRoot: root,
@@ -72,8 +68,8 @@ describe('scaffoldEpic — on-disk layout', () => {
 
     const epicDir = path.join(root, 'docs/epics', 'CPD-1');
     expect(result.epicDir).toBe(epicDir);
-    // artifact template copied in
-    expect(fs.existsSync(path.join(epicDir, 'artifacts', 'PRD.md'))).toBe(true);
+    // artifacts/ exists and is empty — see the empty-artifacts test below
+    expect(fs.readdirSync(path.join(epicDir, 'artifacts'))).toEqual([]);
     // inputs.json captured
     expect(JSON.parse(fs.readFileSync(path.join(epicDir, 'inputs.json'), 'utf8'))).toEqual({ jira: 'CPD-1' });
 
@@ -91,6 +87,108 @@ describe('scaffoldEpic — on-disk layout', () => {
     expect(state.stepStates.map((s: { agent: string }) => s.agent)).toEqual(['po', 'developer']);
   });
 
+  // The epic doc is the only file a phase-1 skill reads for the user's own
+  // words — the AI-Native intent skill opens `docs/epics/$0/$0.md` by name.
+  it('records an epic depth of work in state.json, strict by default', () => {
+    const strictRoot = tmpRoot();
+    scaffoldEpic({
+      workspaceRoot: strictRoot,
+      doc: null, epicId: 'CPD-1', title: '', description: '',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po', 'developer'], inputs: {}, pipeline: PIPELINE,
+    });
+
+    const liteRoot = tmpRoot();
+    scaffoldEpic({
+      workspaceRoot: liteRoot,
+      doc: null, epicId: 'CPD-2', title: '', description: '',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po', 'developer'], inputs: {}, pipeline: PIPELINE,
+      strictMode: false,
+    });
+
+    const read = (root: string, id: string) => JSON.parse(fs.readFileSync(
+      path.join(root, 'docs', 'epics', id, 'state.json'), 'utf8',
+    ));
+    // Written either way: a knob you cannot find in the file is one nobody
+    // flips on the epic that turns out bigger than it looked.
+    expect(read(strictRoot, 'CPD-1').strict_mode).toBe(true);
+    expect(read(liteRoot, 'CPD-2').strict_mode).toBe(false);
+  });
+
+  it('writes <epicId>.md carrying the title and description', () => {
+    const root = tmpRoot();
+    scaffoldEpic({
+      workspaceRoot: root,
+      doc: null,
+      epicId: 'CPD-2',
+      title: 'My epic',
+      description: 'do the thing',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po', 'developer'],
+      inputs: {},
+      pipeline: PIPELINE,
+    });
+
+    const doc = fs.readFileSync(
+      path.join(root, 'docs/epics', 'CPD-2', 'CPD-2.md'), 'utf8');
+    expect(doc).toContain('# CPD-2');
+    expect(doc).toContain('My epic');
+    expect(doc).toContain('do the thing');
+  });
+
+  it('writes a heading-only epic doc when there is no description', () => {
+    const root = tmpRoot();
+    scaffoldEpic({
+      workspaceRoot: root,
+      doc: null,
+      epicId: 'CPD-3',
+      title: '',
+      description: '',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po', 'developer'],
+      inputs: {},
+      pipeline: PIPELINE,
+    });
+
+    const doc = fs.readFileSync(
+      path.join(root, 'docs/epics', 'CPD-3', 'CPD-3.md'), 'utf8');
+    expect(doc).toBe('# CPD-3\n');
+  });
+
+  // Blank templates used to be copied into artifacts/ at create time, which
+  // made `markStepDone`'s existence check pass on an epic where no agent had
+  // run yet — "Mark step done" was clickable on step 1 of a brand-new epic.
+  // The templates stay in .aidlc/aidlc-templates/ and the command bodies point
+  // the agents at them; artifacts/ now means "what the run produced".
+  it('leaves artifacts/ empty even when templates are on disk', () => {
+    const root = tmpRoot();
+    const tplDir = path.join(root, '.aidlc', 'aidlc-templates', PIPELINE.id);
+    fs.mkdirSync(tplDir, { recursive: true });
+    fs.writeFileSync(path.join(tplDir, 'PRD.md'), '# template');
+
+    // Both keys the old copy used: the pipeline's own id, and `derived_from`
+    // for a recipe-assembled pipeline named after its epic.
+    const assembled: PipelineConfig = {
+      ...PIPELINE,
+      id: 'CPD-4',
+      derived_from: PIPELINE.id,
+    };
+    const result = scaffoldEpic({
+      workspaceRoot: root,
+      doc: null,
+      epicId: 'CPD-4',
+      title: '',
+      description: '',
+      target: { kind: 'pipeline', id: assembled.id },
+      agents: ['po', 'developer'],
+      inputs: {},
+      pipeline: assembled,
+    });
+
+    expect(fs.existsSync(result.artifactsDir)).toBe(true);
+    expect(fs.readdirSync(result.artifactsDir)).toEqual([]);
+  });
   // GH-67-UT01: extraProjects written to inputs.json
   it('persists extraProjects in inputs.json when provided', () => {
     const root = tmpRoot();
@@ -154,6 +252,27 @@ describe('scaffoldEpic — on-disk layout', () => {
     const inputsPath = path.join(root, 'docs/epics', 'GH-67-C', 'inputs.json');
     const inputs = JSON.parse(fs.readFileSync(inputsPath, 'utf8'));
     expect(inputs.extra_projects).toBeUndefined();
+  });
+
+  it('scaffolds into a dir holding only the pipeline it was just given', () => {
+    // Both front doors assemble the pipeline and write the workspace before
+    // scaffolding, and writing the workspace routes an epic-owned pipeline
+    // into this directory — so the dir is already there, by our own hand.
+    const root = tmpRoot();
+    const dir = path.join(root, 'docs', 'epics', 'CPD-9');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'pipeline.yaml'), 'id: CPD-9\n', 'utf8');
+
+    scaffoldEpic({
+      workspaceRoot: root,
+      doc: null, epicId: 'CPD-9', title: '', description: '',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po', 'developer'], inputs: {}, pipeline: PIPELINE,
+    });
+
+    expect(fs.existsSync(path.join(dir, 'state.json'))).toBe(true);
+    // …and the pipeline we found there is untouched.
+    expect(fs.readFileSync(path.join(dir, 'pipeline.yaml'), 'utf8')).toBe('id: CPD-9\n');
   });
 
   it('throws when the epic dir already exists', () => {

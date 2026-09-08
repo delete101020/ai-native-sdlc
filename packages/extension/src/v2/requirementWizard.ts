@@ -18,6 +18,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { claudeConfigEnv } from '@aidlc/core';
+
 // ── Shared types ─────────────────────────────────────────────────────────────
 
 export interface RequirementInputs {
@@ -292,7 +294,9 @@ function runSlashCommandInClaude(slash: string, root: string): void {
     cwd,
     iconPath: new vscode.ThemeIcon('rocket'),
     location: vscode.TerminalLocation.Panel,
-    env: { DISABLE_AUTO_UPDATE: 'true', DISABLE_UPDATE_PROMPT: 'true' },
+    // `claudeConfigEnv()` pins the Claude account when the user runs more
+    // than one; empty (and so invisible) for a single-account machine.
+    env: { DISABLE_AUTO_UPDATE: 'true', DISABLE_UPDATE_PROMPT: 'true', ...claudeConfigEnv() },
   });
   terminal.show(false);
   let sent = false;

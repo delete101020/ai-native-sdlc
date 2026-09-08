@@ -18,7 +18,8 @@ AIDLC is an AI-driven SDLC + agent workflow runner. It drives Claude through a
 pipeline you declare in \`.aidlc/workspace.yaml\`, tracking every run, step, and
 token. It has two surfaces that share the same files on disk (no daemon):
 
-- **VS Code extension** (\`hueanmy.aidlc\`) — a visual Builder for workspace.yaml,
+- **VS Code extension** (\`delete101020.aidlc\`, installed from a local \`.vsix\`) — a
+  visual Builder for workspace.yaml,
   a sidebar launcher, epic/run tracking, and the **AIDLC Monitor** (token usage,
   session insights, live agent observability).
 - **CLI** (\`aidlc\`) — the same engine from any terminal, no editor required.
@@ -50,6 +51,14 @@ the other within ~200ms.
   a \`claude login\`, \`ANTHROPIC_API_KEY\`, AWS Bedrock (\`CLAUDE_CODE_USE_BEDROCK=1\`
   + AWS profile/credentials), Google Vertex (\`CLAUDE_CODE_USE_VERTEX=1\`), or a
   gateway \`ANTHROPIC_AUTH_TOKEN\`/\`ANTHROPIC_BASE_URL\`. Run \`aidlc doctor\` to verify.
+- Several Claude accounts (personal / work)? They are separated by *config dir*,
+  not by project: \`~/.claude\` holds one account's agents, skills, settings and
+  session logs. AIDLC follows \`CLAUDE_CONFIG_DIR\`, and the extension adds the
+  \`aidlc.claude.configDir\` setting (workspace scope, so one window = one
+  account) — it pins global installs, the epic-memory hook, MCP registration,
+  the token monitor and every \`claude\` terminal AIDLC opens. \`aidlc doctor\`
+  prints the dir in use. The workspace's own \`.claude/\` is project data and
+  never moves.
 
 ## CLI command surface
 - Bootstrap: \`aidlc init\`, \`aidlc validate\`, \`aidlc doctor\`, \`aidlc list [--json]\`.
@@ -64,7 +73,9 @@ the other within ~200ms.
 - Global flag: \`-w, --workspace <path>\` (defaults to cwd; also reads AIDLC_WORKSPACE).
 
 ## VS Code extension setup & UI
-1. Install **AIDLC** (\`hueanmy.aidlc\`) from the VS Code Marketplace or Open VSX.
+1. Install **AIDLC** from a locally built \`.vsix\`: \`pnpm package:extension\` in the
+   repo, then \`code --install-extension packages/extension/aidlc-<version>.vsix\`.
+   This build is not on the Marketplace or Open VSX.
 2. Ensure \`claude\` is on PATH and authenticated (the sidebar surfaces MCP/claude state).
 3. Open a project folder. The **AIDLC** sidebar (activity bar) shows:
    - the project + workspace.yaml status and counts (Agents / Skills / Flows / Epics),

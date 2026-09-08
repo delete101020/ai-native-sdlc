@@ -17,7 +17,9 @@
  *   3. Prune each step's `depends_on` to references that survived selection —
  *      a step that depended on an excluded upstream falls back to a DAG root
  *      (or, if no step uses depends_on, the runner's legacy sequential mode).
- *   4. Cross-ref check the result (agents/skills must resolve) — fatal here,
+ *   4. Apply the recipe's per-step `gates` overrides, so two recipes over
+ *      the same pipeline can disagree about where a human has to stand.
+ *   5. Cross-ref check the result (agents/skills must resolve) — fatal here,
  *      because an assembled pipeline with a dangling agent would crash the
  *      runner at dispatch.
  */
@@ -113,6 +115,20 @@ export function assemblePipeline(
   const steps = recipe.steps.map((id) => {
     const norm = normalizeStep(byId.get(id)!);
     const depends_on = resolveDeps(id, new Set([id]));
+    // Gates are the one thing a recipe may override on a step it borrows:
+    // the selection says which work runs, the gates say who has to look at it.
+    const gate = recipe.gates?.[id] ?? {};
+    const auto_review = gate.auto_review ?? norm.auto_review;
+    const auto_review_runner = gate.auto_review_runner ?? norm.auto_review_runner;
+    // auto_review with no runner parks the step in `awaiting_auto_review`
+    // with nothing able to clear it — the same trap EpicStepEdit refuses.
+    if (auto_review && !auto_review_runner) {
+      throw new PipelineAssembleError(
+        `Recipe "${recipe.id}" turns \`auto_review\` on for step "${id}" with no ` +
+          `\`auto_review_runner\` to run. Add one to the recipe's gates, or leave ` +
+          `auto_review off.`,
+      );
+    }
     const step: Record<string, unknown> = {
       agent: norm.agent,
       name: norm.name ?? id,
@@ -120,16 +136,17 @@ export function assemblePipeline(
       produces: norm.produces,
       requires: norm.requires,
       depends_on,
-      auto_review: norm.auto_review,
-      human_review: norm.human_review,
+      auto_review,
+      human_review: gate.human_review ?? norm.human_review,
     };
     if (norm.skills && norm.skills.length > 0) { step.skills = norm.skills; }
-    if (norm.auto_review_runner) { step.auto_review_runner = norm.auto_review_runner; }
+    if (auto_review_runner) { step.auto_review_runner = auto_review_runner; }
     return step as PipelineStepConfig;
   });
 
   const assembled: PipelineConfig = {
     id: opts.pipelineId ?? recipe.id,
+    derived_from: source.id,
     steps,
     on_failure: source.on_failure,
   };

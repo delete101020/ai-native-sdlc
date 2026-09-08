@@ -25,6 +25,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { RunState } from './RunState';
+import { migrateRunState } from './RunState';
 
 const RUNS_DIR = path.join('.aidlc', 'runs');
 
@@ -72,16 +73,15 @@ export function serializeRunState(state: RunState): string {
 }
 
 /**
- * Parse and schema-validate a single run file at `filePath`. Returns `null`
- * for a missing file, unparseable JSON, or a mismatched schemaVersion —
- * never throws. Shared read path for the file and git backends.
+ * Parse a single run file at `filePath` and raise it to the current schema.
+ * Returns `null` for a missing file, unparseable JSON, or a version this
+ * build does not know how to read — never throws. Shared read path for the
+ * file and git backends.
  */
 export function readRunFile(filePath: string): RunState | null {
   if (!fs.existsSync(filePath)) { return null; }
   try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    if (parsed && parsed.schemaVersion === 1) { return parsed as RunState; }
-    return null;
+    return migrateRunState(JSON.parse(fs.readFileSync(filePath, 'utf8')));
   } catch { return null; }
 }
 
@@ -95,10 +95,10 @@ export function readRunsDir(dir: string): RunState[] {
   for (const entry of fs.readdirSync(dir)) {
     if (!entry.endsWith('.json')) { continue; }
     try {
-      const parsed = JSON.parse(fs.readFileSync(path.join(dir, entry), 'utf8'));
-      if (parsed && parsed.schemaVersion === 1 && typeof parsed.runId === 'string') {
-        out.push(parsed as RunState);
-      }
+      const migrated = migrateRunState(
+        JSON.parse(fs.readFileSync(path.join(dir, entry), 'utf8')),
+      );
+      if (migrated) { out.push(migrated); }
     } catch { /* skip corrupt run files — surface as warning when picked */ }
   }
   out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

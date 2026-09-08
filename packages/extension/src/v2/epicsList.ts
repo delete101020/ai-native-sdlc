@@ -11,7 +11,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { RunStateStore, normalizeStep, resolvePath, mirrorRunStateToEpic } from '@aidlc/core';
+import {
+  RunStateStore,
+  normalizeStep,
+  resolvePath,
+  mirrorRunStateToEpic,
+  RUN_STATE_SCHEMA_VERSION,
+  epicStrictMode,
+} from '@aidlc/core';
 import type {
   RunState,
   StepStatus,
@@ -101,6 +108,11 @@ export interface EpicSummary {
   statePath: string;
   /** Absolute path to the epic dir (for opening artifacts/). */
   epicDir: string;
+  /**
+   * `strict_mode` from state.json — how deep this epic's phases go. Absent on
+   * disk reads as true, which is the depth every epic had before the setting.
+   */
+  strictMode: boolean;
   /**
    * True when this folder has no `state.json` / pipeline binding and the
    * summary was synthesized purely from the `.md` files in its `artifacts/`
@@ -343,12 +355,43 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
     inputs,
     inputsCount: Object.keys(inputs).length,
     statePath: '',
+    // An artifacts-only folder has no state.json to carry the setting.
+    strictMode: true,
     epicDir,
     runId: null,
     artifactsOnly: true,
   };
 }
 
+/**
+ * The epic whose materialised state pins a pipeline's step list, or null.
+ *
+ * `aidlc epic start` writes three parallel step arrays: the pipeline's
+ * `steps` in workspace.yaml, `stepStates[]` in the epic's state.json, and
+ * `steps[]` in `.aidlc/runs/<id>.json`. The run pointer (`currentStepIdx`) and
+ * every `stepIdx` are positions into those arrays, so adding, removing or
+ * reordering a step in the pipeline alone does not carry the epic's history
+ * with it: it re-points that history at different steps. Since schema 2 the
+ * run records each step's name and the runner refuses a pair that has drifted,
+ * so this is no longer silent — but a refused run is still a stuck one, and
+ * the edit that caused it is still not one this view can make.
+ *
+ * Callers use this to refuse a shape edit while the epic still owns the
+ * pipeline. `aidlc epic step add|remove` is the supported way to change the
+ * list — it reshapes the pipeline and the run together — and `aidlc step skip`
+ * remains the way past a step already in flight, leaving the length and every
+ * index alone and recording a reason.
+ *
+ * An `artifactsOnly` epic has no state.json, so there is nothing to desync.
+ */
+export function epicPinningPipeline<
+  T extends { id: string; pipeline: string | null; artifactsOnly?: boolean },
+>(epics: readonly T[], pipelineId: string): T | null {
+  if (!pipelineId) { return null; }
+  return epics.find(
+    (e) => e.pipeline === pipelineId && e.artifactsOnly !== true,
+  ) ?? null;
+}
 export function listEpics(workspaceRoot: string, doc: YamlDocument | null): EpicSummary[] {
   const dir = epicsRoot(workspaceRoot, doc);
   if (!fs.existsSync(dir)) { return []; }
@@ -398,6 +441,12 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     // its "Mark step done" affordance (issue #57). RunState.steps has one
     // ordered entry per pipeline step with an explicit `stepIdx` that aligns
     // with both stepStatesRaw[i] and pipelineCfg.steps[i].
+    //
+    // That alignment is an invariant the runner now enforces rather than one
+    // this listing has to trust: `reconcileRunSteps` matches the two lists by
+    // step identity (`name ?? agent`) and every transition refuses to run on a
+    // drifted pair. Reading by index here is safe because a drifted run cannot
+    // have been advanced.
     const runStepByIdx = new Map<number, StepStatus>();
     const runRejectByIdx = new Map<number, string>();
     const runVerdictByIdx = new Map<number, AutoReviewVerdict>();
@@ -605,6 +654,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       inputsCount: Object.keys(inputs).length,
       statePath: stateFile,
       epicDir,
+      strictMode: epicStrictMode(parsed as { strict_mode?: unknown }),
       runId: runState ? runState.runId : null,
     });
   }
@@ -863,6 +913,9 @@ function backfillRunStateFromEpic(
     return {
       stepIdx: i,
       agent: norm.agent,
+      // Reconstructed from the pipeline, so the identity is available and
+      // worth recording — this run had none of its own history to lose.
+      ...(norm.name === undefined ? {} : { name: norm.name }),
       revision: 1,
       status,
       startedAt: typeof legacy.startedAt === 'string' ? legacy.startedAt : undefined,
@@ -878,7 +931,7 @@ function backfillRunStateFromEpic(
       : 'running';
 
   const runState: RunState = {
-    schemaVersion: 1,
+    schemaVersion: RUN_STATE_SCHEMA_VERSION,
     runId: epicId,
     pipelineId,
     context,

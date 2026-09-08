@@ -7,12 +7,73 @@ import chalk from 'chalk';
 import {
   WorkspaceLoader,
   RunStateStore,
+  mirrorRunStateToEpic,
+  commitApprovedArtifacts,
+  resolveArtifactCommitConfig,
   type RunState,
   type StepRecord,
   type PipelineConfig,
   type AgentConfig,
   type SkillLoader,
 } from '@aidlc/core';
+import { readYaml } from './yamlIO';
+
+// ── Run persistence ───────────────────────────────────────────────────────────
+
+/**
+ * Persist a transitioned run, and — when the workspace opted into
+ * `artifact_commit: on_approve` — commit the artifacts of any step that just
+ * reached `approved` onto the epic's own branch.
+ *
+ * Pass `prev` (the state before the transition) at every mutating site; without
+ * it there is nothing to diff and only the save happens.
+ *
+ * The epic's `state.json` is re-mirrored here, but *only* when the feature is
+ * on. The CLI has never mirrored (the extension does), and turning that on
+ * unconditionally would change behaviour for every workspace. It is not
+ * optional for a workspace that did opt in, though: the approval and the
+ * artifact it approves go into one commit, and a stale state.json in that
+ * commit would record the wrong verdict.
+ */
+export function saveRunState(root: string, next: RunState, prev?: RunState): void {
+  RunStateStore.save(root, next);
+  if (!prev) { return; }
+
+  let doc: ReturnType<typeof readYaml> = null;
+  try {
+    doc = readYaml(root);
+  } catch {
+    return; // Unreadable workspace.yaml — the save already succeeded; say nothing.
+  }
+  if (resolveArtifactCommitConfig(doc).mode !== 'on_approve') { return; }
+
+  try {
+    mirrorRunStateToEpic(root, next, doc);
+  } catch (err) {
+    console.error(chalk.yellow('!') + ` Could not mirror run state into epic state.json — ${msg(err)}`);
+  }
+
+  const result = commitApprovedArtifacts({ workspaceRoot: root, before: prev, after: next, doc });
+  if (result.committed) {
+    console.log(
+      chalk.green('✔') +
+      ` Artifacts committed to ${chalk.bold(result.ref!.replace('refs/heads/', ''))} (${result.commit!.slice(0, 8)})`,
+    );
+    for (const f of result.files ?? []) { console.log(chalk.dim(`    ${f}`)); }
+  } else if (result.reason && !isRoutineSkip(result.reason)) {
+    console.error(chalk.yellow('!') + ` Could not commit epic artifacts — ${result.reason}`);
+  }
+}
+
+/** Non-commits that are expected rather than wrong — reported at no volume. */
+function isRoutineSkip(reason: string): boolean {
+  return reason.startsWith('no step reached approved') ||
+         reason.startsWith('artifacts already committed');
+}
+
+function msg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 // ── Run loading ───────────────────────────────────────────────────────────────
 
@@ -71,30 +132,63 @@ export function requirePipelineForRun(root: string, state: RunState): PipelineCo
 /**
  * Resolve `<step>` arg to a step index. Accepts:
  *   - a 0-based integer string: "0", "1", "2"
+ *   - a step name: "spec", "test-plan"
  *   - an agent id: "reviewer", "planner"
+ *
+ * Names are tried before agents because they are the more specific handle:
+ * one persona routinely owns several steps, so an agent id can address more
+ * than one of them. When it does, this returns {@link AMBIGUOUS_STEP} rather
+ * than the first hit — quietly skipping a step the user did not mean is the
+ * kind of mistake a run cannot be talked out of afterwards.
  *
  * Returns -1 when not found (caller decides whether to exit).
  */
+export const AMBIGUOUS_STEP = -2;
+
 export function resolveStepIdx(state: RunState, step: string): number {
   // Try as integer first
   const asInt = parseInt(step, 10);
   if (!isNaN(asInt) && String(asInt) === step) {
     return asInt >= 0 && asInt < state.steps.length ? asInt : -1;
   }
-  // Try as agent id
-  return state.steps.findIndex(s => s.agent === step);
+  // Then as a step name — unique within a pipeline by construction.
+  const byName = state.steps.findIndex(s => s.name === step);
+  if (byName >= 0) { return byName; }
+  // Finally as an agent id, which may well match several steps.
+  const byAgent = state.steps
+    .map((s, i) => (s.agent === step ? i : -1))
+    .filter(i => i >= 0);
+  if (byAgent.length > 1) { return AMBIGUOUS_STEP; }
+  return byAgent.length === 1 ? byAgent[0] : -1;
+}
+
+/** How a step is addressed on the command line: its name, else its agent. */
+function stepLabel(s: RunState['steps'][number]): string {
+  return s.name ?? s.agent;
 }
 
 /** Like resolveStepIdx but exits with a clear message on failure. */
 export function requireStepIdx(state: RunState, step: string): number {
   const idx = resolveStepIdx(state, step);
-  if (idx < 0) {
-    const agents = state.steps.map((s, i) => `${i}:${s.agent}`).join(', ');
-    console.error(chalk.red(`Step "${step}" not found in run "${state.runId}".`));
-    console.error(chalk.dim(`Valid steps (index:agent): ${agents}`));
+  if (idx >= 0) { return idx; }
+
+  const listing = state.steps
+    .map((s, i) => `${i}:${stepLabel(s)}`)
+    .join(', ');
+  if (idx === AMBIGUOUS_STEP) {
+    const owned = state.steps
+      .map((s, i) => (s.agent === step ? `${i}:${stepLabel(s)}` : ''))
+      .filter(Boolean)
+      .join(', ');
+    console.error(
+      chalk.red(`Agent "${step}" owns more than one step in run "${state.runId}".`),
+    );
+    console.error(chalk.dim(`Name the step or its index instead: ${owned}`));
     process.exit(1);
   }
-  return idx;
+  console.error(chalk.red(`Step "${step}" not found in run "${state.runId}".`));
+  console.error(chalk.dim(`Valid steps (index:step): ${listing}`));
+  process.exit(1);
 }
 
 // ── Display helpers ───────────────────────────────────────────────────────────

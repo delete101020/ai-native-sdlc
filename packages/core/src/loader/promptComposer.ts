@@ -1,0 +1,128 @@
+/**
+ * Builds the system prompt for one pipeline step: persona, project
+ * instructions, skills — in that order, and only the parts the runner's harness
+ * does not already supply.
+ *
+ * Before this existed, `execEngine` sent the skills and nothing else, and the
+ * skills reached the rest by *naming file paths* (`.claude/agents/…`,
+ * `CLAUDE.md`). That works only on a harness with Claude's directory layout,
+ * and it is what made "run this phase on another CLI" a quality question rather
+ * than a wiring question. See MULTI_PROVIDER_ALIGNMENT.md §4c.
+ *
+ * Section headings match `composeSkill` in `presets/builtinWorkflows.ts`, which
+ * does the same composition for the *interactive* slash-command path, so a
+ * phase reads the same whether it was entered from a terminal or from `aidlc run`.
+ */
+
+import type { LoadedPersona } from './PersonaLoader';
+import type { ProjectInstructions } from './projectInstructions';
+import type { HarnessCapabilities } from '../runner/types';
+import { artifactLanguageSection } from './artifactLanguage';
+import { strictModeSection } from './strictMode';
+
+/**
+ * The persona used to arrive as an instruction to go and read a file. Once the
+ * persona is inlined, that line is worse than redundant: it sends the model to
+ * a path that may not exist under another harness. Same regex `composeSkill`
+ * uses, kept in step with it.
+ */
+export function stripPersonaDirectives(skillText: string): string {
+  return skillText
+    .replace(/^.*Load your full persona from `?\.?\.?\/?\.claude\/agents\/[^\n]*\n/gm, '')
+    .replace(/^.*Reference `?\.?\.?\/?\.claude\/agents\/[^\n]*\n/gm, '');
+}
+
+export interface ComposeInput {
+  /** Concatenated skill markdown — the "what to do" layer. Always included. */
+  skills: string;
+  /** Resolved persona, or null when the agent has none. */
+  persona: LoadedPersona | null;
+  /** Resolved project instructions, or null when the repo has none. */
+  instructions: ProjectInstructions | null;
+  /** What the target harness supplies without our help. */
+  harness: HarnessCapabilities;
+  /**
+   * Workspace's declared artifact language, or null/undefined for none. No
+   * harness supplies this — it is our own setting — so there is no capability
+   * flag guarding it.
+   */
+  artifactLanguage?: string | null;
+  /**
+   * Whether the epic this step belongs to runs strict. Defaults to true when
+   * the caller does not know the epic — same fail-closed rule as
+   * `resolveEpicStrictMode`.
+   */
+  strictMode?: boolean;
+}
+
+export interface ComposedPrompt {
+  /** The prompt text to hand the runner as `ctx.skill`. */
+  text: string;
+  /** Which layers this composition actually inlined — for `--dry-run` and doctor. */
+  included: { persona: boolean; instructions: boolean; language: boolean; depth: boolean };
+}
+
+export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
+  const { skills, persona, instructions, harness, artifactLanguage } = input;
+
+  const inlinePersona = !!persona && !harness.persona;
+  const inlineInstructions = !!instructions && !harness.projectInstructions;
+  const language = artifactLanguage?.trim() || null;
+  // `strictModeSection` returns null for strict, which is the prompt as it has
+  // always been — so a strict epic adds nothing and takes the fast path below.
+  const depth = strictModeSection(input.strictMode === false ? false : true);
+
+  // Nothing to add ⇒ hand the skills through untouched. A workspace whose
+  // agents have no persona file must see the exact prompt it saw before.
+  if (!inlinePersona && !inlineInstructions && !language && !depth) {
+    return {
+      text: skills,
+      included: { persona: false, instructions: false, language: false, depth: false },
+    };
+  }
+
+  const parts: string[] = [];
+
+  if (inlinePersona && persona) {
+    parts.push(['## Persona', '', persona.content].join('\n'));
+  }
+
+  if (inlineInstructions && instructions) {
+    parts.push([
+      `## Project instructions (\`${instructions.relPath}\`)`,
+      '',
+      'These are the repository\'s own standing rules. They bind this phase.',
+      '',
+      instructions.content,
+    ].join('\n'));
+  }
+
+  // Language comes after the persona and the project's rules — it constrains
+  // how the phase writes, so it reads better next to the phase behaviour than
+  // buried above two long documents.
+  if (language) {
+    parts.push(artifactLanguageSection(language));
+  }
+
+  // Depth sits next to language for the same reason: both constrain how the
+  // phase writes rather than what it is, and both read better beside the phase
+  // behaviour than above the persona.
+  if (depth) {
+    parts.push(depth);
+  }
+
+  // The skill layer keeps its path-based persona directive only when nothing
+  // has replaced it — i.e. when the harness loads the persona itself.
+  const skillText = inlinePersona ? stripPersonaDirectives(skills) : skills;
+  parts.push(['## Phase Behavior', '', skillText.trim()].join('\n'));
+
+  return {
+    text: parts.join('\n\n---\n\n') + '\n',
+    included: {
+      persona: inlinePersona,
+      instructions: inlineInstructions,
+      language: !!language,
+      depth: !!depth,
+    },
+  };
+}

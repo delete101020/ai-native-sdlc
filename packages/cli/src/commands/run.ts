@@ -22,6 +22,7 @@ import {
   type ExecHooks,
   type RunState,
   type PipelineConfig,
+  CODING_MODEL,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { info, setQuiet } from '../output';
@@ -31,6 +32,7 @@ import {
   requirePipelineForRun,
   requireStepIdx,
   printRunSummary,
+  saveRunState,
   resolveContext,
   collectOption,
   loadAgentSkills,
@@ -107,7 +109,7 @@ export function registerRun(program: Command): void {
         process.exit(1);
       }
 
-      RunStateStore.save(root, next);
+      saveRunState(root, next, state);
       const prevStatus = state.steps[state.currentStepIdx].status;
       const step = next.steps[state.currentStepIdx];
       if (step.status === prevStatus) {
@@ -146,7 +148,7 @@ export function registerRun(program: Command): void {
         next.steps[state.currentStepIdx].feedback = opts.comment;
       }
 
-      RunStateStore.save(root, next);
+      saveRunState(root, next, state);
       const approvedStep = state.steps[state.currentStepIdx];
       console.log(chalk.green('✔') + ` Approved "${approvedStep.agent}"`);
       printRunSummary(next);
@@ -173,7 +175,7 @@ export function registerRun(program: Command): void {
         process.exit(1);
       }
 
-      RunStateStore.save(root, next);
+      saveRunState(root, next, state);
       const step = state.steps[state.currentStepIdx];
       console.log(chalk.red('✘') + ` Rejected "${step.agent}"`);
       console.log(chalk.dim(`  Reason: ${opts.reason}`));
@@ -197,7 +199,7 @@ export function registerRun(program: Command): void {
         process.exit(1);
       }
 
-      RunStateStore.save(root, next);
+      saveRunState(root, next, state);
       const step = next.steps[next.currentStepIdx];
       console.log(chalk.yellow('↺') + ` Rerunning "${step.agent}" (rev ${step.revision})`);
       if (opts.feedback) { console.log(chalk.dim(`  Feedback: ${opts.feedback}`)); }
@@ -226,7 +228,7 @@ export function registerRun(program: Command): void {
         process.exit(1);
       }
 
-      RunStateStore.save(root, next);
+      saveRunState(root, next, state);
       const target = next.steps[stepIdx];
       console.log(chalk.yellow('↻') + ` Reopened "${target.agent}" for update (rev ${target.revision})`);
       if (opts.feedback) { console.log(chalk.dim(`  Feedback: ${opts.feedback}`)); }
@@ -382,7 +384,7 @@ function execExitCode(outcome: ExecOutcome, requireComplete: boolean): number {
   if (outcome.kind === 'dry_run') { return 0; } // a preview, never a CI failure
   if (requireComplete) { return 1; }
   if (outcome.kind === 'until') { return 0; }
-  return 2; // awaiting_review | rejected | budget_pause
+  return 2; // awaiting_review | rejected | budget_pause | cancelled
 }
 
 /** Machine-readable result of an exec run, printed under `--json`. */
@@ -443,7 +445,7 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
 
     onStepStart: (e) => {
       info(chalk.bold(`\n▶  Step ${e.stepIdx}: ${e.agent}`) + chalk.dim(` (rev ${e.revision})`));
-      info(chalk.dim(`   skills: ${e.skills.join(', ')}  model: ${e.model ?? 'claude-sonnet-4-5'}`));
+      info(chalk.dim(`   skills: ${e.skills.join(', ')}  model: ${e.model ?? CODING_MODEL}`));
       if (e.context) { info(chalk.dim(`   context: ${e.context}`)); }
       sep();
     },
@@ -491,21 +493,37 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
     onAutoApproved: (e) => info(chalk.green(`✔  Auto-approved "${e.agent}" (--auto-approve)`)),
 
     onBudget: (e) => {
+      // A spend figure that mixes measured cost with an estimate, or that is
+      // missing steps entirely, has to say so — otherwise the user reads a
+      // partial total as the bill (MULTI_PROVIDER_ALIGNMENT.md P0/D5).
+      const caveats: string[] = [];
+      if (e.estimated && e.estimated > 0) { caveats.push(`$${e.estimated.toFixed(4)} estimated`); }
+      if (e.blindSteps && e.blindSteps > 0) {
+        caveats.push(`${e.blindSteps} step${e.blindSteps !== 1 ? 's' : ''} reported no cost`);
+      }
+      const note = caveats.length ? ` (${caveats.join('; ')})` : '';
+      const approx = caveats.length ? '≥ ' : '';
+
       if (!e.ok) {
         const scope = e.exceeded === 'step' ? 'per-step' : 'total';
-        info(chalk.yellow(`\n⚠  Budget exceeded (${scope}): spent $${e.spent.toFixed(4)}, limit $${e.limit.toFixed(2)}.`));
+        info(chalk.yellow(`\n⚠  Budget exceeded (${scope}): spent ${approx}$${e.spent.toFixed(4)}, limit $${e.limit.toFixed(2)}.${note}`));
         if (e.onExceed !== 'fail') {
           info(chalk.dim(`  Paused. Raise the budget in workspace.yaml or resume: aidlc run exec ${e.runId}`));
         }
       } else {
-        info(chalk.dim(`  budget: $${e.spent.toFixed(4)} / $${e.limit.toFixed(2)}`));
+        info(chalk.dim(`  budget: ${approx}$${e.spent.toFixed(4)} / $${e.limit.toFixed(2)}${note}`));
       }
     },
 
     onUntilStop: (e) => info(chalk.dim(`\nStopped at step ${e.untilIdx} as requested.`)),
 
     onDryRunPreview: (e) => {
-      info(chalk.bold(`\n── System prompt (skills: ${e.skills}) ──`));
+      const layers = [
+        e.inlined.persona ? 'persona' : null,
+        e.inlined.instructions ? 'project instructions' : null,
+        `skills: ${e.skills}`,
+      ].filter(Boolean).join(' + ');
+      info(chalk.bold(`\n── System prompt (${layers}) ──`));
       info(chalk.dim(e.skillText));
       info(chalk.bold('\n── User message ───────────────────────────────────────'));
       info(e.userMessage || chalk.dim('(empty)'));

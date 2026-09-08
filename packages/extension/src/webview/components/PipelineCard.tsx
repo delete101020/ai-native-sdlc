@@ -35,6 +35,11 @@ export function PipelineCard({
   allPipelineIds: string[];
 }) {
   const total = pipeline.steps.length;
+  // Set to an epic id while that epic's run state indexes into these steps by
+  // position. Adding, removing or reordering one would silently re-point its
+  // recorded history, so those controls come off. Gates and `depends_on` stay:
+  // they change how a step runs, not which slot it occupies.
+  const locked = pipeline.pinnedByEpic;
   const [dragSrc, setDragSrc] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -124,6 +129,27 @@ export function PipelineCard({
         />
       </div>
 
+      {locked && (
+        <div className="mt-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[10.5px] leading-snug text-muted-foreground">
+          <span className="font-bold text-warning">Step list locked</span> — epic{' '}
+          <span className="font-mono">{locked}</span> is running against this workflow.
+          Its history lives in <span className="font-mono">state.json</span> and{' '}
+          <span className="font-mono">.aidlc/runs/</span> keyed by step <em>position</em>,
+          so adding, removing or reordering a step here would re-point that history
+          at different steps without raising an error. To change the step list, run{' '}
+          <span className="font-mono">aidlc epic step add|remove {locked}</span> — it
+          moves the pipeline and the run together. To jump over a step already in
+          flight,{' '}
+          <span className="font-mono">aidlc step skip {locked} &lt;step&gt;</span>.
+          The review gates stay editable here, and from{' '}
+          <span className="font-mono">aidlc epic step set {locked} &lt;step&gt;</span>:
+          the runner reads them off the pipeline as it goes, so a change reaches
+          any step that has not submitted its work yet. Dependencies are editable
+          too, but re-routing them mid-run can leave a pending step with nothing
+          left to open it.
+        </div>
+      )}
+
       {hasDagShape(pipeline) ? (
         <DagFlow
           pipeline={pipeline}
@@ -134,6 +160,7 @@ export function PipelineCard({
           onDragOver={setDragOver}
           onAppend={() => { setParallelToAgent(null); setPickerOpen(true); }}
           onAddParallel={(agent) => { setParallelToAgent(agent); setPickerOpen(true); }}
+          locked={locked}
         />
       ) : (
         <div className="flex items-center gap-1 overflow-x-auto py-3">
@@ -147,6 +174,7 @@ export function PipelineCard({
               agents={agents}
               siblingNodeIds={pipeline.steps.map((s) => s.name ?? s.agent).filter((_, j) => j !== i)}
               onAddParallel={() => { setParallelToAgent(step.name ?? step.agent); setPickerOpen(true); }}
+              locked={locked}
               isDragging={dragSrc === i}
               isDragOver={dragOver === i && dragSrc !== null && dragSrc !== i}
               onDragStart={() => setDragSrc(i)}
@@ -171,14 +199,16 @@ export function PipelineCard({
               }}
             />
           ))}
-          <button
-            type="button"
-            onClick={() => { setParallelToAgent(null); setPickerOpen(true); }}
-            title="Append a step to this workflow"
-            className="ml-1 grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-dashed border-primary/40 bg-primary/5 text-primary transition-all hover:scale-110 hover:border-primary/70 hover:border-solid hover:bg-primary/15"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+          {!locked && (
+            <button
+              type="button"
+              onClick={() => { setParallelToAgent(null); setPickerOpen(true); }}
+              title="Append a step to this workflow"
+              className="ml-1 grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-dashed border-primary/40 bg-primary/5 text-primary transition-all hover:scale-110 hover:border-primary/70 hover:border-solid hover:bg-primary/15"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          )}
         </div>
       )}
 
@@ -314,6 +344,7 @@ function DagFlow({
   onDragOver,
   onAppend,
   onAddParallel,
+  locked,
 }: {
   pipeline: PipelineSummary;
   agents: AgentSummary[];
@@ -323,6 +354,8 @@ function DagFlow({
   onDragOver: (idx: number | null) => void;
   onAppend: () => void;
   onAddParallel: (agent: string) => void;
+  /** Epic id pinning the step list, or undefined when it is free to edit. */
+  locked?: string;
 }) {
   const levels = computeDagLevels(pipeline);
   const total = pipeline.steps.length;
@@ -358,6 +391,7 @@ function DagFlow({
                   agents={agents}
                   siblingNodeIds={pipeline.steps.map((s) => s.name ?? s.agent).filter((_, j) => j !== idx)}
                   onAddParallel={() => onAddParallel(step.name ?? step.agent)}
+                  locked={locked}
                   isDragging={dragSrc === idx}
                   isDragOver={dragOver === idx && dragSrc !== null && dragSrc !== idx}
                   onDragStart={() => onDragSrc(idx)}
@@ -386,16 +420,18 @@ function DagFlow({
             )}
           </div>
         ))}
-        <div className="flex flex-col justify-center pl-2">
-          <button
-            type="button"
-            onClick={onAppend}
-            title="Append a step to this workflow"
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-dashed border-primary/40 bg-primary/5 text-primary transition-all hover:scale-110 hover:border-primary/70 hover:border-solid hover:bg-primary/15"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-        </div>
+        {!locked && (
+          <div className="flex flex-col justify-center pl-2">
+            <button
+              type="button"
+              onClick={onAppend}
+              title="Append a step to this workflow"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-dashed border-primary/40 bg-primary/5 text-primary transition-all hover:scale-110 hover:border-primary/70 hover:border-solid hover:bg-primary/15"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -453,6 +489,7 @@ function DagNode({
   agents,
   siblingNodeIds,
   onAddParallel,
+  locked,
   isDragging,
   isDragOver,
   onDragStart,
@@ -470,6 +507,8 @@ function DagNode({
   /** Node ids of the other steps — candidates for this step's `depends_on`. */
   siblingNodeIds: string[];
   onAddParallel: () => void;
+  /** Epic id pinning the step list — hides everything that would move a step. */
+  locked?: string;
   isDragging: boolean;
   isDragOver: boolean;
   onDragStart: () => void;
@@ -481,7 +520,7 @@ function DagNode({
   return (
     <>
       <div
-        draggable
+        draggable={!locked}
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = 'move';
           onDragStart();
@@ -522,19 +561,21 @@ function DagNode({
             single chars because `opacity-0` icons were still reserving
             space). Sits flush with the top-right corner of the card. */}
         <div className="absolute right-1 top-1 z-10 flex gap-0.5 rounded bg-card/95 px-0.5 py-0.5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-          <NodeIcon
-            title={`Add a step in parallel with ${step.name ?? step.agent} (same DAG level)`}
-            onClick={onAddParallel}
-          >
-            <Plus className="h-2.5 w-2.5" />
-          </NodeIcon>
+          {!locked && (
+            <NodeIcon
+              title={`Add a step in parallel with ${step.name ?? step.agent} (same DAG level)`}
+              onClick={onAddParallel}
+            >
+              <Plus className="h-2.5 w-2.5" />
+            </NodeIcon>
+          )}
           <NodeIcon
             title="Configure step (human review, auto review, requires, produces)"
             onClick={() => setConfigOpen(true)}
           >
             <Settings className="h-2.5 w-2.5" />
           </NodeIcon>
-          {idx > 0 && (
+          {!locked && idx > 0 && (
             <NodeIcon
               title="Move up (changes array order; DAG layout is driven by depends_on)"
               onClick={() =>
@@ -544,7 +585,7 @@ function DagNode({
               <ArrowUp className="h-2.5 w-2.5" />
             </NodeIcon>
           )}
-          {idx < total - 1 && (
+          {!locked && idx < total - 1 && (
             <NodeIcon
               title="Move down (changes array order; DAG layout is driven by depends_on)"
               onClick={() =>
@@ -554,13 +595,15 @@ function DagNode({
               <ArrowDown className="h-2.5 w-2.5" />
             </NodeIcon>
           )}
-          <NodeIcon
-            title="Remove from workflow"
-            danger
-            onClick={() => postMessage({ type: 'deleteStep', pipelineId, idx })}
-          >
-            <X className="h-2.5 w-2.5" />
-          </NodeIcon>
+          {!locked && (
+            <NodeIcon
+              title="Remove from workflow"
+              danger
+              onClick={() => postMessage({ type: 'deleteStep', pipelineId, idx })}
+            >
+              <X className="h-2.5 w-2.5" />
+            </NodeIcon>
+          )}
         </div>
         {(step.agent || (step.skills && step.skills.length > 0) || step.auto_review || step.human_review) && (
           <div className="flex flex-wrap gap-1">
@@ -618,6 +661,7 @@ function FlowNode({
   agents,
   siblingNodeIds,
   onAddParallel,
+  locked,
   isDragging,
   isDragOver,
   onDragStart,
@@ -634,6 +678,8 @@ function FlowNode({
   siblingNodeIds: string[];
   /** Opens the step picker; result is added in parallel with this step. */
   onAddParallel: () => void;
+  /** Epic id pinning the step list — hides everything that would move a step. */
+  locked?: string;
   isDragging: boolean;
   isDragOver: boolean;
   onDragStart: () => void;
@@ -647,7 +693,7 @@ function FlowNode({
   return (
     <>
       <div
-        draggable
+        draggable={!locked}
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = 'move';
           onDragStart();
@@ -682,19 +728,21 @@ function FlowNode({
             {step.name ?? step.agent}
           </span>
           <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-            <NodeIcon
-              title={`Add a step in parallel with ${step.name ?? step.agent} (turns the workflow into a DAG)`}
-              onClick={onAddParallel}
-            >
-              <Plus className="h-2.5 w-2.5" />
-            </NodeIcon>
+            {!locked && (
+              <NodeIcon
+                title={`Add a step in parallel with ${step.name ?? step.agent} (turns the workflow into a DAG)`}
+                onClick={onAddParallel}
+              >
+                <Plus className="h-2.5 w-2.5" />
+              </NodeIcon>
+            )}
             <NodeIcon
               title="Configure step (human review, auto review, requires, produces)"
               onClick={() => setConfigOpen(true)}
             >
               <Settings className="h-2.5 w-2.5" />
             </NodeIcon>
-            {idx > 0 && (
+            {!locked && idx > 0 && (
               <NodeIcon
                 title="Move up"
                 onClick={() =>
@@ -704,7 +752,7 @@ function FlowNode({
                 <ArrowUp className="h-2.5 w-2.5" />
               </NodeIcon>
             )}
-            {idx < total - 1 && (
+            {!locked && idx < total - 1 && (
               <NodeIcon
                 title="Move down"
                 onClick={() =>
@@ -714,13 +762,15 @@ function FlowNode({
                 <ArrowDown className="h-2.5 w-2.5" />
               </NodeIcon>
             )}
-            <NodeIcon
-              title="Remove from workflow"
-              danger
-              onClick={() => postMessage({ type: 'deleteStep', pipelineId, idx })}
-            >
-              <X className="h-2.5 w-2.5" />
-            </NodeIcon>
+            {!locked && (
+              <NodeIcon
+                title="Remove from workflow"
+                danger
+                onClick={() => postMessage({ type: 'deleteStep', pipelineId, idx })}
+              >
+                <X className="h-2.5 w-2.5" />
+              </NodeIcon>
+            )}
           </div>
         </div>
 

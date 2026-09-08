@@ -35,6 +35,7 @@ export {
   isBuiltinPreset,
   // GH-71 two-layer command model.
   writeTwoLayerCommands,
+  provisionWorkflowFiles,
   unprovisionedPhases,
   provisionShortcutDocs,
   CANONICAL_PHASE_IDS,

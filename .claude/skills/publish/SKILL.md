@@ -5,6 +5,14 @@ description: Bump version, update CHANGELOG, package the VSIX, publish to Open V
 
 # /publish — release this extension to Open VSX + VS Code Marketplace
 
+> **⚠️ Not for this fork.** The listings below (`hueanmy.aidlc` on Open VSX and
+> the Marketplace) belong to the **upstream** project, and `OVSX_PAT` /
+> `VSCE_PAT` are the upstream author's credentials. This fork publishes
+> nowhere — W4 in `AI_NATIVE_SDLC_ALIGNMENT.md` deliberately stops at a local
+> install. Use **`/install-local`** instead. This file is kept unchanged so a
+> future decision to publish under our own publisher has the flow to adapt;
+> doing so means new `publisher`, new tokens, and new listing URLs throughout.
+
 End-to-end release flow for this VSCode extension. Every step is mandatory; stop and report if any step fails — do NOT continue past a failure.
 
 ## 0. Parse args

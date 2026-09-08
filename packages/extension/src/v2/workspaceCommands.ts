@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import { setTimeout } from 'timers';
 
 import {
+  claudeConfigEnv,
   WorkspaceLoader,
   WorkspaceNotFoundError,
   WorkspaceParseError,
@@ -20,6 +21,7 @@ import {
   WORKSPACE_FILENAME,
   stepAgentId,
   writeTwoLayerCommands,
+  provisionDeclaredWorkflows,
 } from '@aidlc/core';
 
 import {
@@ -39,6 +41,8 @@ import {
 import { loadAllBuiltinPresets, BUILTIN_WORKFLOWS } from './builtinPresets';
 import { installWorkflowGlobalsCommand } from './installWorkflowGlobalsCommand';
 import { uninstallWorkflowGlobalsCommand } from './uninstallWorkflowGlobalsCommand';
+import { readYaml } from './yamlIO';
+import { agentActivity } from './agentActivity';
 import { StandardPickerWebview } from './standardPickerWebview';
 import { startEpicCommand } from './epicWizard';
 import { analyzeRequirementsCommand } from './requirementWizard';
@@ -95,6 +99,63 @@ sidebar:
     - type: agents-list
     - type: skills-list
 `;
+}
+
+/**
+ * Follow a dispatched agent terminal for as long as it lives, so the panel can
+ * say "agent running" instead of offering *Mark step done* the moment the step
+ * opens.
+ *
+ * Three things end an entry, and none of them is reliable alone:
+ *
+ *  - the shell reporting that the command finished, which is exact but needs
+ *    shell integration;
+ *  - the terminal closing, which always fires but only when the user gets
+ *    round to closing it;
+ *  - the step transitioning (handled in `runCommands.saveRun`) — if the run
+ *    moved on, whatever was running is no longer what we are waiting for.
+ *
+ * The registry's own age limit is the fourth, for the case where none of the
+ * above ever happens. Listeners are torn down as soon as they fire, so a long
+ * session does not accumulate one pair per launch.
+ */
+function trackAgentRun(
+  terminal: vscode.Terminal,
+  runId: string,
+  command: string,
+): void {
+  agentActivity.begin({
+    runId,
+    stepIdx: null,
+    command,
+    startedAt: Date.now(),
+    tracked: false,
+  });
+
+  const subs: vscode.Disposable[] = [];
+  const finish = () => {
+    agentActivity.end(runId);
+    for (const s of subs) { s.dispose(); }
+    subs.length = 0;
+  };
+
+  // `onDidEndTerminalShellExecution` landed in VS Code 1.93 and the manifest
+  // still declares ^1.85 — absent it, the terminal-close signal carries alone.
+  const onEnd = vscode.window.onDidEndTerminalShellExecution;
+  if (typeof onEnd === 'function') {
+    subs.push(
+      onEnd((e) => {
+        // The terminal is created fresh per dispatch and runs exactly one
+        // command, so matching on the terminal is enough to identify it.
+        if (e.terminal === terminal) { finish(); }
+      }),
+    );
+  }
+  subs.push(
+    vscode.window.onDidCloseTerminal((t) => {
+      if (t === terminal) { finish(); }
+    }),
+  );
 }
 
 export function registerV2WorkspaceCommands(
@@ -272,6 +333,13 @@ export function registerV2WorkspaceCommands(
     () => WorkspaceWebview.show(context.extensionUri, 'epics'),
   );
 
+  // Stage 6 from the palette. A signal arrives while you are doing something
+  // else, which is exactly when hunting for the Epics view is friction.
+  const reportSignalCmd = vscode.commands.registerCommand(
+    'aidlc.reportSignal',
+    () => WorkspaceWebview.triggerReportSignal(context.extensionUri),
+  );
+
   const insertDemoEpicCmd = vscode.commands.registerCommand(
     'aidlc.insertDemoEpic',
     () => insertDemoEpicCommand(),
@@ -301,9 +369,32 @@ export function registerV2WorkspaceCommands(
    * backbone dispatcher and shortcut commands. Idempotent — skips existing files.
    * (GH-73 Problem A)
    */
+  /**
+   * Make sure every slash command this workspace declares has a file behind it,
+   * before we hand one to Claude.
+   *
+   * This used to write only the canonical two-layer set (`/intent`, `/spec`, …).
+   * But the button below sends the name from `slash_commands` in
+   * workspace.yaml, which for a built-in workflow is namespaced
+   * (`/ai-native-full-intent`) — a name nothing ever wrote a file for unless
+   * the preset had been applied from the panel. Launching it printed
+   * "Unknown command" and the step could not be started at all.
+   *
+   * Provisioning from the pipelines actually declared covers both, and heals a
+   * workspace set up by an older build or by `aidlc preset apply` on the next
+   * click. Idempotent — existing files are never overwritten.
+   */
   function ensureCommandFiles(root: string): void {
     try {
+      const doc = readYaml(root);
+      const pipelineIds = (doc?.pipelines ?? [])
+        .map((p) => String((p as { id?: unknown }).id ?? ''))
+        .filter(Boolean);
+      // Always emit the two-layer set, even for a workspace whose pipelines are
+      // all hand-authored: the backbone dispatcher is what makes an unknown
+      // pipeline runnable at all.
       writeTwoLayerCommands(root);
+      provisionDeclaredWorkflows(context.extensionPath, root, pipelineIds);
     } catch (err) {
       // Log but don't fail — command files might already exist or permission
       // issues are rare in a workspace root.
@@ -353,6 +444,9 @@ export function registerV2WorkspaceCommands(
         env: {
           DISABLE_AUTO_UPDATE: 'true',
           DISABLE_UPDATE_PROMPT: 'true',
+          // Pin the Claude account when the user runs more than one; empty
+          // (and so invisible) for a single-account machine.
+          ...claudeConfigEnv(),
         },
       });
       terminal.show(false);
@@ -362,11 +456,19 @@ export function registerV2WorkspaceCommands(
       const escaped = prompt.replace(/'/g, "'\\''");
       const oneShot = `claude '${escaped}'`;
 
+      // From here on the UI knows this step has an agent on it. Registered
+      // before the command is sent, so even an immediate failure has an entry
+      // to clear rather than leaving a half-started dispatch untracked.
+      trackAgentRun(terminal, id, prompt);
+
       let sent = false;
       const integ = vscode.window.onDidChangeTerminalShellIntegration((e) => {
         if (e.terminal === terminal && e.shellIntegration && !sent) {
           sent = true;
           e.shellIntegration.executeCommand(oneShot);
+          // Shell integration is up, so the end of this command will be
+          // reported — the UI can say "running" and mean it.
+          agentActivity.markTracked(id);
           integ.dispose();
         }
       });
@@ -408,6 +510,8 @@ export function registerV2WorkspaceCommands(
           // terminals.
           DISABLE_AUTO_UPDATE: 'true',
           DISABLE_UPDATE_PROMPT: 'true',
+          // Same account pin as the run-step terminal above.
+          ...claudeConfigEnv(),
         },
       });
       terminal.show(false);
@@ -522,6 +626,7 @@ export function registerV2WorkspaceCommands(
       analyzeRequirementsCmd,
       selectStandardCmd,
       openEpicsListCmd,
+      reportSignalCmd,
       insertDemoEpicCmd,
       loadDemoProjectCmd,
       startRunCmd,

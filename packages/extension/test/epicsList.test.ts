@@ -4,7 +4,7 @@ import * as path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { listEpics } from '../src/v2/epicsList';
+import { epicPinningPipeline, listEpics } from '../src/v2/epicsList';
 
 /**
  * Regression coverage for issue #57: a step showed "IN PROGRESS" with no
@@ -162,5 +162,39 @@ describe('listEpics artifacts-only fallback (no state.json)', () => {
     expect(epic.stepDetails[0].status).toBe('done');       // approved
     expect(epic.stepDetails[1].status).toBe('in_progress'); // draft
     expect(epic.status).toBe('in_progress');
+  });
+});
+
+/**
+ * `aidlc epic start` materialises a per-epic pipeline in workspace.yaml plus
+ * two positional step arrays (state.json's `stepStates`, the run file's
+ * `steps`). Neither of those records a step *name*, so reshaping the pipeline
+ * moves history onto the wrong steps — and silently, because the runner only
+ * checks that an index is still inside the array. `epicPinningPipeline` is
+ * what the webview and the mutation handlers use to refuse that edit.
+ */
+describe('epicPinningPipeline', () => {
+  const epic = (
+    id: string,
+    pipeline: string | null,
+    artifactsOnly?: boolean,
+  ) => ({ id, pipeline, ...(artifactsOnly === undefined ? {} : { artifactsOnly }) });
+
+  it('finds the epic running against a pipeline', () => {
+    const epics = [epic('EPIC-001', 'EPIC-001'), epic('EPIC-002', 'ai-native-full')];
+    expect(epicPinningPipeline(epics, 'EPIC-001')?.id).toBe('EPIC-001');
+    // A shared workflow is pinned too — an epic started straight off
+    // `ai-native-full` indexes into it exactly the same way.
+    expect(epicPinningPipeline(epics, 'ai-native-full')?.id).toBe('EPIC-002');
+  });
+
+  it('leaves a pipeline no epic runs against free to edit', () => {
+    expect(epicPinningPipeline([epic('EPIC-001', 'EPIC-001')], 'sdlc-full')).toBeNull();
+    expect(epicPinningPipeline([], 'EPIC-001')).toBeNull();
+    expect(epicPinningPipeline([epic('EPIC-001', 'EPIC-001')], '')).toBeNull();
+  });
+
+  it('ignores an artifacts-only epic — it has no state.json to desync', () => {
+    expect(epicPinningPipeline([epic('LOOSE-1', 'p', true)], 'p')).toBeNull();
   });
 });

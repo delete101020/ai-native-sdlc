@@ -19,7 +19,7 @@ import * as fs from 'fs';
 
 const DEMO_DIR_NAME = 'aidlc-demo-project';
 
-import { readYaml } from './yamlIO';
+import { readYaml, writeYaml } from './yamlIO';
 import {
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
@@ -27,8 +27,19 @@ import {
   normalizeStep,
   resolvePath,
   discoverAssets,
+  provisionDeclaredWorkflows,
+  relativeEpicRoot,
+  resolveArtifactLanguage,
+  resolveEpicIdPrefixChain,
+  readUserConfig,
+  readGitUserName,
+  writeUserEpicIdPrefix,
+  ensureUserConfigIgnored,
+  USER_CONFIG_RELPATH,
+  EPIC_ID_PREFIX_PATTERN,
+  writeTwoLayerCommands,
 } from '@aidlc/core';
-import type { PipelineConfig } from '@aidlc/core';
+import type { PipelineConfig, DiscoveredAsset, EpicIdPrefixSource } from '@aidlc/core';
 import { listEpics } from './epicsList';
 import type { PresetStore } from './presetStore';
 import { themeManager } from './themeManager';
@@ -43,6 +54,7 @@ import {
 } from './runCommands';
 import { WorkspaceWebview } from './workspaceWebview';
 import { missingBundleHtml } from './webviewBundleGuard';
+import { agentActivity, type AgentActivityMap } from './agentActivity';
 
 // VS Code reuses output channels by name, so this resolves to the same
 // channel created in extension.ts activate().
@@ -64,6 +76,13 @@ interface ArtifactPath {
 /** Compact run summary for sidebar rendering. */
 interface ActiveRun {
   runId: string;
+  /**
+   * The epic this run belongs to, when one exists — the convention is
+   * `runId === epic.id`. Set so the sidebar can send a run that *is* an epic
+   * to the Epics view (its full UI) instead of duplicating those controls in a
+   * 300px-wide panel. Undefined for a bare run started from the Run button.
+   */
+  epicId?: string;
   pipelineId: string;
   currentStepIdx: number;
   totalSteps: number;
@@ -130,9 +149,32 @@ interface SidebarState {
   mcpError: string | null;
   /** Extra projects from the active/recent epic (GH-67). */
   extraProjects?: Array<{ type: string; ref: string; label: string; mode?: string }>;
-  /** `aidlc.autopilot.enabled` setting — drives the AIDLC Autopilot row's
-   * "Coming soon" vs "On" state in the Common workflows. */
-  autopilotEnabled: boolean;
+  /** `artifact_language` from workspace.yaml — the language every artifact's
+   * prose is written in, or null when the workspace states no preference.
+   * Surfaced because there was no way to set it short of hand-editing the
+   * YAML, and a workspace that never sets it gets a Vietnamese intent followed
+   * by an English spec. */
+  artifactLanguage: string | null;
+  /** The two letters that keep this checkout’s epic ids from colliding with
+   * a colleague’s, or null when neither file declares one. Resolved from
+   * `.aidlc/user.yaml` first and the shared `workspace.yaml` second — see
+   * `resolveEpicIdPrefixChain`. */
+  epicIdPrefix: string | null;
+  /** Which file {@link epicIdPrefix} came from, so the UI can say when a
+   * value inherited from the shared file is not yet this person’s own. */
+  epicIdPrefixSource: EpicIdPrefixSource;
+  /** Two letters derived from `git config user.name`, offered when this
+   * checkout has none of its own. Never reaches an id unaccepted. */
+  epicIdPrefixSuggestion: string | null;
+  /** True when `.aidlc/user.yaml` declares no prefix, whatever the shared
+   * file says — what the sidebar warning renders on. */
+  epicIdPrefixNeedsSetup: boolean;
+  /**
+   * Runs with an agent this window dispatched still working, keyed by run id.
+   * Empty for a run whose agent the user launched in their own Claude window —
+   * see {@link agentActivity} for why that case is unknowable.
+   */
+  agentActivity: AgentActivityMap;
 }
 
 interface McpSnapshot {
@@ -141,14 +183,28 @@ interface McpSnapshot {
   error: string | null;
 }
 
+/**
+ * How many distinct agents (or skills) this project actually has.
+ *
+ * The same asset is normally present twice: declared in `workspace.yaml` AND
+ * installed as a `.md` file under `~/.claude/` or `.claude/` — that is how a
+ * preset works, the YAML entry and the file on disk are two halves of one
+ * asset. Adding the two lists produced doubled numbers in the stat row (12
+ * agents for 6, 19 skills for 12) that disagreed with the Builder tab, which
+ * has always deduplicated by id (`mergeAgents` / `mergeSkills`). Count ids,
+ * not rows, so both surfaces tell the user the same thing.
+ */
+function countDistinct(declaredIds: string[], discovered: DiscoveredAsset[]): number {
+  const ids = new Set(declaredIds);
+  for (const a of discovered) { ids.add(a.id); }
+  return ids.size;
+}
+
 function buildState(
   presetStore: PresetStore | null,
   mcp: McpSnapshot,
 ): SidebarState {
   const demoProjectExists = fs.existsSync(path.join(os.homedir(), DEMO_DIR_NAME));
-  const autopilotEnabled = vscode.workspace
-    .getConfiguration('aidlc')
-    .get<boolean>('autopilot.enabled', false);
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
     return {
@@ -165,7 +221,12 @@ function buildState(
       mcpServers: mcp.servers,
       mcpLoading: mcp.loading,
       mcpError: mcp.error,
-      autopilotEnabled,
+      artifactLanguage: null,
+      epicIdPrefix: null,
+      epicIdPrefixSource: null,
+      epicIdPrefixSuggestion: null,
+      epicIdPrefixNeedsSetup: false,
+      agentActivity: {},
     };
   }
 
@@ -210,7 +271,7 @@ function buildState(
 
   // Active pipeline runs live in .aidlc/runs/ and are independent of the
   // workspace doc — surface them whenever the folder is open.
-  const activeRuns = listActiveRuns(root);
+  const activeRuns = listActiveRuns(root, new Set(allEpics.map((e) => e.id)));
   const runIds = listAllRunIds(root);
 
   if (!doc) {
@@ -218,8 +279,8 @@ function buildState(
       hasFolder: true,
       workspaceName: folder.name,
       configExists: false,
-      agentsCount: claudeAgents.length,
-      skillsCount: claudeSkills.length,
+      agentsCount: countDistinct([], claudeAgents),
+      skillsCount: countDistinct([], claudeSkills),
       pipelinesCount: 0,
       epicsCount: allEpics.length, recentEpics,
       slashCommands: [],
@@ -232,7 +293,12 @@ function buildState(
       mcpLoading: mcp.loading,
       mcpError: mcp.error,
       extraProjects: sidebarExtraProjects,
-      autopilotEnabled,
+      artifactLanguage: null,
+      epicIdPrefix: null,
+      epicIdPrefixSource: null,
+      epicIdPrefixSuggestion: null,
+      epicIdPrefixNeedsSetup: false,
+      agentActivity: agentActivity.snapshot(),
     };
   }
 
@@ -249,9 +315,10 @@ function buildState(
     workspaceName: folder.name,
     configExists: true,
     // Counts span all 3 scopes: workspace.yaml entries (aidlc) + .claude/
-    // (project) + ~/.claude/ (global). Same total the Builder tab shows.
-    agentsCount: doc.agents.length + claudeAgents.length,
-    skillsCount: doc.skills.length + claudeSkills.length,
+    // (project) + ~/.claude/ (global), deduplicated by id — the same total
+    // the Builder tab shows.
+    agentsCount: countDistinct(doc.agents.map((a) => String(a.id)), claudeAgents),
+    skillsCount: countDistinct(doc.skills.map((s) => String(s.id)), claudeSkills),
     pipelinesCount: doc.pipelines.length,
     epicsCount: allEpics.length,
     recentEpics,
@@ -274,7 +341,39 @@ function buildState(
     mcpLoading: mcp.loading,
     mcpError: mcp.error,
     extraProjects: sidebarExtraProjects,
-    autopilotEnabled,
+    // `YamlDocument` models only the keys the sidebar reads; the setting is a
+    // free top-level string the schema knows about and this type does not.
+    artifactLanguage: resolveArtifactLanguage(doc as { artifact_language?: unknown }),
+    ...epicIdPrefixFields(root, doc),
+    agentActivity: agentActivity.snapshot(),
+  };
+}
+
+/**
+ * The four prefix fields, resolved together so they cannot disagree.
+ *
+ * Split across two files on purpose: `.aidlc/user.yaml` is this checkout’s
+ * and is gitignored, `workspace.yaml` is the team’s and is committed. Reading
+ * only the shared one — which is what shipped — hands the second developer to
+ * pull their colleague’s initials, so every epic they open is filed under
+ * someone else’s name.
+ */
+function epicIdPrefixFields(root: string, doc: unknown): {
+  epicIdPrefix: string | null;
+  epicIdPrefixSource: EpicIdPrefixSource;
+  epicIdPrefixSuggestion: string | null;
+  epicIdPrefixNeedsSetup: boolean;
+} {
+  const r = resolveEpicIdPrefixChain({
+    user: readUserConfig(root),
+    workspace: doc as { epic_id_prefix?: unknown },
+    gitUserName: readGitUserName(root),
+  });
+  return {
+    epicIdPrefix: r.prefix,
+    epicIdPrefixSource: r.source,
+    epicIdPrefixSuggestion: r.suggestion,
+    epicIdPrefixNeedsSetup: r.needsSetup,
   };
 }
 
@@ -286,7 +385,7 @@ function listAllRunIds(root: string): string[] {
   }
 }
 
-function listActiveRuns(root: string): ActiveRun[] {
+function listActiveRuns(root: string, epicIds: ReadonlySet<string>): ActiveRun[] {
   try {
     // Read pipelines once so we can map runs → step config without
     // re-parsing workspace.yaml per run.
@@ -320,6 +419,7 @@ function listActiveRuns(root: string): ActiveRun[] {
 
         return {
           runId: r.runId,
+          epicId: epicIds.has(r.runId) ? r.runId : undefined,
           pipelineId: r.pipelineId,
           currentStepIdx: r.currentStepIdx,
           totalSteps: r.steps.length,
@@ -402,12 +502,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     // other panel propagate here too.
     const themeReg = themeManager.register(view.webview);
     view.onDidDispose(() => themeReg.dispose());
-    // Re-render when the autopilot toggle changes so the row flips between
-    // "Coming soon" and "On" live, without a manual refresh.
-    const cfgReg = vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('aidlc.autopilot.enabled')) { this.refresh(); }
-    });
-    view.onDidDispose(() => cfgReg.dispose());
+    // A dispatch or its completion is a state change like any other — the
+    // panel has to redraw for the running indicator to appear and go away.
+    const activityReg = agentActivity.onDidChange(() => this.refresh());
+    view.onDidDispose(() => activityReg.dispose());
     this.refresh();
     // First-time MCP load happens once the panel is up — kicks off the
     // spawn and re-posts state when the result lands.
@@ -529,6 +627,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'openEpicsList':
         await vscode.commands.executeCommand('aidlc.openEpicsList');
         return;
+      case 'openEpic': {
+        // Recent Epics is a deep link into the run, not a file browser — the
+        // raw `state.json` is still one click away inside the card.
+        const id = String(msg.id ?? '');
+        if (!id) { return; }
+        WorkspaceWebview.openEpic(this.extensionUri, id);
+        return;
+      }
       case 'openEpicState': {
         const statePath = String(msg.path ?? '');
         if (!statePath) { return; }
@@ -542,6 +648,66 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const yp = path.join(root, WORKSPACE_DIR, WORKSPACE_FILENAME);
         const doc = await vscode.workspace.openTextDocument(yp);
         await vscode.window.showTextDocument(doc, { preview: false });
+        return;
+      }
+      case 'setArtifactLanguage': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) { return; }
+        const doc = readYaml(root);
+        if (!doc) { return; }
+        const next = String(msg.language ?? '').trim();
+        // Empty means "no opinion" — the field is removed rather than set to
+        // '', because `resolveArtifactLanguage` treats blank as unset and a
+        // stray `artifact_language: ""` in the YAML reads like a broken value.
+        if (next) {
+          (doc as { artifact_language?: string }).artifact_language = next;
+        } else {
+          delete (doc as { artifact_language?: string }).artifact_language;
+        }
+        writeYaml(root, doc);
+        // The slash-command bodies resolve the setting at invocation time, so
+        // nothing needs regenerating here — but a workspace set up by a build
+        // that predates `artifact_language` has bodies that never look. This
+        // refreshes exactly those; see `commandBodyPredatesArtifactLanguage`.
+        try {
+          const pipelineIds = (doc.pipelines ?? []).map((p) => String(p.id ?? '')).filter(Boolean);
+          writeTwoLayerCommands(root, { epicRoot: relativeEpicRoot(doc) });
+          provisionDeclaredWorkflows(this.extensionUri.fsPath, root, pipelineIds, {
+            epicRoot: relativeEpicRoot(doc),
+          });
+        } catch (err) {
+          // A refresh that fails leaves the setting written and the old bodies
+          // in place — worth logging, not worth failing the edit over.
+          output.appendLine(`[setArtifactLanguage] command refresh failed: ${String(err)}`);
+        }
+        this.refresh();
+        return;
+      }
+      case 'setEpicIdPrefix': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) { return; }
+        const next = String(msg.prefix ?? '').trim().toUpperCase();
+        // Empty removes the key rather than writing `""`: no prefix is a real
+        // choice, and it is the one every existing workspace already made.
+        if (next && !EPIC_ID_PREFIX_PATTERN.test(next)) {
+          void vscode.window.showWarningMessage(
+            `epic_id_prefix must be exactly two letters — "${next}" was not saved.`,
+          );
+          this.refresh();
+          return;
+        }
+        writeUserEpicIdPrefix(root, next || null);
+        // Ignore it the moment it exists, not at `init`: the workspaces that
+        // most need this are the ones scaffolded before the file did.
+        if (next && ensureUserConfigIgnored(root)) {
+          void vscode.window.showInformationMessage(
+            `Added ${USER_CONFIG_RELPATH} to .gitignore — your prefix stays yours.`,
+          );
+        }
+        // Nothing to regenerate: the prefix is read when an id is *suggested*,
+        // not baked into any command body, and epics already on disk keep the
+        // ids they were created with.
+        this.refresh();
         return;
       }
       case 'applyTemplate': {
@@ -565,6 +731,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const feedback = String(msg.feedback ?? '');
         if (!runId) { return; }
         await rerunStepInlineCommand(runId, feedback);
+        this.refresh();
         return;
       }
       case 'runStepWithFeedback': {
@@ -586,11 +753,21 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const feedback = String(msg.feedback ?? '');
         if (!runId || !Number.isInteger(stepIdx)) { return; }
         await requestStepUpdateInlineCommand(runId, stepIdx, feedback);
+        this.refresh();
         return;
       }
       case 'startPipelineRun':
         await vscode.commands.executeCommand('aidlc.startPipelineRun');
         return;
+      case 'clearAgentActivity': {
+        // The user's override: they can see the agent is finished even though
+        // no end signal reached us. Trusting them here is what keeps a missed
+        // signal from being a dead end.
+        const runId = String(msg.runId ?? '');
+        if (!runId) { return; }
+        agentActivity.end(runId);
+        return;
+      }
       case 'markStepDone':
       case 'approveStep':
       case 'rejectStep':
@@ -600,6 +777,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const runId = String(msg.runId ?? '');
         const cmd = `aidlc.${msg.type}`;
         await vscode.commands.executeCommand(cmd, runId || undefined);
+        // Refresh from here rather than leaning on the runs/ watcher. The
+        // watcher is for edits made outside this window — the CLI, another
+        // editor — and it is the wrong tool for a button the user just
+        // pressed in this panel: it fires on the filesystem's own schedule,
+        // and on a network or virtual filesystem it may not fire at all.
+        // Approving a step and watching the panel keep showing the step you
+        // approved is the whole bug this closes.
+        this.refresh();
         return;
       }
       case 'deleteRun': {
@@ -630,6 +815,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const targetIdx = Number(msg.targetIdx);
         if (!runId || !Number.isInteger(targetIdx)) { return; }
         await rejectStepInlineCommand(runId, reason, targetIdx);
+        this.refresh();
         return;
       }
       case 'startRunInline': {
@@ -637,6 +823,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const runId = String(msg.runId ?? '');
         if (!pipelineId || !runId) { return; }
         await startPipelineRunInlineCommand(pipelineId, runId);
+        this.refresh();
         return;
       }
       case 'openArtifact': {
@@ -665,14 +852,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         void vscode.window.setStatusBarMessage(`Copied ${cmd} to clipboard`, 2000);
         return;
       }
-      case 'openAutopilotSetting':
-        // Deep-link the Settings UI to the autopilot toggle so the user can
-        // flip "coming soon" on/off from the row itself.
-        await vscode.commands.executeCommand(
-          'workbench.action.openSettings',
-          'aidlc.autopilot.enabled',
-        );
-        return;
       case 'refresh':
         this.refresh();
         return;

@@ -27,6 +27,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { artifactLanguageSection, commandBodyPredatesArtifactLanguage } from '../loader/artifactLanguage';
+import { strictModeSection } from '../loader/strictMode';
+import { commandBodyIsStale } from './commandBodyFreshness';
 import type { PipelineConfig, WorkspaceConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, stepDagId } from '../schema/WorkspaceSchema';
 import type { RunState } from '../runs/RunState';
@@ -52,7 +55,13 @@ export interface CanonicalPhase {
  * The canonical phases every pipeline draws from. Mirrors `PHASES` in
  * builtinWorkflows.ts plus two first-class additions from GH-71:
  * `unit-test` (split out of implement's `['implement','unit-test']`) and
- * `benchmark` (performance run, previously unmodeled).
+ * `benchmark` (performance run, previously unmodeled) — and the AI-Native
+ * SDLC phases (`intent`, `spec`, `build-plan`, `verify`, `review`,
+ * `maintain`) used by the `ai-native-full` pipeline.
+ *
+ * This is a *union* across pipelines, not one pipeline's step list: a phase
+ * only runs where a pipeline declares it as a step. Appending here adds a
+ * shortcut command and nothing else.
  */
 export const CANONICAL_PHASES: CanonicalPhase[] = [
   { id: 'plan', name: 'Plan', description: 'Scaffold the epic and write the PRD.', artifact: 'PRD.md' },
@@ -64,6 +73,18 @@ export const CANONICAL_PHASES: CanonicalPhase[] = [
   { id: 'benchmark', name: 'Benchmark', description: 'Run performance / benchmark checks.', artifact: 'BENCHMARK-SUMMARY.md' },
   { id: 'generate-test-cases', name: 'Generate Test Cases', description: 'Concrete, executable test cases from the plan.', artifact: 'TEST-CASES.md' },
   { id: 'execute-test', name: 'Execute Test', description: 'Run the test cases and write the report.', artifact: 'TEST-SCRIPT.md' },
+
+  // AI-Native SDLC phases (`ai-native-full`). Artifact names follow the
+  // AI-Native SDLC Playbook, so they are lowercase and unprefixed. `build-plan`
+  // is deliberately NOT called `plan`: that id is already taken above with a
+  // different meaning ("scaffold the epic and write the PRD"), and the
+  // description on a shortcut command is shared across every pipeline.
+  { id: 'intent', name: 'Intent', description: "Capture the originator's problem as intent.md.", artifact: 'intent.md' },
+  { id: 'spec', name: 'Spec', description: 'Collapse requirements and design into spec.md.', artifact: 'spec.md' },
+  { id: 'build-plan', name: 'Build Plan', description: 'Plan the implementation before writing code.', artifact: 'plan.md' },
+  { id: 'verify', name: 'Verify', description: 'Independent verdict on whether the build meets the spec.', artifact: 'verify.md' },
+  { id: 'review', name: 'Review', description: 'Review the diff against policy before it ships.', artifact: 'review.md' },
+  { id: 'maintain', name: 'Maintain', description: 'Turn a production signal into a diagnosis, and into the next epic.', artifact: 'incident.md' },
 ];
 
 export const CANONICAL_PHASE_IDS: string[] = CANONICAL_PHASES.map((p) => p.id);
@@ -273,11 +294,21 @@ Claude — but still follow the structural contract below.
 1. Read \`${epicRoot}/<epic>/state.json\` for prior feedback/history and address
    any rejection reasons in this revision.
 2. Read \`${epicRoot}/<epic>/inputs.json\` for capability inputs.
-3. Write your output to \`${epicRoot}/<epic>/artifacts/<FILE>\` where \`<FILE>\`
+3. Before writing, read the blank template for that artifact at
+   \`.aidlc/aidlc-templates/<templatesId>/<FILE>\` and follow its structure —
+   \`<templatesId>\` is the pipeline's \`derived_from\` when it has one (a
+   recipe-assembled pipeline is named after its epic and has no templates of
+   its own), else its \`id\`. Skip this if no such file exists.
+4. Write your output to \`${epicRoot}/<epic>/artifacts/<FILE>\` where \`<FILE>\`
    is the step's declared artifact, or the phase's conventional file. The AIDLC
-   validator checks this path when the step is marked done.
-4. Summarize what you produced and tell the user to click **"Mark step done"**
+   validator checks this path when the step is marked done. The folder starts
+   empty — a file in it is one an agent wrote, never a placeholder.
+5. Summarize what you produced and tell the user to click **"Mark step done"**
    in the AIDLC panel to advance the pipeline.
+
+${artifactLanguageSection(null)}
+
+${strictModeSection(null)}
 `;
 }
 
@@ -304,11 +335,19 @@ procedure exactly as \`/aidlc <epic> ${phase.id}\` would:
 3. **If the pipeline has no \`${phase.id}\` step**, tell the user this epic's
    pipeline (\`<pipelineId>\`) has no \`${phase.id}\` phase, suggest
    \`/aidlc <epic>\` to run the next eligible phase, and stop.
-4. Otherwise load the persona (\`.claude/agents/<agent>.md\`) + skill(s)
-   (\`.claude/skills/<skill>.md\`), adopt them (unless the active standard is
-   \`none\`), then follow the structural contract: read state/inputs, write to
+4. Load the persona and skill(s) that step names. Resolve each from
+   \`workspace.yaml\` first — a \`skills[]\` / \`agents[]\` entry may
+   carry its own \`path:\`, including \`~/.claude/...\` for globally installed
+   ones — and only fall back to \`.claude/skills/<id>.md\` and
+   \`.claude/agents/<id>.md\` when none is declared. Adopt them (unless the
+   active standard is \`none\`), then follow the structural contract: read
+   state/inputs, write to
    \`${epicRoot}/<epic>/artifacts/${phase.artifact}\` (or the step's declared
    artifact), and tell the user to click **"Mark step done"**.
+
+${artifactLanguageSection(null)}
+
+${strictModeSection(null)}
 `;
 }
 
@@ -340,7 +379,14 @@ export function writeTwoLayerCommands(
   const written: string[] = [];
   const skipped: string[] = [];
   const emit = (file: string, body: string): void => {
-    if (fs.existsSync(file) && !overwrite) { skipped.push(file); return; }
+    // A body with no `## Output language` section predates `artifact_language`
+    // and would silently ignore the setting, so it is refreshed even though
+    // `overwrite` is off — see `commandBodyPredatesArtifactLanguage`.
+    if (fs.existsSync(file) && !overwrite
+      && !commandBodyIsStale(fs.readFileSync(file, 'utf8'))) {
+      skipped.push(file);
+      return;
+    }
     fs.writeFileSync(file, body, 'utf8');
     written.push(file);
   };

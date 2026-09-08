@@ -32,6 +32,7 @@ import {
   RunStateStore,
   validateWorkspace,
   assemblePipeline,
+  stageEpicPipeline,
   PipelineAssembleError,
   heuristicClassify,
   builtinProfiles,
@@ -39,6 +40,9 @@ import {
   WORKSPACE_FILENAME,
   type TaskTypeVerdict,
   type RecipeConfig,
+  resolveEpicIdPrefixChain,
+  readUserConfig,
+  suggestEpicId,
 } from '@aidlc/core';
 import type { PipelineConfig } from '@aidlc/core';
 
@@ -82,13 +86,12 @@ interface EpicState {
 interface CapabilityPrompt {
   prompt: string;
   placeholder: string;
-  defaultValue?: string;
 }
 
 const CAPABILITY_PROMPTS: Record<string, CapabilityPrompt> = {
   'jira':          { prompt: 'Jira ticket key or URL',                    placeholder: 'PROJ-123 or https://acme.atlassian.net/browse/PROJ-123' },
   'figma':         { prompt: 'Figma file URL or file key',                placeholder: 'https://www.figma.com/file/abc123/...' },
-  'core-business': { prompt: 'Path to core business docs (relative)',     placeholder: 'docs/core', defaultValue: 'docs/core' },
+  'core-business': { prompt: 'Path to core business docs (relative)',     placeholder: 'docs/core' },
   'github':        { prompt: 'GitHub repo or PR URL',                     placeholder: 'owner/repo or https://github.com/owner/repo/pull/42' },
   'slack':         { prompt: 'Slack channel or thread URL',               placeholder: '#engineering or https://slack.com/...' },
   'files':         { prompt: 'Files glob (relative to project root)',     placeholder: 'src/**/*.ts' },
@@ -139,7 +142,7 @@ export async function startEpicCommand(): Promise<void> {
   }
 
   const epicRoot = readEpicRoot(doc);
-  const epicId = await pickEpicId(root, epicRoot);
+  const epicId = await pickEpicId(root, epicRoot, doc);
   if (!epicId) { return; }
 
   // Materialize a recipe target into a concrete pipeline named after the epic
@@ -375,6 +378,9 @@ function materializeRecipe(
   }
 
   doc.pipelines.push(pipeline as unknown as Record<string, unknown>);
+  // The epic owns this pipeline: keep it in the epic's own file so two
+  // people starting epics never collide on one append point in workspace.yaml.
+  stageEpicPipeline(doc, pipelineId, epicId);
   try {
     validateWorkspace(doc, `.aidlc/${WORKSPACE_FILENAME}`);
   } catch (err) {
@@ -453,24 +459,34 @@ function readEpicRoot(doc: YamlDocument): string {
 }
 
 /**
- * Suggest the next sequential epic id by scanning existing folders under
- * the epic root. Falls back to EPIC-001 when none exist.
+ * Suggest the next epic id by scanning existing folders under the epic root.
+ *
+ * The shape depends on this checkout's `epic_id_prefix` — read from
+ * `.aidlc/user.yaml` first, then the shared `workspace.yaml`: with one declared the
+ * suggestion is `EPIC-<yymmdd>-<XX>-<nnn>` and the counter is scoped to that
+ * prefix on today, and without one it is the plain `EPIC-<nnn>` this wizard has
+ * always offered. Either way the user can still type whatever they like — the
+ * suggestion is a default, not a rule.
  */
-async function pickEpicId(workspaceRoot: string, epicRoot: string): Promise<string | undefined> {
+async function pickEpicId(
+  workspaceRoot: string,
+  epicRoot: string,
+  doc: YamlDocument,
+): Promise<string | undefined> {
   const dir = path.resolve(workspaceRoot, epicRoot);
-  let next = 1;
-  if (fs.existsSync(dir)) {
-    const existing = fs.readdirSync(dir, { withFileTypes: true })
+  const existing = fs.existsSync(dir)
+    ? fs.readdirSync(dir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
-      .map((d) => d.name);
-    const numbered = existing
-      .map((n) => n.match(/^EPIC-(\d+)$/i))
-      .filter((m): m is RegExpMatchArray => !!m)
-      .map((m) => parseInt(m[1], 10));
-    if (numbered.length > 0) { next = Math.max(...numbered) + 1; }
-  }
+      .map((d) => d.name)
+    : [];
 
-  const suggested = `EPIC-${String(next).padStart(3, '0')}`;
+  const suggested = suggestEpicId(
+    existing,
+    resolveEpicIdPrefixChain({
+      user: readUserConfig(workspaceRoot),
+      workspace: doc as { epic_id_prefix?: unknown },
+    }).prefix,
+  );
   const id = await vscode.window.showInputBox({
     prompt: 'Epic id',
     placeHolder: 'e.g. EPIC-001 (uppercase + dashes + digits)',
@@ -519,7 +535,6 @@ async function promptCapability(cap: string): Promise<string | undefined> {
     title: `Capability: ${cap}`,
     prompt,
     placeHolder: placeholder,
-    value: meta?.defaultValue ?? '',
     ignoreFocusOut: true,
   });
   return value?.trim();

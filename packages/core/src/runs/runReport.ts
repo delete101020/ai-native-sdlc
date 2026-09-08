@@ -28,8 +28,20 @@ function formatDuration(startISO?: string, endISO?: string): string {
   return remMin ? `${hr}h ${remMin}m` : `${hr}h`;
 }
 
-function formatCost(costUsd?: number): string {
-  return typeof costUsd === 'number' ? `$${costUsd.toFixed(4)}` : '—';
+function formatCost(step: { costUsd?: number; costEstimated?: boolean }): string {
+  if (typeof step.costUsd !== 'number') { return '—'; }
+  return step.costEstimated ? `~$${step.costUsd.toFixed(4)} est.` : `$${step.costUsd.toFixed(4)}`;
+}
+
+/**
+ * `codex / gpt-5-codex`, or just the runner when the provider CLI picked its
+ * own model. Reported per step because a pipeline may legitimately mix them,
+ * and "which model wrote this artifact" is the first question asked of a run
+ * whose output looks wrong.
+ */
+function formatEngine(step: { runner?: string; model?: string }): string {
+  if (!step.runner) { return '—'; }
+  return step.model ? `${step.runner} / ${step.model}` : step.runner;
 }
 
 /** Escape pipe chars so step labels don't break the Markdown table. */
@@ -70,9 +82,22 @@ export function renderRunReport(args: {
   lines.push(`- **Updated:** ${state.updatedAt}`);
   lines.push(`- **Total duration:** ${formatDuration(state.startedAt, state.updatedAt)}`);
 
+  // A total is only as good as its worst component, so say which kind it is.
+  // A run that mixes a measured Claude step with an estimated Codex step and a
+  // blind one is not a `$0.42` run — it is at least $0.42, and the report says
+  // that rather than rounding the uncertainty away (P0/D5).
   const totalCost = state.steps.reduce<number>((sum, s) => sum + (s.costUsd ?? 0), 0);
-  if (totalCost > 0) {
-    lines.push(`- **Total cost:** $${totalCost.toFixed(4)}`);
+  const anyEstimated = state.steps.some((s) => s.costEstimated);
+  const blindSteps = state.steps.filter((s) => s.startedAt && typeof s.costUsd !== 'number').length;
+  if (totalCost > 0 || blindSteps > 0) {
+    const prefix = anyEstimated || blindSteps > 0 ? '≥ ~$' : '$';
+    const notes: string[] = [];
+    if (anyEstimated) { notes.push('includes estimates from declared rates'); }
+    if (blindSteps > 0) {
+      notes.push(`${blindSteps} step${blindSteps !== 1 ? 's' : ''} reported no cost`);
+    }
+    lines.push(`- **Total cost:** ${prefix}${totalCost.toFixed(4)}` +
+      (notes.length ? ` (${notes.join('; ')})` : ''));
   }
 
   // Context map (skip when empty).
@@ -90,13 +115,14 @@ export function renderRunReport(args: {
   lines.push('');
   lines.push('## Steps');
   lines.push('');
-  lines.push('| # | Step | Status | Rev | Duration | Cost |');
-  lines.push('|---|------|--------|-----|----------|------|');
+  lines.push('| # | Step | Status | Rev | Engine | Duration | Cost |');
+  lines.push('|---|------|--------|-----|--------|----------|------|');
   for (const step of state.steps) {
     const label = stepLabel(step, pipeline);
     lines.push(
       `| ${step.stepIdx} | ${cell(label)} | ${step.status} | ${step.revision} | ` +
-        `${formatDuration(step.startedAt, step.finishedAt)} | ${formatCost(step.costUsd)} |`,
+        `${cell(formatEngine(step))} | ${formatDuration(step.startedAt, step.finishedAt)} | ` +
+        `${formatCost(step)} |`,
     );
   }
 

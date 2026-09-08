@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ChevronRight,
   ChevronDown,
+  CornerDownRight,
+  GitBranchPlus,
   Check,
   X,
   Inbox,
@@ -12,6 +14,7 @@ import {
   Bot,
   User,
   ExternalLink,
+  Eye,
   Highlighter,
   Brain,
   Folder,
@@ -25,6 +28,7 @@ import {
   ShieldCheck,
   ClipboardList,
   Trash2,
+  Gauge,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -34,6 +38,7 @@ import type {
   StepHistoryEntry,
   StepStatus,
   UiStatus,
+  AgentActivity,
 } from '@/lib/types';
 import { StatusBadge } from './StatusBadge';
 import { RejectModal } from './RejectModal';
@@ -41,6 +46,9 @@ import { RerunModal } from './RerunModal';
 import { RunWithFeedbackModal } from './RunWithFeedbackModal';
 import { RequestUpdateModal } from './RequestUpdateModal';
 import { DeleteEpicModal } from './DeleteEpicModal';
+import { ConfirmModal } from './ConfirmModal';
+import { AgentRunningBanner } from './AgentRunningBanner';
+import { AutoRunModal } from './AutoRunModal';
 import { postMessage } from '@/lib/bridge';
 
 function fmtCost(c: number): string {
@@ -88,11 +96,62 @@ interface Props {
   epic: EpicSummary;
   agentMeta: Record<string, AgentMeta>;
   slashCommandsByAgent: Record<string, string>;
+  /**
+   * Non-zero when the sidebar deep-linked to this epic; a *new* value each
+   * click, so opening the same epic twice re-expands and re-scrolls instead of
+   * appearing to do nothing the second time.
+   */
+  focusNonce?: number;
+  /**
+   * Set while an agent this window dispatched for the epic's run is still
+   * working. Null covers both "idle" and "running somewhere we cannot see" —
+   * the UI adds a busy state from this, it never infers an idle one.
+   */
+  activity?: AgentActivity | null;
+  /** The incident this epic was opened from (`from_epic` in inputs.json). */
+  fromEpic?: string | null;
+  /** Epics opened from this one. Non-empty only on an incident epic. */
+  followUps?: string[];
+  /** Jump the list to another epic — expands it, scrolls to it, highlights it. */
+  onNavigate?: (epicId: string) => void;
 }
 
-export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
+export function EpicCard({
+  epic,
+  agentMeta,
+  slashCommandsByAgent,
+  focusNonce = 0,
+  activity = null,
+  fromEpic = null,
+  followUps = [],
+  onNavigate,
+}: Props) {
   const [expanded, setExpanded] = useState<boolean>(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!focusNonce) { return; }
+    setExpanded(true);
+    // The list can be long and the panel may have just switched views, so the
+    // card is rarely on screen already.
+    cardRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [focusNonce]);
+
   const [focusedIdx, setFocusedIdx] = useState<number>(epic.currentStep ?? 0);
+
+  // The stepper reads epic.currentStep, which is live; the body reads
+  // focusedIdx, which was only ever seeded at mount. So approving a step moved
+  // the highlight and left the panel showing the step that had just been
+  // approved. Follow the run, but only while the user is actually following it
+  // — someone who clicked back to an earlier step stays where they parked.
+  const followedStep = useRef<number>(epic.currentStep ?? 0);
+  useEffect(() => {
+    const next = epic.currentStep ?? 0;
+    if (next === followedStep.current) { return; }
+    setFocusedIdx((idx) => (idx === followedStep.current ? next : idx));
+    followedStep.current = next;
+  }, [epic.currentStep]);
+
   const ui = epicUiStatus(epic.status);
   const total = epic.stepDetails.length;
   const done = epic.stepDetails.filter((s) => s.status === 'done').length;
@@ -100,7 +159,15 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
   const inputKeys = Object.keys(epic.inputs || {});
 
   return (
-    <div className="group relative rounded-lg border border-border bg-card transition-all hover:border-primary/30">
+    <div
+      ref={cardRef}
+      className={cn(
+        'group relative rounded-lg border bg-card transition-all hover:border-primary/30',
+        // Says *which* card the click landed on — after a scroll the reader
+        // has no other way to tell the deep-linked one from its neighbours.
+        focusNonce ? 'border-primary/60 ring-1 ring-primary/40' : 'border-border',
+      )}
+    >
       <div
         className={cn(
           'absolute left-0 top-0 h-full w-0.5 rounded-l-lg',
@@ -115,6 +182,7 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <span className="shrink-0 font-mono text-xs font-bold text-primary">{epic.id}</span>
           <span className="truncate text-sm text-foreground">{epic.title}</span>
+          <EpicLinks fromEpic={fromEpic} followUps={followUps} onNavigate={onNavigate} />
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <div className="flex items-center gap-1.5">
@@ -189,6 +257,7 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
                 · <strong className="text-foreground">{done}/{total}</strong> steps done
               </span>
             )}
+            {!epic.artifactsOnly && <DepthBadge epic={epic} />}
             {epic.createdAt && (
               <span>
                 · Started{' '}
@@ -234,6 +303,7 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
               focusedIdx={focusedIdx}
               focused={focused}
               meta={agentMeta[focused.agent]}
+              activity={activity}
               slashCommand={
                 // Use the host-resolved command (matched against the actual
                 // workspace.yaml slash_commands — bare `/implement` or
@@ -261,7 +331,7 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
             </div>
           )}
 
-          <EpicActions epic={epic} hasInputs={inputKeys.length > 0} />
+          <EpicActions epic={epic} hasInputs={inputKeys.length > 0} activity={activity} />
         </div>
       )}
     </div>
@@ -274,6 +344,182 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
  * open that file instead of dumping the text inline. Falls back to the plain
  * description when no such file exists.
  */
+/**
+ * The incident ⇄ follow-up edge, drawn in the card header.
+ *
+ * The link already existed on disk — `from_epic` in inputs.json, and the
+ * `<incident>-FIX` id — but only to someone who opened the files. On the list
+ * the two epics were unrelated rows that happened to sort next to each other,
+ * which is how one incident quietly ends up with two follow-ups nobody notices.
+ *
+ * Chips over a rendered tree: an epic has at most one parent and usually one
+ * child, and a two-node tree costs more chrome than it explains.
+ */
+function EpicLinks({
+  fromEpic,
+  followUps,
+  onNavigate,
+}: {
+  fromEpic: string | null;
+  followUps: string[];
+  onNavigate?: (epicId: string) => void;
+}) {
+  if (!fromEpic && followUps.length === 0) { return null; }
+  const chip =
+    'inline-flex max-w-[180px] shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-muted-foreground hover:border-primary/40 hover:text-primary';
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {fromEpic && (
+        <button
+          type="button"
+          title={`Opened from ${fromEpic} — the incident this epic fixes`}
+          onClick={(e) => { e.stopPropagation(); onNavigate?.(fromEpic); }}
+          className={chip}
+        >
+          <CornerDownRight className="h-2.5 w-2.5 shrink-0" />
+          <span className="truncate">{fromEpic}</span>
+        </button>
+      )}
+      {followUps.length > 0 && (
+        <button
+          type="button"
+          title={`Follow-up epics opened from this one: ${followUps.join(', ')}`}
+          onClick={(e) => { e.stopPropagation(); onNavigate?.(followUps[0]); }}
+          className={chip}
+        >
+          <GitBranchPlus className="h-2.5 w-2.5 shrink-0" />
+          <span className="truncate">
+            {followUps.length === 1 ? followUps[0] : `${followUps.length} follow-ups`}
+          </span>
+        </button>
+      )}
+    </span>
+  );
+}
+
+/**
+ * `strict_mode` for one epic, as a badge that is also the only way to change it.
+ *
+ * Three things this deliberately does not do, each one a bug that was reported:
+ *
+ * 1. **It does not write on a single click.** The badge reads as a status chip,
+ *    and it used to be a one-click write to `state.json` with no undo — an
+ *    accidental click silently changed how every remaining phase composes its
+ *    prompt. It now asks first, and the question names the steps it affects.
+ * 2. **It always says which setting is on, in words.** Dropping the label when
+ *    the setting was off left a bare 12px icon: quieter, and unreadable at a
+ *    glance — which is the one thing a status chip has to be. The noise it was
+ *    meant to cut comes back as colour instead.
+ *
+ *    The words are `Depth: full` / `Depth: proportional` rather than the shorter
+ *    `Full depth` / `Proportional`, because the underlying key is called
+ *    `strict_mode` and "strict" reads as a quality flag — as though `true` meant
+ *    *done properly*. It does not: it is a budget, and an epic that covers
+ *    exactly what was asked and stops is the `false` one. Naming the axis in the
+ *    badge is what stops the reader having to translate.
+ * 3. **It is frozen on a finished epic.** Depth is a budget on work that has yet
+ *    to happen. Once every step is done there is no prompt left to shorten, so
+ *    flipping it would change the record of how the artifacts were produced and
+ *    nothing else.
+ */
+function DepthBadge({ epic }: { epic: EpicSummary }) {
+  const [confirming, setConfirming] = useState(false);
+
+  // Done steps are the ones the setting can no longer reach: their artifacts are
+  // written. Everything else still has a prompt ahead of it.
+  const pending = epic.stepDetails.filter((s) => s.status !== 'done');
+  const frozen = epic.status === 'done' || pending.length === 0;
+
+  const label = epic.strictMode
+    ? 'strict_mode: true — every phase works at full depth.'
+    : 'strict_mode: false — phases cover what the change needs and stop, with no invented non-functional, risk or alternatives sections.';
+
+  const chip = cn(
+    'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider',
+    epic.strictMode
+      ? 'border-border text-muted-foreground'
+      : 'border-primary/40 bg-primary/10 text-primary',
+  );
+
+  if (frozen) {
+    return (
+      <span
+        title={`${label} This epic has no step left to run, so depth is fixed.`}
+        className={cn(chip, 'opacity-60')}
+      >
+        <Gauge className="h-3.5 w-3.5" />
+        {epic.strictMode ? 'Depth: full' : 'Depth: proportional'}
+      </span>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        title={`${label} Click to switch — applies to the ${pending.length} step${pending.length === 1 ? '' : 's'} not yet done.`}
+        onClick={() => setConfirming(true)}
+        className={cn(chip, epic.strictMode && 'hover:text-foreground')}
+      >
+        <Gauge className="h-3.5 w-3.5" />
+        {epic.strictMode ? 'Depth: full' : 'Depth: proportional'}
+      </button>
+
+      {confirming && (
+        <ConfirmModal
+          title={epic.strictMode ? 'Set depth to proportional?' : 'Set depth to full?'}
+          confirmLabel={epic.strictMode ? 'Set proportional' : 'Set full'}
+          onClose={() => setConfirming(false)}
+          onConfirm={() => postMessage({
+            type: 'setEpicStrictMode',
+            epicId: epic.id,
+            strict: !epic.strictMode,
+          })}
+          message={
+            <div className="space-y-3">
+              <p>
+                {epic.strictMode
+                  ? 'Phases will cover what this change actually needs and stop — no invented non-functional, risk or alternatives sections. Every heading stays, so the auto-reviewer and the traceability validator still pass.'
+                  : 'Phases go back to working at full depth: the templates are written for the largest thing an epic can be, and each one will be filled out in full.'}
+              </p>
+
+              <div className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-[11px] text-warning/90">
+                <div className="font-semibold">
+                  Nothing already written changes.
+                </div>
+                <div className="mt-0.5">
+                  Unlike <strong>Request update</strong>, this rewrites no artifact and rewinds no
+                  step. It changes the prompt for work that has yet to run — the{' '}
+                  {pending.length} step{pending.length === 1 ? '' : 's'} below. To reshape an
+                  artifact that already exists, use Request update on its step.
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-1 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Affected steps
+                </div>
+                <ul className="space-y-0.5 font-mono text-[11px] text-foreground/80">
+                  {pending.map((s, i) => (
+                    <li key={`${s.stepName ?? s.agent}-${i}`}>
+                      {s.stepName ?? s.agent}
+                      {s.status === 'in_progress' && (
+                        <span className="ml-1.5 font-sans text-[10px] text-warning">
+                          in progress — takes effect on its next run
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          }
+        />
+      )}
+    </>
+  );
+}
+
 function EpicDescription({ epic }: { epic: EpicSummary }) {
   const reqFile = epic.existingArtifacts.find((f) =>
     /init.?requirements?.*\.md$/i.test(f),
@@ -566,12 +812,14 @@ function StepDetail({
   focused,
   meta,
   slashCommand,
+  activity,
 }: {
   epic: EpicSummary;
   focusedIdx: number;
   focused: EpicStepDetailFull;
   meta: AgentMeta | undefined;
   slashCommand: string | undefined;
+  activity: AgentActivity | null;
 }) {
   const total = epic.stepDetails.length;
   const ui = (() => {
@@ -694,13 +942,26 @@ function StepDetail({
                       onClick={(e) => {
                         e.stopPropagation();
                         setArtifactMenuOpen(false);
+                        postMessage({ type: 'previewArtifactInVsCode', epicDir: epic.epicDir, filename: artifactName });
+                      }}
+                      className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
+                      title="Render in VS Code's own Markdown preview — no terminal, no browser. Mermaid diagrams need a Markdown-preview extension; use Preview below for those."
+                    >
+                      <Eye className="h-3 w-3 text-muted-foreground" />
+                      <span>Preview (VS Code)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setArtifactMenuOpen(false);
                         postMessage({ type: 'viewArtifact', epicDir: epic.epicDir, filename: artifactName });
                       }}
                       className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
-                      title="Preview in annotron — renders the Markdown with diagrams (read-only; no feedback loop)"
+                      title="Preview in annotron (browser) — renders diagrams as SVG, same view the Feedback loop uses. Read-only; no feedback loop."
                     >
                       <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                      <span>Preview</span>
+                      <span>Preview (annotron)</span>
                     </button>
                     <button
                       type="button"
@@ -755,7 +1016,9 @@ function StepDetail({
         focused={focused}
         focusedIdx={focusedIdx}
         slashCommand={slashCommand}
+        artifactName={artifactName}
         artifactExists={artifactExists}
+        activity={activity}
       />
       <RequestUpdateAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <StepHistory step={focused} />
@@ -1012,17 +1275,23 @@ function RunGate({
   focused,
   focusedIdx,
   slashCommand,
+  artifactName,
   artifactExists,
+  activity,
 }: {
   epic: EpicSummary;
   focused: EpicStepDetailFull;
   focusedIdx: number;
   slashCommand: string | undefined;
+  /** The file this step is supposed to write, from `produces[0]` or the persona. */
+  artifactName: string;
   artifactExists: boolean;
+  activity: AgentActivity | null;
 }) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rerunOpen, setRerunOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
+  const [autoRunOpen, setAutoRunOpen] = useState(false);
   if (!epic.runId) { return null; }
   // DAG pipelines may have several active steps; instead of gating on a
   // single "current" cursor, accept any focused step that's in an actionable
@@ -1031,6 +1300,25 @@ function RunGate({
   if (!ui) { return null; }
 
   const status = focused.runStatus!;
+  // While an agent we launched is still on this run, the gate buttons are
+  // answers to a question that has not been asked yet: there is nothing to
+  // mark done, approve or reject until the agent stops writing. The banner
+  // above them carries a dismiss for the case where it did stop and we were
+  // not told.
+  const busy = !!activity;
+  const busyTitle = 'An agent is still working on this run — wait for it, or dismiss the banner above';
+  // Marking done with no artifact on disk is not a choice the user gets to
+  // make: `markStepDone` in core validates `produces` and throws. Leaving the
+  // button live only turns that into an error toast after the click, and on a
+  // step nobody has run yet it reads as an invitation to skip the work. A step
+  // that declares no artifact keeps the button — there is nothing to check.
+  const artifactMissing = !!artifactName && !artifactExists;
+  const doneBlocked = busy || artifactMissing;
+  const doneTitle = busy
+    ? busyTitle
+    : artifactMissing
+    ? `${artifactName} has not been written yet — run the agent first`
+    : undefined;
   const labels: Record<string, string> = {
     awaiting_work: 'Awaiting work',
     awaiting_auto_review: 'Awaiting auto-review',
@@ -1039,6 +1327,7 @@ function RunGate({
   };
   const messages: Record<string, string> = {
     awaiting_work: 'Run the agent externally, then mark this step done to advance.',
+    awaiting_work_missing: 'Nothing written yet. Run the agent — Mark step done unlocks once its artifact exists.',
     awaiting_auto_review: 'Auto-reviewer pending. Run it to validate this step.',
     awaiting_review:
       'Step is paused for your approval. Approve to advance, reject to send back.',
@@ -1068,8 +1357,16 @@ function RunGate({
         <span className="text-[9.5px] font-bold uppercase tracking-wider">
           {labels[status] ?? status}
         </span>
-        <span className="flex-1 text-foreground/80">{messages[status]}</span>
+        <span className="flex-1 text-foreground/80">
+          {busy
+            ? 'An agent is working on this step. Wait for it to finish before advancing.'
+            : status === 'awaiting_work' && artifactMissing
+            ? messages.awaiting_work_missing
+            : messages[status]}
+        </span>
       </div>
+
+      {activity && <AgentRunningBanner activity={activity} />}
 
       {status === 'rejected' && focused.rejectReason && (
         <div className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 font-mono text-[10.5px] text-destructive">
@@ -1132,6 +1429,8 @@ function RunGate({
               return (
                 <GateButton
                   variant="approve"
+                  disabled={busy}
+                  title={busy ? busyTitle : undefined}
                   onClick={() => {
                     if (hasFeedback) {
                       setRunOpen(true);
@@ -1152,6 +1451,8 @@ function RunGate({
             })()}
             <GateButton
               variant="primary"
+              disabled={doneBlocked}
+              title={doneTitle}
               onClick={() => postMessage({ type: 'markStepDone', runId: epic.runId!, stepIdx: focusedIdx })}
             >
               Mark step done
@@ -1161,6 +1462,8 @@ function RunGate({
         {status === 'awaiting_auto_review' && (
           <GateButton
             variant="primary"
+            disabled={busy}
+            title={busy ? busyTitle : undefined}
             onClick={() => postMessage({ type: 'runAutoReview', runId: epic.runId!, stepIdx: focusedIdx })}
           >
             Run auto-review
@@ -1170,12 +1473,16 @@ function RunGate({
           <>
             <GateButton
               variant="approve"
+              disabled={busy}
+              title={busy ? busyTitle : undefined}
               onClick={() => postMessage({ type: 'approveStep', runId: epic.runId!, stepIdx: focusedIdx })}
             >
               <Check className="h-3 w-3" /> Approve
             </GateButton>
             <GateButton
               variant="reject"
+              disabled={busy}
+              title={busy ? busyTitle : undefined}
               onClick={() => setRejectOpen(true)}
             >
               <X className="h-3 w-3" /> Reject
@@ -1183,8 +1490,26 @@ function RunGate({
           </>
         )}
         {status === 'rejected' && (
-          <GateButton variant="primary" onClick={() => setRerunOpen(true)}>
+          <GateButton
+            variant="primary"
+            disabled={busy}
+            title={busy ? busyTitle : undefined}
+            onClick={() => setRerunOpen(true)}
+          >
             Rerun
+          </GateButton>
+        )}
+        {/* Not per-status: the loop starts from wherever the run stands and
+            clears auto-review, rejection is the one thing it cannot resume
+            from — a rejected step needs feedback before rerunning. */}
+        {status !== 'rejected' && (
+          <GateButton
+            variant="primary"
+            disabled={busy}
+            title={busy ? busyTitle : 'Execute every remaining step back to back'}
+            onClick={() => setAutoRunOpen(true)}
+          >
+            <Zap className="h-3 w-3" /> Run to completion
           </GateButton>
         )}
       </div>
@@ -1225,6 +1550,17 @@ function RunGate({
           onClose={() => setRunOpen(false)}
         />
       )}
+      {autoRunOpen && epic.runId && (
+        <AutoRunModal
+          runId={epic.runId}
+          steps={epic.stepDetails.map((d) => ({
+            agent: d.agent,
+            hasHumanReview: !!d.stepHasHumanReview,
+          }))}
+          currentStepIdx={epic.currentStep ?? 0}
+          onClose={() => setAutoRunOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1233,17 +1569,24 @@ function GateButton({
   children,
   variant,
   onClick,
+  disabled,
+  title,
 }: {
   children: React.ReactNode;
   variant: 'primary' | 'approve' | 'reject';
   onClick: () => void;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
+      title={title}
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-semibold transition-colors',
+        disabled && 'cursor-not-allowed opacity-40 hover:!border-inherit hover:!bg-inherit',
         variant === 'primary' &&
           'border-primary/40 bg-primary/15 text-primary hover:border-primary/60 hover:bg-primary/25',
         variant === 'approve' &&
@@ -1257,11 +1600,27 @@ function GateButton({
   );
 }
 
-function EpicActions({ epic, hasInputs }: { epic: EpicSummary; hasInputs: boolean }) {
+function EpicActions({
+  epic,
+  hasInputs,
+  activity,
+}: {
+  epic: EpicSummary;
+  hasInputs: boolean;
+  activity: AgentActivity | null;
+}) {
   const [deleteOpen, setDeleteOpen] = useState(false);
+  // Deleting an epic out from under a running agent leaves the agent writing
+  // into a folder whose run state no longer exists — half-written artifacts in
+  // a directory nothing points at. The button stayed live through all of it.
+  const busy = !!activity;
   return (
     <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
-      {!epic.runId && epic.pipeline && (
+      {/* A finished epic is offered no start button. The run file is gitignored
+          and gets cleaned up, so `!epic.runId` on its own reads a done epic as
+          one that never ran — and starting resets state.json to all-pending.
+          The way forward from a done epic is a follow-up, not a rerun. */}
+      {!epic.runId && epic.pipeline && epic.status !== 'done' && (
         <button
           type="button"
           onClick={() =>
@@ -1275,6 +1634,21 @@ function EpicActions({ epic, hasInputs }: { epic: EpicSummary; hasInputs: boolea
         >
           <Play className="h-3 w-3" />
           Start pipeline run
+        </button>
+      )}
+      {/* Stage 6 → stage 1. Offered only once the diagnosis exists: a follow-up
+          opened before `incident.md` is written would carry an intent derived
+          from the raw signal alone, which is the 3am guess the human gate at
+          stage 1 exists to catch — and here nobody has even looked yet. */}
+      {epic.hasSignal && epic.existingArtifacts.includes('incident.md') && (
+        <button
+          type="button"
+          onClick={() => postMessage({ type: 'openFollowUpEpic', epicId: epic.id })}
+          title="Open the epic that fixes this incident — starts at stage 1 with its intent seeded from the signal, for a human to review."
+          className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-[11px] font-semibold text-primary hover:border-primary/60 hover:bg-primary/20"
+        >
+          <GitBranchPlus className="h-3 w-3" />
+          Open follow-up epic
         </button>
       )}
       {epic.statePath && (
@@ -1317,8 +1691,18 @@ function EpicActions({ epic, hasInputs }: { epic: EpicSummary; hasInputs: boolea
       <button
         type="button"
         onClick={() => setDeleteOpen(true)}
-        className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-[11px] text-destructive hover:border-destructive/60 hover:bg-destructive/15"
-        title="Delete this epic — removes the run state, optionally the docs/epics folder too"
+        disabled={busy}
+        className={cn(
+          'ml-auto inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-[11px] text-destructive',
+          busy
+            ? 'cursor-not-allowed opacity-40'
+            : 'hover:border-destructive/60 hover:bg-destructive/15',
+        )}
+        title={
+          busy
+            ? 'An agent is still working on this epic — deleting it now would strand the work in progress'
+            : 'Delete this epic — removes the run state, optionally the docs/epics folder too'
+        }
       >
         <Trash2 className="h-3 w-3" />
         Delete
@@ -1328,6 +1712,8 @@ function EpicActions({ epic, hasInputs }: { epic: EpicSummary; hasInputs: boolea
           epicId={epic.id}
           epicDir={epic.epicDir}
           hasRun={!!epic.runId}
+          artifacts={epic.existingArtifacts}
+          doneSteps={epic.stepDetails.filter((s) => s.status === 'done').length}
           onConfirm={(deleteFolder) =>
             postMessage({
               type: 'deleteEpic',

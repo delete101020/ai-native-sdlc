@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { validateWorkspace, WorkspaceLoader } from '@aidlc/core';
+import { validateWorkspace, WorkspaceLoader, CODING_MODEL } from '@aidlc/core';
 import { requireYaml, writeYaml, existingIds } from '../yamlIO';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { resolveContext, collectOption, loadAgentSkills, formatSkillsList } from '../runHelpers';
@@ -17,7 +17,7 @@ export function registerAgent(program: Command): void {
     .requiredOption('--id <id>',     'unique agent id (e.g. code-reviewer)')
     .requiredOption('--name <name>',  'display name (e.g. "Code Reviewer")')
     .requiredOption('--skills <ids>', 'comma-separated skill ids this agent uses (at least one)')
-    .option('--model <model>',   'Claude model override', 'claude-sonnet-4-5')
+    .option('--model <model>',   'Claude model (alias or id)', CODING_MODEL)
     .option('--capabilities <caps>', 'comma-separated capabilities (e.g. files,github)')
     .option('--description <desc>',  'one-line description shown in the sidebar')
     .option('--runner <runner>',  'runner type: default or custom', 'default')

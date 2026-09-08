@@ -16,10 +16,11 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import * as readline from 'readline';
 
 import type { RunState, StepRecord } from '@aidlc/core';
+
+import { claudeConfigDir } from '@aidlc/core';
 
 import { modelPrice } from './tokenPricing';
 
@@ -296,7 +297,7 @@ export async function computeWorkspaceEpicUsage(
 
   // Walk all jsonl files; skip files older than the earliest run start.
   const seen = new Set<string>();
-  const projectsRoot = path.join(os.homedir(), '.claude', 'projects');
+  const projectsRoot = path.join(claudeConfigDir(), 'projects');
   if (fs.existsSync(projectsRoot)) {
     let projectDirs: fs.Dirent[];
     try {

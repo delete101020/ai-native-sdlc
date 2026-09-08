@@ -7,6 +7,7 @@ import {
   RunStateStore,
   FileRunStateStore,
   RUN_ID_PATTERN,
+  RUN_STATE_SCHEMA_VERSION,
   type RunStateBackend,
   type RunState,
 } from '../src';
@@ -17,7 +18,7 @@ function tmpRoot(): string {
 
 function makeState(overrides: Partial<RunState> = {}): RunState {
   return {
-    schemaVersion: 1,
+    schemaVersion: RUN_STATE_SCHEMA_VERSION,
     runId: 'CPD-1',
     pipelineId: 'p1',
     context: {},
@@ -96,12 +97,23 @@ describe('FileRunStateStore — unchanged filesystem behaviour', () => {
     expect(store.load(tmpRoot(), 'nope')).toBeNull();
   });
 
-  it('load() returns null for a wrong schemaVersion', () => {
+  it('load() returns null for a schemaVersion this build cannot read', () => {
     const root = tmpRoot();
     const dir = path.join(root, '.aidlc', 'runs');
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'v2.json'), JSON.stringify({ schemaVersion: 2, runId: 'v2' }));
-    expect(store.load(root, 'v2')).toBeNull();
+    fs.writeFileSync(path.join(dir, 'future.json'), JSON.stringify(makeState({ runId: 'future', schemaVersion: 99 })));
+    expect(store.load(root, 'future')).toBeNull();
+  });
+
+  // A version-1 file predates StepRecord.name. It is still readable — the
+  // absence of a name means "identified by agent alone", which is exactly what
+  // version 1 assumed — so it is migrated up on read rather than rejected.
+  it('load() migrates a version-1 file up to the current schema', () => {
+    const root = tmpRoot();
+    const dir = path.join(root, '.aidlc', 'runs');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'old.json'), JSON.stringify(makeState({ runId: 'old', schemaVersion: 1 })));
+    expect(store.load(root, 'old')?.schemaVersion).toBe(RUN_STATE_SCHEMA_VERSION);
   });
 
   it('list() skips corrupt / non-json / wrong-version files', () => {
@@ -110,7 +122,7 @@ describe('FileRunStateStore — unchanged filesystem behaviour', () => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'good.json'), JSON.stringify(makeState({ runId: 'good' })));
     fs.writeFileSync(path.join(dir, 'corrupt.json'), '{ not valid json');
-    fs.writeFileSync(path.join(dir, 'v2.json'), JSON.stringify({ schemaVersion: 2, runId: 'v2' }));
+    fs.writeFileSync(path.join(dir, 'future.json'), JSON.stringify(makeState({ runId: 'future', schemaVersion: 99 })));
     fs.writeFileSync(path.join(dir, 'notes.txt'), 'ignore me');
     expect(store.list(root).map((r) => r.runId)).toEqual(['good']);
   });

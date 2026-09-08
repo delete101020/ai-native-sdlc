@@ -1,7 +1,7 @@
 ---
 name: Tech Lead
 description: Senior Tech Lead / Staff Engineer agent. Owns architecture, tech design, code review, and standards across web, mobile, desktop, backend, and CLI stacks.
-model: claude-opus-4-7
+model: opus
 tools: [files, github, core-business]
 ---
 
