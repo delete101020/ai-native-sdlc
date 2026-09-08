@@ -15,6 +15,8 @@ import {
   claudeConfigDir,
   isDefaultClaudeConfigDir,
   PersonaLoader,
+  epicPipelineReport,
+  planEpicPipelineExtraction,
   findProjectInstructions,
   DefaultRunner,
   CodexRunner,
@@ -29,6 +31,7 @@ import {
   type HarnessCapabilities,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
+import { readYaml } from '../yamlIO';
 
 interface Check {
   label: string;
@@ -461,6 +464,48 @@ export function registerDoctor(program: Command): void {
       }
 
       emitSection('Runs', runChecks);
+
+      // ── Epic pipelines ───────────────────────────────────────────────────
+      //
+      // An epic's pipeline lives in its own directory, not in the shared
+      // workspace.yaml. Two things can go wrong there and both are quiet:
+      // a file that no longer parses (the epic loses its pipeline), and a
+      // definition that exists in both places (the epic file wins, and the
+      // inline copy reads as if it were in force).
+      const epicDoc = readYaml(root);
+      if (epicDoc) {
+        const epicPipeChecks: Check[] = [];
+        const report = epicPipelineReport(epicDoc);
+        const merged = report?.merged.length ?? 0;
+        if (merged > 0) {
+          epicPipeChecks.push(ok(
+            `${merged} epic-owned pipeline${merged !== 1 ? 's' : ''}`,
+            report!.merged.join(', '),
+          ));
+        }
+        for (const bad of report?.unreadable ?? []) {
+          epicPipeChecks.push(fail(
+            path.relative(root, bad.file).split(path.sep).join('/'),
+            bad.reason,
+          ));
+        }
+        for (const clash of report?.conflicts ?? []) {
+          epicPipeChecks.push(warn(
+            `"${clash.pipelineId}" defined twice`,
+            'the epic file wins — delete the inline block from .aidlc/workspace.yaml',
+          ));
+        }
+        const pending = planEpicPipelineExtraction(root, epicDoc);
+        if (pending.length > 0) {
+          epicPipeChecks.push(warn(
+            `${pending.length} epic pipeline${pending.length !== 1 ? 's' : ''} still inline`,
+            'shared file, shared merge conflicts — move them: aidlc epic pipeline extract',
+          ));
+        }
+        if (epicPipeChecks.length > 0) {
+          emitSection('Epic pipelines', epicPipeChecks);
+        }
+      }
 
       // ── Runtime ──────────────────────────────────────────────────────────
       const nodeVersion = process.versions.node;

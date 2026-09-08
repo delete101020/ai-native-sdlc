@@ -242,6 +242,43 @@ Artifacts land in `docs/epics/<EPIC-ID>/artifacts/` (configurable via
 `state.root` in `workspace.yaml`), alongside the epic's `state.json` — which you
 never edit by hand; see step 5.
 
+### An epic owns its pipeline
+
+Starting an epic assembles a pipeline from the recipe and keeps it, because
+`state.json` names it and every later step edit rewrites it. That definition
+lives with the epic, not in the shared file:
+
+    docs/epics/EPIC-001/
+      pipeline.yaml     ← the epic's own pipeline
+      state.json        ← names it ("pipeline": "EPIC-001")
+      artifacts/
+
+`.aidlc/workspace.yaml` therefore stays what it is meant to be: team-wide
+agents, skills, recipes and the base pipelines everyone draws from. The reason
+is merge behaviour. One shared list means every concurrent epic appends at the
+same place — a conflict per epic, forever — and the file grows by a near-copy
+of the base pipeline each time. One file per epic has one owner and no shared
+append point.
+
+Nothing else changes. The pipeline is spliced into `pipelines:` when the
+workspace is read and routed back out when it is written, so the CLI, the
+sidebar and the runner all still find it exactly where they always looked.
+Commit `pipeline.yaml` with the epic — `artifact_commit` already puts it on the
+epic's branch next to `state.json`.
+
+**Workspaces that predate this** keep their epic pipelines inline until you
+move them:
+
+```bash
+aidlc epic pipeline extract --dry-run   # list what would move
+aidlc epic pipeline extract             # move it, in its own commit
+```
+
+It moves only a pipeline an epic both names in its `state.json` *and* owns by
+name (`EPIC-001`, or `EPIC-001-native-lite`). A shared, hand-authored pipeline
+that an epic happens to run stays in `workspace.yaml`, where the other epics
+running it can still see it. `aidlc doctor` lists what is left.
+
 ## 8. Driving it from the extension
 
 Click the **AIDLC** icon in the activity bar. From the sidebar you can start an

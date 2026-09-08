@@ -1,10 +1,13 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Table from 'cli-table3';
+import * as path from 'path';
 import {
   validateWorkspace,
   collectWorkspaceRefIssues,
   assemblePipeline,
+  planEpicPipelineExtraction,
+  stageEpicPipeline,
   recipePipelineId,
   PipelineAssembleError,
   heuristicClassify,
@@ -194,6 +197,9 @@ export function registerEpic(program: Command): void {
           throw err;
         }
         doc.pipelines.push(pipelineCfg as unknown as Record<string, unknown>);
+        // The epic owns this pipeline: keep it in the epic's own file so two
+        // people starting epics never collide on one append point in workspace.yaml.
+        stageEpicPipeline(doc, pipelineCfg.id, epicId);
         try {
           validateWorkspace(doc, '.aidlc/workspace.yaml');
         } catch (err) {
@@ -263,6 +269,50 @@ export function registerEpic(program: Command): void {
   // Add/Delete/Reorder while an epic owns a pipeline because those move the
   // step definitions and leave the run's history where it was; these two move
   // both together, and refuse the edits that cannot be made coherently at all.
+  // ── pipeline extract ───────────────────────────────────────────────────────
+  //
+  // The one-time move for workspaces started before epics owned their own
+  // pipeline file. It is not automatic: relocating a definition an epic's run
+  // depends on is the kind of thing that should happen when someone asks for
+  // it, in its own commit, not as a side effect of the next unrelated write.
+  const pipelineCmd = cmd
+    .command('pipeline')
+    .description('Move epic-owned pipelines out of the shared workspace.yaml');
+
+  pipelineCmd
+    .command('extract')
+    .description(
+      "Move each epic's pipeline out of .aidlc/workspace.yaml into\n" +
+      "  <state.root>/<epic>/pipeline.yaml. Only pipelines an epic names in its\n" +
+      "  own state.json move; shared and hand-authored ones stay put.",
+    )
+    .option('--dry-run', 'List what would move, write nothing')
+    .action((opts: { dryRun?: boolean }, actionCmd: Command) => {
+      const root = resolveWorkspaceRoot(actionCmd);
+      const doc  = requireYaml(root);
+      const plan = planEpicPipelineExtraction(root, doc);
+      if (plan.length === 0) {
+        console.log(chalk.dim('No inline epic pipelines left to move.'));
+        return;
+      }
+      for (const item of plan) {
+        console.log(
+          `${chalk.bold(item.pipelineId)} ${chalk.dim('→')} ` +
+          chalk.dim(path.relative(root, item.file).split(path.sep).join('/')),
+        );
+      }
+      if (opts.dryRun) {
+        console.log(chalk.dim(`
+${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
+        return;
+      }
+      // Staging is all it takes: writeYaml routes an epic-owned pipeline to
+      // the epic file and drops it from the shared document in one pass.
+      for (const item of plan) { stageEpicPipeline(doc, item.pipelineId, item.epicId); }
+      writeYaml(root, doc);
+      console.log(chalk.green('✔') + ` Moved ${plan.length} pipeline(s) out of .aidlc/workspace.yaml.`);
+      console.log(chalk.dim('  Commit the epic directories together with workspace.yaml.'));
+    });
   const stepCmd = cmd
     .command('step')
     .description(

@@ -23,6 +23,7 @@ import {
   WorkspaceValidationError,
 } from '../schema/WorkspaceSchema';
 import { EnvResolver } from './EnvResolver';
+import { mergeEpicPipelines } from './EpicPipelineStore';
 import { SkillLoader } from './SkillLoader';
 import { PersonaLoader } from './PersonaLoader';
 import { RunnerRegistry } from '../runner/RunnerRegistry';
@@ -116,6 +117,14 @@ export class WorkspaceLoader {
     if (parsed === null || parsed === undefined) {
       throw new WorkspaceParseError('workspace.yaml is empty', configPath);
     }
+
+    // Epics keep their own pipeline in `docs/epics/<id>/pipeline.yaml`, out of
+    // the shared file. Splice them in before validation so cross-ref checks see
+    // one whole workspace, and so every consumer downstream still finds an
+    // epic's pipeline where it has always looked: `config.pipelines`.
+    const doc = parsed as Record<string, unknown>;
+    if (!Array.isArray(doc.pipelines)) { doc.pipelines = []; }
+    mergeEpicPipelines(workspaceRoot, doc as { pipelines: Array<Record<string, unknown>>; state?: unknown });
 
     const config = validateWorkspace(parsed, configPath);
 

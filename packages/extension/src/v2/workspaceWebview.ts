@@ -181,6 +181,7 @@ import {
   targetPath,
   validateWorkspace,
   assemblePipeline,
+  stageEpicPipeline,
   recipePipelineId,
   PipelineAssembleError,
   heuristicClassify,
@@ -3185,6 +3186,9 @@ export class WorkspaceWebview {
     }
 
     doc.pipelines.push(pipeline as unknown as Record<string, unknown>);
+    // The epic owns this pipeline: keep it in the epic's own file so two
+    // people starting epics never collide on one append point in workspace.yaml.
+    stageEpicPipeline(doc, pipelineId, epicId);
     try {
       validateWorkspace(doc, '.aidlc/workspace.yaml');
     } catch (err) {

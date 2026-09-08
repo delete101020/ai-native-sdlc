@@ -122,6 +122,31 @@ describe('WorkspaceLoader', () => {
     }
   });
 
+  it('loads the pipeline file an epic owns as part of the workspace', () => {
+    const epicDir = path.join(workspace.root, 'docs', 'epics', 'EPIC-001');
+    fs.mkdirSync(epicDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(epicDir, 'pipeline.yaml'),
+      [
+        'id: EPIC-001',
+        'steps:',
+        '  - agent: test-converter',
+        '    name: intent',
+      ].join('\n'),
+      'utf8',
+    );
+    try {
+      const loaded = WorkspaceLoader.load(workspace.root, { osEnv: {} });
+      // Every consumer looks for a pipeline in config.pipelines — the file it
+      // actually came from is not their problem.
+      const epic = loaded.config.pipelines.find((p) => p.id === 'EPIC-001');
+      expect(epic).toBeDefined();
+      expect(epic!.steps.map((s) => s.name)).toEqual(['intent']);
+    } finally {
+      fs.rmSync(path.join(workspace.root, 'docs'), { recursive: true, force: true });
+    }
+  });
+
   it('runners.resolve returns DefaultRunner for default agents', () => {
     const loaded = WorkspaceLoader.load(workspace.root, { osEnv: {} });
     const defaultAgent = loaded.config.agents.find((a) => a.runner !== 'custom')!;

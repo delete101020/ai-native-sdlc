@@ -18,6 +18,9 @@ import * as yaml from 'js-yaml';
 import {
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
+  mergeEpicPipelines,
+  splitEpicPipelines,
+  writeEpicPipelines,
 } from '@aidlc/core';
 
 export interface YamlDocument {
@@ -49,7 +52,12 @@ export function readYaml(workspaceRoot: string): YamlDocument | null {
   if (!parsed || typeof parsed !== 'object') {
     throw new Error(`workspace.yaml at ${p} did not parse to an object`);
   }
-  return normalize(parsed as Record<string, unknown>);
+  const doc = normalize(parsed as Record<string, unknown>);
+  // An epic owns its pipeline (`docs/epics/<id>/pipeline.yaml`); splice those
+  // in so every caller still finds it in `doc.pipelines`, and so `writeYaml`
+  // knows to route it back out instead of inlining it here.
+  mergeEpicPipelines(workspaceRoot, doc);
+  return doc;
 }
 
 /**
@@ -85,10 +93,17 @@ export function writeYaml(workspaceRoot: string, doc: YamlDocument): void {
   const p = workspaceYamlPath(workspaceRoot);
   fs.mkdirSync(path.dirname(p), { recursive: true });
 
+  // Epic-owned pipelines go to their own files first. If the workspace dump
+  // below then fails, those files are still what wins on the next read, so
+  // the two copies never disagree silently.
+  const split = splitEpicPipelines(workspaceRoot, doc);
+  writeEpicPipelines(split.external);
+
   const cleaned: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(doc)) {
     if (v !== undefined) { cleaned[k] = v; }
   }
+  cleaned.pipelines = split.inline;
 
   const text = yaml.dump(cleaned, {
     lineWidth: 120,

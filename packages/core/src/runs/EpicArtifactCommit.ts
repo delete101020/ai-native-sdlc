@@ -44,6 +44,7 @@ import * as path from 'path';
 
 import type { RunState, StepRecord } from './RunState';
 import { epicsRoot } from './EpicScaffold';
+import { epicPipelinePath } from '../loader/EpicPipelineStore';
 
 /**
  * Runs a git subcommand and returns stdout. Injectable for tests. Unlike
@@ -192,6 +193,11 @@ function writeCommit(
     }
   }
   abs.add(path.join(epicsRoot(workspaceRoot, doc), state.runId, 'state.json'));
+  // …and the pipeline the epic owns, when it has one of its own. state.json
+  // names the pipeline but does not describe it, so a branch without the
+  // definition records which steps were approved and nothing about what they
+  // were. Absent for an epic running a shared pipeline, and skipped below.
+  abs.add(epicPipelinePath(workspaceRoot, doc, state.runId));
 
   const files: Array<{ abs: string; rel: string }> = [];
   for (const p of abs) {

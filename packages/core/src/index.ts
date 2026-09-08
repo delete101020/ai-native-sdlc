@@ -144,6 +144,26 @@ export type {
 } from './loader/WorkspaceLoader';
 
 export {
+  EPIC_PIPELINE_FILENAME,
+  epicPipelinePath,
+  mergeEpicPipelines,
+  splitEpicPipelines,
+  writeEpicPipelines,
+  stageEpicPipeline,
+  unstageEpicPipeline,
+  epicOwningPipeline,
+  planEpicPipelineExtraction,
+  epicPipelineReport,
+} from './loader/EpicPipelineStore';
+export type {
+  EpicPipelineConflict,
+  MergeEpicPipelinesResult,
+  SplitEpicPipelinesResult,
+  ExternalEpicPipeline,
+  EpicPipelineExtraction,
+} from './loader/EpicPipelineStore';
+
+export {
   EnvResolver,
   EnvVarMissingError,
 } from './loader/EnvResolver';

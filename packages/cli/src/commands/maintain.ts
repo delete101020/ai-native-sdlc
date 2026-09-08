@@ -25,6 +25,7 @@ import chalk from 'chalk';
 import {
   validateWorkspace,
   assemblePipeline,
+  stageEpicPipeline,
   recipePipelineId,
   PipelineAssembleError,
   parseSignal,
@@ -269,6 +270,11 @@ function resolvePipeline(
   }
 
   doc.pipelines.push(pipelineCfg! as unknown as Record<string, unknown>);
+  // The epic owns this pipeline: keep it in the epic's own file so two
+  // people starting epics never collide on one append point in workspace.yaml.
+  // Without an epic (a bare `maintain` run) it stays in the shared file,
+  // because there is no epic directory to own it.
+  if (epicId) { stageEpicPipeline(doc, pipelineCfg!.id, epicId); }
   try {
     validateWorkspace(doc, '.aidlc/workspace.yaml');
   } catch (err) {
