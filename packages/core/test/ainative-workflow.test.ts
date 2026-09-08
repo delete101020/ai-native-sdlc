@@ -142,6 +142,26 @@ describe('AI-Native SDLC — workflow registration', () => {
     expect(align.steps).not.toContain('implement');
   });
 
+  it('puts the native-lite human gates on the two planning steps only', () => {
+    const lite = (workflow.recipes ?? []).find((r) => r.id === 'native-lite')!;
+    expect(lite.steps).toEqual(['intent', 'build-plan', 'implement', 'review']);
+    expect(lite.gates!.intent.human_review).toBe(true);
+    expect(lite.gates!['build-plan'].human_review).toBe(true);
+    // Where it differs from every other recipe: the two steps after the plan
+    // run to the end without stopping for anyone.
+    expect(lite.gates!.implement.human_review).toBe(false);
+    expect(lite.gates!.review.human_review).toBe(false);
+  });
+
+  it('keys every gate override to a step its recipe actually runs', () => {
+    for (const recipe of workflow.recipes ?? []) {
+      for (const stepId of Object.keys(recipe.gates ?? {})) {
+        expect(recipe.steps, `recipe ${recipe.id} gates unknown step ${stepId}`)
+          .toContain(stepId);
+      }
+    }
+  });
+
   it('can review a diff that already exists, with no build phases', () => {
     const audit = (workflow.recipes ?? []).find((r) => r.id === 'native-audit')!;
     expect(audit.steps).toEqual(['review']);

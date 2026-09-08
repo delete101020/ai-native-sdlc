@@ -239,6 +239,13 @@ export interface RecipeDef {
   id: string;
   description: string;
   steps: string[];
+  /**
+   * Per-step review-gate overrides, keyed by phase id. Without one, a step
+   * keeps the gates its phase declares, so every recipe over a pipeline
+   * agrees about where a human has to stand — which is rarely right for
+   * every task type. Only the fields present override; the rest inherit.
+   */
+  gates?: Record<string, { human_review?: boolean; auto_review?: boolean; auto_review_runner?: string }>;
 }
 
 export interface BuiltinWorkflow {
@@ -519,6 +526,25 @@ const AINATIVE_RECIPES: RecipeDef[] = [
     id: 'native-quick',
     description: 'Small, well-understood change — intent straight to plan, no separate spec.',
     steps: ['intent', 'build-plan', 'implement', 'verify'],
+  },
+  {
+    id: 'native-lite',
+    description:
+      'Small change with a precedent already in the codebase — no spec, no separate verify. ' +
+      'The human gates sit up front, on intent and build-plan, where a wrong direction is ' +
+      'cheapest to correct; implement and review then run to the end unattended. ' +
+      'Trade-off: review is the only quality gate left, and nobody reads it before the ' +
+      'branch is finished — prefer native-fix when the change has no precedent to follow.',
+    steps: ['intent', 'build-plan', 'implement', 'review'],
+    // Spelled out for all four steps, including the two that would inherit
+    // `true` anyway: where the humans stand is the point of this recipe, so
+    // it should be readable off the recipe without opening the pipeline.
+    gates: {
+      intent: { human_review: true },
+      'build-plan': { human_review: true },
+      implement: { human_review: false },
+      review: { human_review: false },
+    },
   },
   {
     id: 'native-fix',
@@ -845,6 +871,7 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
         description: r.description,
         from: workflow.pipelineId,
         steps: r.steps,
+        ...(r.gates ? { gates: r.gates } : {}),
       })),
       sidebar: {
         views: [

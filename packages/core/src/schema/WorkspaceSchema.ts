@@ -239,6 +239,13 @@ const PipelineSchema = z.object({
  * must already exist in the workspace (seeded by a preset or hand-authored),
  * which {@link collectWorkspaceRefIssues} verifies.
  */
+/** One step's gate overrides inside a recipe. Omitted fields inherit. */
+const RecipeGateSchema = z.object({
+  human_review: z.boolean().optional(),
+  auto_review: z.boolean().optional(),
+  auto_review_runner: z.string().min(1).optional(),
+});
+
 const RecipeSchema = z.object({
   id: z.string().min(1),
   /** One-line summary shown in pickers / `aidlc pipeline recipes`. */
@@ -253,6 +260,16 @@ const RecipeSchema = z.object({
    * in the source pipeline by its `name` (or `agent` id when unnamed).
    */
   steps: z.array(z.string().min(1)).min(1, 'Recipe must list at least one step'),
+  /**
+   * Per-step review-gate overrides, keyed by the same step identifier used in
+   * `steps`. Without them a recipe inherits `human_review` / `auto_review`
+   * from the source pipeline's step, so every recipe drawn from one pipeline
+   * agrees about where a human has to stand — which is rarely what the task
+   * types want: a small, well-understood change wants the gates early (intent,
+   * plan) and none after, a risky one wants them everywhere. Only the fields
+   * present override; the rest inherit.
+   */
+  gates: z.record(z.string(), RecipeGateSchema).optional(),
 });
 
 export type PipelineStepConfig = z.infer<typeof PipelineStepSchema>;
@@ -376,7 +393,8 @@ export interface WorkspaceRefIssue {
     | 'unknown-step-skill'
     | 'unknown-agent-skill'
     | 'unknown-recipe-source'
-    | 'unknown-recipe-step';
+    | 'unknown-recipe-step'
+    | 'unknown-recipe-gate';
   /** Human-readable, ready to print. */
   message: string;
   /** Dotted path into the workspace, e.g. `pipelines.sdlc-full.steps.design`. */
@@ -460,6 +478,18 @@ export function collectWorkspaceRefIssues(config: WorkspaceConfig): WorkspaceRef
           code: 'unknown-recipe-step',
           message: `Recipe "${recipe.id}" references step "${stepId}" which is not in pipeline "${source.id}". Available: ${[...sourceStepIds].join(', ')}`,
           path: `recipes.${recipe.id}.steps`,
+        });
+      }
+    }
+    // A gate keyed to a step the recipe doesn't run is dead config that still
+    // reads as if it were in force — usually a step dropped from `steps`
+    // without its override following it out.
+    for (const stepId of Object.keys(recipe.gates ?? {})) {
+      if (!recipe.steps.includes(stepId)) {
+        issues.push({
+          code: 'unknown-recipe-gate',
+          message: `Recipe "${recipe.id}" overrides gates for step "${stepId}", which it does not run. Steps: ${recipe.steps.join(', ')}`,
+          path: `recipes.${recipe.id}.gates`,
         });
       }
     }
@@ -674,6 +704,7 @@ export type PipelineBudget = z.infer<typeof PipelineBudgetSchema>;
 export type ProviderConfig = z.infer<typeof ProviderSchema>;
 export type ProviderRate = z.infer<typeof ProviderRateSchema>;
 export type RecipeConfig = z.infer<typeof RecipeSchema>;
+export type RecipeGateConfig = z.infer<typeof RecipeGateSchema>;
 export type StateConfig = z.infer<typeof StateSchema>;
 export type SidebarConfig = z.infer<typeof SidebarSchema>;
 export type SidebarView = z.infer<typeof SidebarViewSchema>;

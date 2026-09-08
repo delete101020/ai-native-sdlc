@@ -177,7 +177,7 @@ Two design points worth internalising before you use it:
   epic that `maintain` opens, where the generated `intent.md` is reviewed
   before anything is built.
 
-Eight recipes pick how much of that you run. Read the table as a ladder: each
+Nine recipes pick how much of that you run. Read the table as a ladder: each
 row adds a gate the row above skipped.
 
 | Recipe | Steps | When |
@@ -185,6 +185,7 @@ row adds a gate the row above skipped.
 | `native-spike` | `intent` | Capture the problem only — no spec, no code |
 | `native-align` | `intent → spec` | Agree the scope with a PO before engineering starts |
 | `native-quick` | `intent → build-plan → implement → verify` | Small, well-understood change |
+| `native-lite` | `intent → build-plan → implement → review` | Small change with a precedent to follow — the human gates sit on `intent` and `build-plan` only |
 | `native-fix` | `intent → build-plan → implement → verify → review` | Bug fix, refactor, tech debt — no new behaviour to specify, but still gated |
 | `native-full` | `intent → spec → build-plan → implement → verify → review` | The default for real features |
 | `native-hotfix` | `build-plan → implement → review` | Production is burning and the cause is known — see the warning below |
@@ -200,6 +201,35 @@ the work actually needs:
 - `verify` and `review` are the two gates, and they are not interchangeable —
   `verify` asks "does this meet the spec", `review` asks "does this obey our
   policy". Dropping both is what makes `native-quick` quick.
+
+**Where the human stands is part of the recipe too.** A recipe may override
+the gates on any step it selects, so two recipes over one pipeline can
+disagree about which steps stop for a person:
+
+```yaml
+recipes:
+  - id: native-lite
+    from: ai-native-full
+    steps: [intent, build-plan, implement, review]
+    gates:
+      intent:     { human_review: true }
+      build-plan: { human_review: true }
+      implement:  { human_review: false }
+      review:     { human_review: false }
+```
+
+A step with no entry keeps the gates its pipeline declares. `native-lite`
+spends its attention where a wrong direction is cheapest to correct — on the
+intent and the plan — and lets the branch run to the end from there. That is
+only safe when the change has a precedent in the codebase to follow; without
+one, use `native-fix`.
+
+Gates can also be turned on and off per step on a *running* epic, with
+`aidlc epic step set <epic> <step> --no-human-review` or the **Human** / **Auto**
+checkboxes on the pipeline step in the sidebar. **Auto** means the step runs an
+auto-reviewer — a script named by `auto_review_runner` that returns a
+pass/reject verdict — before the step can advance; it is a mechanical gate, not
+a second opinion from an agent.
 
 ⚠️ **`native-hotfix` is the one recipe to reach for reluctantly.** Without
 `intent` the engineer starts with nothing but the epic description as context,
