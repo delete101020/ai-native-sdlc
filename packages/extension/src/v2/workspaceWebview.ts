@@ -262,6 +262,7 @@ import { scaffoldRequirementAnalysis } from './requirementWizard';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
 import { agentActivity, type AgentActivityMap } from './agentActivity';
+import { execRunToCompletion } from './execRun';
 
 // ── Shared helper: open/reuse the Claude terminal and send a slash command ───
 
@@ -2365,6 +2366,23 @@ export class WorkspaceWebview {
           slash,
           runId,
           feedback,
+        );
+        return;
+      }
+      case 'execRun': {
+        const runId = String(msg.runId ?? '');
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!runId || !root) { return; }
+        const untilIdx = typeof msg.untilIdx === 'number' && Number.isInteger(msg.untilIdx)
+          ? msg.untilIdx
+          : undefined;
+        // Not awaited: the loop runs for as long as the pipeline takes, and the
+        // message handler is what the webview's next click goes through.
+        void execRunToCompletion(
+          root,
+          runId,
+          { autoApprove: msg.autoApprove === true, untilIdx },
+          () => this.refresh(),
         );
         return;
       }

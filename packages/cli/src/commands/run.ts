@@ -384,7 +384,7 @@ function execExitCode(outcome: ExecOutcome, requireComplete: boolean): number {
   if (outcome.kind === 'dry_run') { return 0; } // a preview, never a CI failure
   if (requireComplete) { return 1; }
   if (outcome.kind === 'until') { return 0; }
-  return 2; // awaiting_review | rejected | budget_pause
+  return 2; // awaiting_review | rejected | budget_pause | cancelled
 }
 
 /** Machine-readable result of an exec run, printed under `--json`. */

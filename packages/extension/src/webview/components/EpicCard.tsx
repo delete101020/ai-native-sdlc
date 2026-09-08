@@ -48,6 +48,7 @@ import { RequestUpdateModal } from './RequestUpdateModal';
 import { DeleteEpicModal } from './DeleteEpicModal';
 import { ConfirmModal } from './ConfirmModal';
 import { AgentRunningBanner } from './AgentRunningBanner';
+import { AutoRunModal } from './AutoRunModal';
 import { postMessage } from '@/lib/bridge';
 
 function fmtCost(c: number): string {
@@ -1290,6 +1291,7 @@ function RunGate({
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rerunOpen, setRerunOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
+  const [autoRunOpen, setAutoRunOpen] = useState(false);
   if (!epic.runId) { return null; }
   // DAG pipelines may have several active steps; instead of gating on a
   // single "current" cursor, accept any focused step that's in an actionable
@@ -1497,6 +1499,19 @@ function RunGate({
             Rerun
           </GateButton>
         )}
+        {/* Not per-status: the loop starts from wherever the run stands and
+            clears auto-review, rejection is the one thing it cannot resume
+            from — a rejected step needs feedback before rerunning. */}
+        {status !== 'rejected' && (
+          <GateButton
+            variant="primary"
+            disabled={busy}
+            title={busy ? busyTitle : 'Execute every remaining step back to back'}
+            onClick={() => setAutoRunOpen(true)}
+          >
+            <Zap className="h-3 w-3" /> Run to completion
+          </GateButton>
+        )}
       </div>
 
       {rejectOpen && epic.runId && (
@@ -1533,6 +1548,17 @@ function RunGate({
             })
           }
           onClose={() => setRunOpen(false)}
+        />
+      )}
+      {autoRunOpen && epic.runId && (
+        <AutoRunModal
+          runId={epic.runId}
+          steps={epic.stepDetails.map((d) => ({
+            agent: d.agent,
+            hasHumanReview: !!d.stepHasHumanReview,
+          }))}
+          currentStepIdx={epic.currentStep ?? 0}
+          onClose={() => setAutoRunOpen(false)}
         />
       )}
     </div>

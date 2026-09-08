@@ -47,6 +47,7 @@ export type ExecOutcome =
   | { kind: 'awaiting_review' }
   | { kind: 'rejected' }
   | { kind: 'budget_pause' }
+  | { kind: 'cancelled' }
   | { kind: 'error' };
 
 /** Options controlling one exec loop. Mirrors the CLI's `run exec` flags. */
@@ -59,6 +60,16 @@ export interface ExecOptions {
   message?: string;
   /** Preview the current step's prompt without spawning claude, then stop. */
   dryRun?: boolean;
+  /**
+   * Polled between steps; true stops the loop cleanly with `cancelled`.
+   *
+   * Between steps and not during one, deliberately. The runner owns a spawned
+   * process it can only kill, and a half-written artifact left behind by a
+   * killed agent would satisfy the `produces` check on the next attempt — the
+   * gate cannot tell a finished file from an abandoned one. So a cancel takes
+   * effect at the next step boundary, and the caller says so.
+   */
+  shouldCancel?: () => boolean;
 }
 
 /**
@@ -110,6 +121,8 @@ export interface ExecHooks {
     /** How much of `spent` is measured vs. estimated, and how many steps are blind. */
     measured?: number; estimated?: number; blindSteps?: number;
   }): void;
+  /** The caller's `shouldCancel` returned true at a step boundary. */
+  onCancelled?(): void;
   /** Stopped at the --until boundary. */
   onUntilStop?(e: { untilIdx: number }): void;
   /** Dry-run: assembled prompt preview (no claude spawned). */
@@ -160,6 +173,13 @@ export async function runExecLoop(
   const budget = initialPipeline.budget;
 
   while (true) {
+    // Checked before anything is spawned, so a cancel that arrived while the
+    // previous step was running stops here rather than starting one more.
+    if (opts.shouldCancel?.()) {
+      hooks.onCancelled?.();
+      return { kind: 'cancelled' };
+    }
+
     // Reload fresh state each iteration so concurrent edits (extension, other
     // CLI) are picked up.
     const state = RunStateStore.load(root, runId);
