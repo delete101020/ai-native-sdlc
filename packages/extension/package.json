@@ -178,6 +178,12 @@
         "category": "AIDLC"
       },
       {
+        "command": "aidlc.reportSignal",
+        "title": "Report a Signal (open incident epic)",
+        "icon": "$(radio-tower)",
+        "category": "AIDLC"
+      },
+      {
         "command": "aidlc.insertDemoEpic",
         "title": "Insert Demo Epic (EPIC-100)",
         "icon": "$(beaker)",

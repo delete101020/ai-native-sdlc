@@ -196,6 +196,16 @@ import {
   readGitUserName,
   suggestEpicId,
   EpicScaffoldError,
+  parseSignal,
+  SignalParseError,
+  openIncidentEpic,
+  openFollowUpEpic,
+  followUpEpicId,
+  followUpIdFor,
+  readEpicSignal,
+  existingEpicIds as epicIdsOnDisk,
+  SIGNAL_FILE,
+  type Signal,
   installAnnotationTools,
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
@@ -255,6 +265,17 @@ import { agentActivity, type AgentActivityMap } from './agentActivity';
 // ── Shared helper: open/reuse the Claude terminal and send a slash command ───
 
 const CLAUDE_TERMINAL_NAME = 'AIDLC · Claude';
+
+/**
+ * Stage 6's two recipes, kept in step with `packages/cli/src/commands/maintain.ts`
+ * so the UI and `aidlc maintain` open the same shape of epic.
+ *
+ * The follow-up is `native-fix`, not `native-full`: the work that comes out of a
+ * diagnosis is a change to code that already exists, and the CLI's fuller default
+ * is there for the unattended case where nobody is around to right-size it.
+ */
+const INCIDENT_RECIPE = 'native-incident';
+const FOLLOW_UP_RECIPE = 'native-fix';
 
 /**
  * Open (or reuse) the Claude REPL terminal and run `slash` immediately.
@@ -456,6 +477,8 @@ interface EpicSummaryUi {
   inputs: Record<string, string>;
   epicDir: string;
   existingArtifacts: string[];
+  /** True when `signal.json` sits in the epic folder — an incident epic. */
+  hasSignal: boolean;
   createdAt: string;
   /** True for folders with no state.json/pipeline, synthesized from artifacts. */
   artifactsOnly?: boolean;
@@ -980,6 +1003,9 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     inputs: e.inputs,
     epicDir,
     existingArtifacts,
+    // Cheap and exact: the file core writes is the only marker of an incident
+    // epic — the pipeline id is generated per epic and the recipe is not stored.
+    hasSignal: fs.existsSync(path.join(epicDir, SIGNAL_FILE)),
     createdAt: e.createdAt,
     artifactsOnly: e.artifactsOnly,
     tokenUsage: e.tokenUsage
@@ -1392,6 +1418,12 @@ export class WorkspaceWebview {
   static triggerStartEpic(extensionUri: vscode.Uri): void {
     WorkspaceWebview.show(extensionUri, 'epics');
     void WorkspaceWebview.current?.panel.webview.postMessage({ type: 'triggerStartEpic' });
+  }
+
+  /** Same, for stage 6: open the Epics view and pop the Report-signal form. */
+  static triggerReportSignal(extensionUri: vscode.Uri): void {
+    WorkspaceWebview.show(extensionUri, 'epics');
+    void WorkspaceWebview.current?.panel.webview.postMessage({ type: 'openReportSignalModal' });
   }
 
   /**
@@ -2230,6 +2262,18 @@ export class WorkspaceWebview {
         const draft = msg.draft;
         if (!draft || typeof draft !== 'object') { return; }
         await this.startEpicInline(draft as Record<string, unknown>);
+        return;
+      }
+      case 'reportSignal': {
+        const draft = msg.draft;
+        if (!draft || typeof draft !== 'object') { return; }
+        await this.reportSignal(draft as Record<string, unknown>);
+        return;
+      }
+      case 'openFollowUpEpic': {
+        const epicId = String(msg.epicId ?? '').trim();
+        if (!epicId) { return; }
+        await this.openFollowUp(epicId);
         return;
       }
       case 'classifyBrief': {
@@ -3667,6 +3711,189 @@ export class WorkspaceWebview {
       );
     }
     this.refresh();
+  }
+
+  /**
+   * Stage 6's front door on the UI — the counterpart of `aidlc maintain
+   * --signal`.
+   *
+   * The Start-Epic modal can select `native-incident` but cannot write the one
+   * input it reads, and the `native-maintain` skill's own rule when
+   * `signal.json` is missing is to say so and stop. That produced a green run
+   * with an empty diagnosis, which is worse than a refusal because nothing
+   * looks wrong. Here the signal is written by `openIncidentEpic` as part of
+   * scaffolding, so the epic cannot exist without it.
+   */
+  private async reportSignal(draft: Record<string, unknown>): Promise<void> {
+    const root = this.getRootOrWarn();
+    if (!root) { return; }
+
+    let signal: Signal;
+    try {
+      signal = parseSignal({
+        source: String(draft.source ?? ''),
+        observedAt: String(draft.observedAt ?? ''),
+        symptom: String(draft.symptom ?? ''),
+        scope: String(draft.scope ?? ''),
+        evidence: String(draft.evidence ?? ''),
+      });
+    } catch (err) {
+      void vscode.window.showWarningMessage(
+        err instanceof SignalParseError ? `AIDLC: ${err.message}` : String(err),
+      );
+      return;
+    }
+
+    const recipeId = String(draft.recipeId ?? INCIDENT_RECIPE);
+    // The recipe has to exist before it can be assembled — an empty project
+    // gets the AI-Native preset materialized the same way Start Epic does it.
+    const existing = readYaml(root) as { recipes?: Array<{ id?: unknown }> } | null;
+    const hasRecipe = Array.isArray(existing?.recipes)
+      && existing.recipes.some((r) => String(r.id) === recipeId);
+    if (!hasRecipe) {
+      const wf = BUILTIN_WORKFLOWS.find((w) => (w.recipes ?? []).some((r) => r.id === recipeId));
+      if (!wf) {
+        void vscode.window.showWarningMessage(`AIDLC: recipe "${recipeId}" is not defined in this workspace.`);
+        return;
+      }
+      this.ensureBuiltinInWorkspace(root, wf);
+    }
+
+    const epicId = String(draft.epicId ?? '').trim()
+      || followUpEpicId(signal, { taken: epicIdsOnDisk(root, readYaml(root)) });
+
+    const pipelineId = this.assembleRecipeForEpic(root, recipeId, epicId);
+    if (!pipelineId) { return; }
+
+    // Re-read: `assembleRecipeForEpic` wrote the generated pipeline out.
+    const doc = readYaml(root);
+    if (!doc) { return; }
+    const pipeline = (doc.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
+    if (!pipeline) {
+      void vscode.window.showWarningMessage(`AIDLC: generated pipeline "${pipelineId}" not found.`);
+      return;
+    }
+
+    let result;
+    try {
+      result = openIncidentEpic({ workspaceRoot: root, doc, signal, pipeline, epicId });
+    } catch (err) {
+      void vscode.window.showWarningMessage(
+        err instanceof EpicScaffoldError
+          ? `AIDLC: ${err.message}`
+          : `Incident epic could not be opened: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+
+    this.refresh();
+    const agent = (pipeline.steps as unknown[] | undefined)?.map(stepAgentId)[0] ?? 'maintain';
+    void vscode.window
+      .showInformationMessage(
+        `Incident epic "${result.epicId}" opened. Run /${agent} ${result.epicId} in Claude to diagnose it.`,
+        'Open signal.json',
+      )
+      .then((choice) => {
+        if (choice === 'Open signal.json') {
+          void vscode.window.showTextDocument(vscode.Uri.file(result.signalPath));
+        }
+      });
+  }
+
+  /**
+   * The other half of the loop: turn a diagnosed incident into the epic that
+   * fixes it.
+   *
+   * Nothing is copied out of `incident.md` here. The intent is rendered from the
+   * signal, and every field the signal cannot answer is written as an open
+   * question rather than filled with a plausible sentence — the same rule stage
+   * 1 works under. The epic starts at stage 1 with its human gate for exactly
+   * that reason.
+   */
+  private async openFollowUp(incidentEpicId: string): Promise<void> {
+    const root = this.getRootOrWarn();
+    if (!root) { return; }
+
+    const doc0 = readYaml(root);
+    const raw = readEpicSignal(root, doc0, incidentEpicId);
+    if (!raw) {
+      void vscode.window.showWarningMessage(
+        `AIDLC: "${incidentEpicId}" has no signal.json — a follow-up epic can only be derived from an incident epic.`,
+      );
+      return;
+    }
+    let signal: Signal;
+    try {
+      signal = parseSignal(raw);
+    } catch (err) {
+      void vscode.window.showWarningMessage(
+        `AIDLC: signal.json in "${incidentEpicId}" is malformed — ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+
+    const recipeId = FOLLOW_UP_RECIPE;
+    const existing = doc0 as { recipes?: Array<{ id?: unknown }> } | null;
+    const hasRecipe = Array.isArray(existing?.recipes)
+      && existing.recipes.some((r) => String(r.id) === recipeId);
+    if (!hasRecipe) {
+      const wf = BUILTIN_WORKFLOWS.find((w) => (w.recipes ?? []).some((r) => r.id === recipeId));
+      if (!wf) {
+        void vscode.window.showWarningMessage(`AIDLC: recipe "${recipeId}" is not defined in this workspace.`);
+        return;
+      }
+      this.ensureBuiltinInWorkspace(root, wf);
+    }
+
+    const epicId = followUpIdFor(incidentEpicId, epicIdsOnDisk(root, readYaml(root)));
+    const confirm = await vscode.window.showInformationMessage(
+      `Open follow-up epic "${epicId}" from ${incidentEpicId}?`,
+      { modal: true, detail: `Runs the ${recipeId} recipe. Its intent.md is seeded from the signal, with anything the signal does not answer left as an open question for stage 1.` },
+      'Open epic',
+    );
+    if (confirm !== 'Open epic') { return; }
+
+    const pipelineId = this.assembleRecipeForEpic(root, recipeId, epicId);
+    if (!pipelineId) { return; }
+
+    const doc = readYaml(root);
+    if (!doc) { return; }
+    const pipeline = (doc.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
+    if (!pipeline) {
+      void vscode.window.showWarningMessage(`AIDLC: generated pipeline "${pipelineId}" not found.`);
+      return;
+    }
+
+    let result;
+    try {
+      result = openFollowUpEpic({
+        workspaceRoot: root,
+        doc,
+        signal,
+        pipeline,
+        fromEpicId: incidentEpicId,
+        epicId,
+      });
+    } catch (err) {
+      void vscode.window.showWarningMessage(
+        err instanceof EpicScaffoldError
+          ? `AIDLC: ${err.message}`
+          : `Follow-up epic could not be opened: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+
+    this.refresh();
+    void vscode.window
+      .showInformationMessage(
+        `Follow-up epic "${result.epicId}" opened at stage 1 — review its intent before specifying anything from it.`,
+        'Open intent.md',
+      )
+      .then((choice) => {
+        if (choice === 'Open intent.md') {
+          void vscode.window.showTextDocument(vscode.Uri.file(result.intentPath));
+        }
+      });
   }
 
   /**

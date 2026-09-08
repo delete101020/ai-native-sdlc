@@ -333,6 +333,13 @@ export function registerV2WorkspaceCommands(
     () => WorkspaceWebview.show(context.extensionUri, 'epics'),
   );
 
+  // Stage 6 from the palette. A signal arrives while you are doing something
+  // else, which is exactly when hunting for the Epics view is friction.
+  const reportSignalCmd = vscode.commands.registerCommand(
+    'aidlc.reportSignal',
+    () => WorkspaceWebview.triggerReportSignal(context.extensionUri),
+  );
+
   const insertDemoEpicCmd = vscode.commands.registerCommand(
     'aidlc.insertDemoEpic',
     () => insertDemoEpicCommand(),
@@ -619,6 +626,7 @@ export function registerV2WorkspaceCommands(
       analyzeRequirementsCmd,
       selectStandardCmd,
       openEpicsListCmd,
+      reportSignalCmd,
       insertDemoEpicCmd,
       loadDemoProjectCmd,
       startRunCmd,

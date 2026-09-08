@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ChevronRight,
   ChevronDown,
+  GitBranchPlus,
   Check,
   X,
   Inbox,
@@ -1403,6 +1404,21 @@ function EpicActions({
         >
           <Play className="h-3 w-3" />
           Start pipeline run
+        </button>
+      )}
+      {/* Stage 6 → stage 1. Offered only once the diagnosis exists: a follow-up
+          opened before `incident.md` is written would carry an intent derived
+          from the raw signal alone, which is the 3am guess the human gate at
+          stage 1 exists to catch — and here nobody has even looked yet. */}
+      {epic.hasSignal && epic.existingArtifacts.includes('incident.md') && (
+        <button
+          type="button"
+          onClick={() => postMessage({ type: 'openFollowUpEpic', epicId: epic.id })}
+          title="Open the epic that fixes this incident — starts at stage 1 with its intent seeded from the signal, for a human to review."
+          className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-[11px] font-semibold text-primary hover:border-primary/60 hover:bg-primary/20"
+        >
+          <GitBranchPlus className="h-3 w-3" />
+          Open follow-up epic
         </button>
       )}
       {epic.statePath && (

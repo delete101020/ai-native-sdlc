@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, Brain, FolderOpen, Pencil } from 'lucide-react';
+import { Plus, Brain, FolderOpen, Pencil, Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
 import { EpicCard } from './EpicCard';
 import { StartEpicModal } from './StartEpicModal';
+import { ReportSignalModal } from './ReportSignalModal';
 import { postMessage, onHostMessage } from '@/lib/bridge';
 
 const FILTERS: { id: EpicFilter; label: string }[] = [
@@ -29,6 +30,7 @@ export function EpicsView({
 }) {
   const [filter, setFilter] = useState<EpicFilter>('all');
   const [startEpicOpen, setStartEpicOpen] = useState(false);
+  const [reportSignalOpen, setReportSignalOpen] = useState(false);
 
   // A deep link has to win over the filter — landing on an empty list because
   // the epic is done and the filter says "in progress" reads as a broken link.
@@ -40,6 +42,9 @@ export function EpicsView({
     return onHostMessage((msg) => {
       if (msg.type === 'triggerStartEpic' || msg.type === 'openStartEpicModal') {
         setStartEpicOpen(true);
+      }
+      if (msg.type === 'openReportSignalModal') {
+        setReportSignalOpen(true);
       }
     });
   }, []);
@@ -142,6 +147,15 @@ export function EpicsView({
           </button>
           <button
             type="button"
+            onClick={() => setReportSignalOpen(true)}
+            title="Something broke in production — record the signal and open an incident epic that diagnoses it (stage 6)."
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Radio className="h-3.5 w-3.5" />
+            Report signal
+          </button>
+          <button
+            type="button"
             onClick={() => setStartEpicOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
@@ -210,8 +224,16 @@ export function EpicsView({
           epicsDir={state.epicsDir}
           isFirstEpic={state.epics.length === 0}
           workspaceName={state.workspaceName}
+          onReportSignal={() => setReportSignalOpen(true)}
           onSubmit={(draft) => postMessage({ type: 'startEpicInline', draft })}
           onClose={() => setStartEpicOpen(false)}
+        />
+      )}
+
+      {reportSignalOpen && (
+        <ReportSignalModal
+          existingEpicIds={state.existingEpicIds}
+          onClose={() => setReportSignalOpen(false)}
         />
       )}
     </div>

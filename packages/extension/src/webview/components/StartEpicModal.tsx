@@ -66,6 +66,10 @@ interface Props {
   workspaceName: string;
   /** When false (no folder open), the user must add at least one project. */
   hasFolder?: boolean;
+  /** Hand the user over to the Report-signal form when they pick a recipe that
+   *  needs a `signal.json` this modal cannot write. Omitted where no such form
+   *  is mounted (the no-folder shell) — the warning still shows. */
+  onReportSignal?: () => void;
   onSubmit: (draft: StartEpicDraft) => void;
   onClose: () => void;
 }
@@ -103,6 +107,7 @@ export function StartEpicModal({
   isFirstEpic,
   workspaceName,
   hasFolder = true,
+  onReportSignal,
   onSubmit,
   onClose,
 }: Props) {
@@ -472,6 +477,19 @@ export function StartEpicModal({
     ? selected.id
     : selected.kind === 'auto' ? suggestion?.recipeId : undefined;
 
+  // Stage 6 (`maintain`) reads `docs/epics/<id>/signal.json`, and this modal has
+  // no field that writes one. Its skill then does the honest thing — writes an
+  // `incident.md` saying the signal is missing and stops — which shows up as a
+  // green run with an empty diagnosis. That silence is the reason for the
+  // warning: the recipe stays pickable (the user may have dropped the file in
+  // by hand), but nobody should reach it by accident.
+  const needsSignal = useMemo(
+    () => (effectiveRecipeId
+      ? recipes.find((r) => r.id === effectiveRecipeId)?.steps.includes('maintain') ?? false
+      : false),
+    [effectiveRecipeId, recipes],
+  );
+
   const selectedAgents = useMemo<string[]>(() => {
     if (selected.kind === 'pipeline') {
       return pipelines.find((p) => p.id === selected.id)?.steps.map((s) => s.agent) ?? [];
@@ -766,6 +784,28 @@ export function StartEpicModal({
               </>
             )}
           </div>
+          {needsSignal && (
+            <div className="mt-1.5 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+              <div className="min-w-0 text-[10.5px] leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground">This recipe needs a signal.</span>{' '}
+                <code className="font-mono text-foreground">{effectiveRecipeId}</code> runs the unattended{' '}
+                <code className="font-mono text-foreground">maintain</code> phase, which reads{' '}
+                <code className="font-mono text-foreground">signal.json</code> from the epic folder. Started from here
+                there is no such file, so the run goes green and <code className="font-mono text-foreground">incident.md</code>{' '}
+                just says the signal was missing.
+                {onReportSignal && (
+                  <button
+                    type="button"
+                    onClick={() => { onClose(); onReportSignal(); }}
+                    className="ml-1 font-semibold text-primary underline underline-offset-2 hover:text-primary/80"
+                  >
+                    Report a signal instead
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           <label className="mt-1.5 flex cursor-pointer items-start gap-2 rounded-md border border-border bg-card/50 px-3 py-2">
             <input
               type="checkbox"
