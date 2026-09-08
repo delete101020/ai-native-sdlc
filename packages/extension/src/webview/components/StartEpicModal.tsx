@@ -771,10 +771,8 @@ export function StartEpicModal({
                 Keep it proportional
               </span>
               <span className="mt-0.5 block text-[10.5px] leading-relaxed text-muted-foreground">
-                For an epic the size of one task. Phases cover what the change needs and
-                stop — no invented non-functional, risk or alternatives sections. Written
-                as <code className="font-mono">strict_mode: false</code> in the epic's
-                state.json; changeable later.
+                Artifacts cover only what this change needs — no non-functional, risk
+                or alternatives sections. Best for an epic the size of one task.
               </span>
             </span>
           </label>
