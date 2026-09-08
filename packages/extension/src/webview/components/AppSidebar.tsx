@@ -195,7 +195,6 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
               project={state.projectTemplates}
               configExists={state.configExists}
               workspaceName={state.workspaceName}
-              autopilotEnabled={state.autopilotEnabled}
               collapsed={collapsed.workflows}
               onToggle={() => toggleSection('workflows')}
             />
@@ -338,7 +337,7 @@ function EpicIdPrefixRow({ value, source, suggestion, needsSetup }: {
         title="epic_id_prefix in .aidlc/user.yaml — two letters of your own, so a new epic is suggested as EPIC-260908-NG-001 instead of a number a colleague may already be using. This file is gitignored: your prefix stays yours. Clear it for plain EPIC-001."
       >
         <Fingerprint className="h-3.5 w-3.5 shrink-0" />
-        <span className="shrink-0">Epic id prefix</span>
+        <span className="shrink-0">Epic ID prefix</span>
         <span className="ml-auto">{field}</span>
       </label>
     );
@@ -1030,7 +1029,6 @@ function WorkflowsSection({
   project,
   configExists,
   workspaceName,
-  autopilotEnabled,
   collapsed,
   onToggle,
 }: {
@@ -1038,7 +1036,6 @@ function WorkflowsSection({
   project: TemplateRef[];
   configExists: boolean;
   workspaceName: string;
-  autopilotEnabled: boolean;
   collapsed: boolean;
   onToggle: () => void;
 }) {
@@ -1078,7 +1075,6 @@ function WorkflowsSection({
               {builtins.map((t) => (
                 <TemplateRow key={t.id} template={t} builtin onApply={onApplyClick} />
               ))}
-              <AutopilotRow enabled={autopilotEnabled} />
             </>
           )}
           {project.length > 0 && (
@@ -1192,65 +1188,6 @@ function TemplateRow({
   );
 }
 
-// The AIDLC Autopilot entry in the Common workflows. It isn't a template you
-// apply — it's a behavior gated by the `aidlc.autopilot.enabled` setting — so
-// the row mirrors that setting: "Coming soon" (disabled look) when off, "On"
-// (active look) when enabled. Clicking either state deep-links to the setting
-// so the user can flip it. The shared concept blurb frames the feature.
-const AUTOPILOT_CONCEPT =
-  'AIDLC Autopilot\n\n' +
-  "Reads your project's real context — codebase, tests, spec, and design — " +
-  'sizes the epic, then drafts a plan tailored to it: which agents run in ' +
-  'which phases, what to clarify first, and which phases to add. A near-' +
-  'superpower that stays grounded in your business and codebase, not generic ' +
-  'boilerplate.';
-
-function AutopilotRow({ enabled }: { enabled: boolean }) {
-  const tip = useTooltip();
-  const tipText =
-    AUTOPILOT_CONCEPT +
-    (enabled
-      ? '\n\n✅ On — runs automatically when you start an epic. Click to manage the setting.'
-      : '\n\n🚧 Coming soon — ships disabled. Click to enable the experimental `aidlc.autopilot.enabled` setting.');
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => postMessage({ type: 'openAutopilotSetting' })}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          postMessage({ type: 'openAutopilotSetting' });
-        }
-      }}
-      onMouseEnter={tip.onMouseEnter}
-      onMouseLeave={tip.onMouseLeave}
-      className={cn(
-        'flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px] transition-colors',
-        enabled
-          ? 'border-border bg-card/50 hover:bg-accent'
-          : 'border-dashed border-border bg-card/30 opacity-60 hover:opacity-100',
-      )}
-    >
-      <Zap className={cn('h-3 w-3 shrink-0', enabled ? 'text-primary opacity-80' : 'text-muted-foreground')} />
-      <span className={cn('shrink-0 truncate font-semibold max-w-[40%]', enabled ? 'text-primary' : 'text-muted-foreground')}>
-        AIDLC Autopilot
-      </span>
-      <span className="truncate text-muted-foreground">· Auto-plan epics from your project context</span>
-      <span
-        className={cn(
-          'ml-auto shrink-0 rounded-sm border px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider',
-          enabled
-            ? 'border-primary/40 text-primary'
-            : 'border-border text-muted-foreground',
-        )}
-      >
-        {enabled ? 'On' : 'Coming soon'}
-      </span>
-      {tip.pos && <Tooltip pos={tip.pos} text={tipText} />}
-    </div>
-  );
-}
 
 function Footer({ hasFolder }: { hasFolder: boolean }) {
   const v = typeof window !== 'undefined' ? window.EXTENSION_VERSION : undefined;

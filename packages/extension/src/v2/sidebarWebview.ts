@@ -169,9 +169,6 @@ interface SidebarState {
   /** True when `.aidlc/user.yaml` declares no prefix, whatever the shared
    * file says — what the sidebar warning renders on. */
   epicIdPrefixNeedsSetup: boolean;
-  /** `aidlc.autopilot.enabled` setting — drives the AIDLC Autopilot row's
-   * "Coming soon" vs "On" state in the Common workflows. */
-  autopilotEnabled: boolean;
   /**
    * Runs with an agent this window dispatched still working, keyed by run id.
    * Empty for a run whose agent the user launched in their own Claude window —
@@ -208,9 +205,6 @@ function buildState(
   mcp: McpSnapshot,
 ): SidebarState {
   const demoProjectExists = fs.existsSync(path.join(os.homedir(), DEMO_DIR_NAME));
-  const autopilotEnabled = vscode.workspace
-    .getConfiguration('aidlc')
-    .get<boolean>('autopilot.enabled', false);
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
     return {
@@ -232,7 +226,6 @@ function buildState(
       epicIdPrefixSource: null,
       epicIdPrefixSuggestion: null,
       epicIdPrefixNeedsSetup: false,
-      autopilotEnabled,
       agentActivity: {},
     };
   }
@@ -305,7 +298,6 @@ function buildState(
       epicIdPrefixSource: null,
       epicIdPrefixSuggestion: null,
       epicIdPrefixNeedsSetup: false,
-      autopilotEnabled,
       agentActivity: agentActivity.snapshot(),
     };
   }
@@ -353,7 +345,6 @@ function buildState(
     // free top-level string the schema knows about and this type does not.
     artifactLanguage: resolveArtifactLanguage(doc as { artifact_language?: unknown }),
     ...epicIdPrefixFields(root, doc),
-    autopilotEnabled,
     agentActivity: agentActivity.snapshot(),
   };
 }
@@ -511,12 +502,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     // other panel propagate here too.
     const themeReg = themeManager.register(view.webview);
     view.onDidDispose(() => themeReg.dispose());
-    // Re-render when the autopilot toggle changes so the row flips between
-    // "Coming soon" and "On" live, without a manual refresh.
-    const cfgReg = vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('aidlc.autopilot.enabled')) { this.refresh(); }
-    });
-    view.onDidDispose(() => cfgReg.dispose());
     // A dispatch or its completion is a state change like any other — the
     // panel has to redraw for the running indicator to appear and go away.
     const activityReg = agentActivity.onDidChange(() => this.refresh());
@@ -867,14 +852,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         void vscode.window.setStatusBarMessage(`Copied ${cmd} to clipboard`, 2000);
         return;
       }
-      case 'openAutopilotSetting':
-        // Deep-link the Settings UI to the autopilot toggle so the user can
-        // flip "coming soon" on/off from the row itself.
-        await vscode.commands.executeCommand(
-          'workbench.action.openSettings',
-          'aidlc.autopilot.enabled',
-        );
-        return;
       case 'refresh':
         this.refresh();
         return;

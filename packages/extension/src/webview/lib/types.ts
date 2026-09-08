@@ -423,10 +423,6 @@ export interface SidebarState {
   epicIdPrefixSuggestion: string | null;
   /** True when this checkout has not chosen a prefix of its own. */
   epicIdPrefixNeedsSetup: boolean;
-  /** Value of the `aidlc.autopilot.enabled` setting. Drives whether the
-   * AIDLC Autopilot row in the Common workflows shows "Coming soon"
-   * (disabled) or an active "On" state. */
-  autopilotEnabled: boolean;
   /**
    * Runs whose agent this VS Code window launched and has not seen finish,
    * keyed by run id. Only covers work the extension dispatched — a step run

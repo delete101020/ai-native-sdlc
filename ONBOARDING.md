@@ -306,7 +306,7 @@ then a counter that restarts each day within that prefix.
   the argument of every slash command the epic runs and the branch
   `artifact_commit` writes to.
 
-Set it from the sidebar’s **Epic id prefix** box, or by hand. Either front
+Set it from the sidebar’s **Epic ID prefix** box, or by hand. Either front
 door then suggests the right id; you can still type anything you like over the
 suggestion, and epics already on disk keep the ids they were created with.
 From a terminal:
