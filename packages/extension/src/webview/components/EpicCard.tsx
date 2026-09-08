@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   ClipboardList,
   Trash2,
+  Gauge,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -213,6 +214,28 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent, focusNonce = 0
               <span>
                 · <strong className="text-foreground">{done}/{total}</strong> steps done
               </span>
+            )}
+            {!epic.artifactsOnly && (
+              <button
+                type="button"
+                title={epic.strictMode
+                  ? 'strict_mode: true — phases work at full depth. Click to keep them proportional to the work.'
+                  : 'strict_mode: false — phases cover what the change needs and stop, with no invented non-functional, risk or alternatives sections. Click to restore full depth.'}
+                onClick={() => postMessage({
+                  type: 'setEpicStrictMode',
+                  epicId: epic.id,
+                  strict: !epic.strictMode,
+                })}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider',
+                  epic.strictMode
+                    ? 'border-border text-muted-foreground hover:text-foreground'
+                    : 'border-primary/40 bg-primary/10 text-primary',
+                )}
+              >
+                <Gauge className="h-3 w-3" />
+                {epic.strictMode ? 'Full depth' : 'Proportional'}
+              </button>
             )}
             {epic.createdAt && (
               <span>

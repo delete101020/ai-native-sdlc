@@ -192,6 +192,16 @@ export {
   commandBodyPredatesArtifactLanguage,
   resolveArtifactLanguage,
 } from './loader/artifactLanguage';
+// Per-epic depth of work, and the prompt section that states it.
+export {
+  STRICT_MODE_HEADING,
+  STRICT_MODE_KEY,
+  commandBodyPredatesStrictMode,
+  epicStrictMode,
+  resolveEpicStrictMode,
+  strictModeSection,
+} from './loader/strictMode';
+export { commandBodyIsStale } from './presets/commandBodyFreshness';
 export type { ComposeInput, ComposedPrompt } from './loader/promptComposer';
 
 export {

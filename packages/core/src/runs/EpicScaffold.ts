@@ -21,6 +21,7 @@ import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import type { RunState, StepStatus } from './RunState';
 import { startRun } from './PipelineRunner';
 import { RunStateStore } from './RunStateStore';
+import { EPIC_PIPELINE_FILENAME } from '../loader/EpicPipelineStore';
 import { collectContext } from '../epics/ContextCollector';
 import { generatePlan, renderPlanMarkdown } from '../epics/PlanGenerator';
 
@@ -165,6 +166,12 @@ export interface ScaffoldEpicArgs {
    * `aidlc.autopilot.enabled` setting.
    */
   enableAutopilot?: boolean;
+  /**
+   * How deep the phases of this epic go — `strict_mode` in its `state.json`.
+   * Defaults to `true`, which is the depth every epic worked at before the
+   * setting existed. See `loader/strictMode.ts`.
+   */
+  strictMode?: boolean;
 }
 
 export interface ScaffoldEpicResult {
@@ -182,7 +189,7 @@ export interface ScaffoldEpicResult {
 export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   const {
     workspaceRoot, doc, epicId, title, description, target, agents, inputs, extraProjects, pipeline,
-    seedArtifacts, enableAutopilot = false,
+    seedArtifacts, enableAutopilot = false, strictMode = true,
   } = args;
 
   if (!epicId.trim()) { throw new EpicScaffoldError('Epic id is required.'); }
@@ -191,10 +198,20 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   }
 
   const epicDir = path.join(epicsRoot(workspaceRoot, doc), epicId);
+  // The guard is against scaffolding over an epic that already exists, and
+  // what makes a directory an epic is `state.json`. `pipeline.yaml` alone is
+  // allowed because we put it there ourselves moments ago: both front doors
+  // assemble the epic's pipeline and write the workspace *before* scaffolding,
+  // and writing the workspace routes an epic-owned pipeline to this very
+  // directory. Anything else in here — an empty leftover included — is not
+  // ours to interpret, and still stops us.
   if (fs.existsSync(epicDir)) {
-    throw new EpicScaffoldError(
-      `Epic dir already exists at ${path.relative(workspaceRoot, epicDir) || epicDir}. Delete it first.`,
-    );
+    const entries = fs.readdirSync(epicDir);
+    if (entries.length !== 1 || entries[0] !== EPIC_PIPELINE_FILENAME) {
+      throw new EpicScaffoldError(
+        `Epic dir already exists at ${path.relative(workspaceRoot, epicDir) || epicDir}. Delete it first.`,
+      );
+    }
   }
 
   fs.mkdirSync(epicDir, { recursive: true });
@@ -239,6 +256,10 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     agents,
     currentStep: 0,
     status: 'pending' as const,
+    // Written even when true, and written next to the fields a person reads,
+    // because the point of a per-epic knob is that it can be found and flipped
+    // by hand on an epic that turns out bigger or smaller than it looked.
+    strict_mode: strictMode,
     createdAt: new Date().toISOString(),
     stepStates: agents.map((a) => ({
       agent: a,

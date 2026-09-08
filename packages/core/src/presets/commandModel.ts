@@ -28,6 +28,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { artifactLanguageSection, commandBodyPredatesArtifactLanguage } from '../loader/artifactLanguage';
+import { strictModeSection } from '../loader/strictMode';
+import { commandBodyIsStale } from './commandBodyFreshness';
 import type { PipelineConfig, WorkspaceConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, stepDagId } from '../schema/WorkspaceSchema';
 import type { RunState } from '../runs/RunState';
@@ -305,6 +307,8 @@ Claude — but still follow the structural contract below.
    in the AIDLC panel to advance the pipeline.
 
 ${artifactLanguageSection(null)}
+
+${strictModeSection(null)}
 `;
 }
 
@@ -342,6 +346,8 @@ procedure exactly as \`/aidlc <epic> ${phase.id}\` would:
    artifact), and tell the user to click **"Mark step done"**.
 
 ${artifactLanguageSection(null)}
+
+${strictModeSection(null)}
 `;
 }
 
@@ -377,7 +383,7 @@ export function writeTwoLayerCommands(
     // and would silently ignore the setting, so it is refreshed even though
     // `overwrite` is off — see `commandBodyPredatesArtifactLanguage`.
     if (fs.existsSync(file) && !overwrite
-      && !commandBodyPredatesArtifactLanguage(fs.readFileSync(file, 'utf8'))) {
+      && !commandBodyIsStale(fs.readFileSync(file, 'utf8'))) {
       skipped.push(file);
       return;
     }

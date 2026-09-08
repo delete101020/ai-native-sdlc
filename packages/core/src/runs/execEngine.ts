@@ -23,13 +23,14 @@ import {
 } from './PipelineRunner';
 import { runAutoReview } from './AutoReviewer';
 import { commitApprovedArtifacts, resolveArtifactCommitConfig } from './EpicArtifactCommit';
-import { mirrorRunStateToEpic } from './EpicScaffold';
+import { epicsRoot, mirrorRunStateToEpic } from './EpicScaffold';
 import { checkBudget, type CostAccounting } from './budget';
 import { estimateCostUsd, ratesFromConfig, providerAliases } from './pricing';
 import { resolveProviderModel } from '../presets/models';
 import type { RunState } from './RunState';
 import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
 import { resolveArtifactLanguage } from '../loader/artifactLanguage';
+import { resolveEpicStrictMode } from '../loader/strictMode';
 import { composeAgentPrompt, type ComposedPrompt } from '../loader/promptComposer';
 import { findProjectInstructions } from '../loader/projectInstructions';
 import { harnessCapabilities, type AidlcRunner } from '../runner/types';
@@ -271,6 +272,8 @@ function buildStepPrompt(
   agent: AgentConfig,
   runner: AidlcRunner,
   root: string,
+  /** Epic whose depth setting applies. Runs are keyed by epic id. */
+  epicId: string,
 ): ComposedPrompt {
   const harness = harnessCapabilities(runner);
   return composeAgentPrompt({
@@ -281,6 +284,9 @@ function buildStepPrompt(
       : findProjectInstructions(root, harness.instructionFile),
     harness,
     artifactLanguage: resolveArtifactLanguage(ws.config),
+    // Per epic, not per workspace: how deep a phase goes is a property of the
+    // work item. An epic that never set it reads as strict.
+    strictMode: resolveEpicStrictMode(epicsRoot(root, ws.config), epicId),
   });
 }
 
@@ -327,7 +333,7 @@ async function execStep(
     return false;
   }
   try {
-    prompt = buildStepPrompt(ws, agent, runner, root);
+    prompt = buildStepPrompt(ws, agent, runner, root, state.runId);
   } catch (err) {
     hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to load skills for agent "${agentId}": ${errMsg(err)}` });
     return false;

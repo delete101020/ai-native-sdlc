@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, Wand2, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch } from 'lucide-react';
+import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, Wand2, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch, Gauge } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AgentMeta, ExtraProject, PipelineSummary, RecipeSummary } from '@/lib/types';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
@@ -41,6 +41,12 @@ export interface StartEpicDraft {
   description: string;
   inputs: Record<string, string>;
   extraProjects?: ExtraProject[];
+  /**
+   * How deep the phases of this epic go. Sits next to the workflow choice
+   * because the two answer adjacent questions: the recipe picks which steps
+   * run, this picks how far each one goes.
+   */
+  strictMode: boolean;
 }
 
 interface Props {
@@ -110,6 +116,7 @@ export function StartEpicModal({
   // Folded by default keeps the footer on screen; the header still reports
   // ` · n filled` while closed, so folding can never hide a value that is set.
   const [capsOpen, setCapsOpen] = useState(false);
+  const [strictMode, setStrictMode] = useState(true);
   const idInputRef = useRef<HTMLInputElement>(null);
   // Extra projects (GH-67)
   const [extraProjects, setExtraProjects] = useState<ExtraProject[]>([]);
@@ -520,6 +527,7 @@ export function StartEpicModal({
       description: description.trim(),
       inputs: cleanInputs,
       extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
+      strictMode,
     });
     onClose();
   };
@@ -750,6 +758,26 @@ export function StartEpicModal({
               </>
             )}
           </div>
+          <label className="mt-1.5 flex cursor-pointer items-start gap-2 rounded-md border border-border bg-card/50 px-3 py-2">
+            <input
+              type="checkbox"
+              checked={!strictMode}
+              onChange={(e) => setStrictMode(!e.target.checked)}
+              className="mt-0.5 h-3 w-3 shrink-0 accent-primary"
+            />
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
+                <Gauge className="h-3 w-3 text-muted-foreground" />
+                Keep it proportional
+              </span>
+              <span className="mt-0.5 block text-[10.5px] leading-relaxed text-muted-foreground">
+                For an epic the size of one task. Phases cover what the change needs and
+                stop — no invented non-functional, risk or alternatives sections. Written
+                as <code className="font-mono">strict_mode: false</code> in the epic's
+                state.json; changeable later.
+              </span>
+            </span>
+          </label>
         </div>
 
         <div className="grid grid-cols-2 gap-3">

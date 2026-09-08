@@ -26,6 +26,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { artifactLanguageSection } from '../loader/artifactLanguage';
+import { strictModeSection } from '../loader/strictMode';
 import { CODING_MODEL, PLANNING_MODEL } from './models';
 import { renderTemplate } from './templateRenderer';
 
@@ -1126,6 +1127,8 @@ ${artifactInstruction}
 4. When finished, summarize what you produced and tell the user to click **"Mark step done"** in the AIDLC panel to advance the pipeline.
 
 ${artifactLanguageSection(null)}
+
+${strictModeSection(null)}
 `;
 }
 

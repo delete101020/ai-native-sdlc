@@ -18,6 +18,7 @@ import type { LoadedPersona } from './PersonaLoader';
 import type { ProjectInstructions } from './projectInstructions';
 import type { HarnessCapabilities } from '../runner/types';
 import { artifactLanguageSection } from './artifactLanguage';
+import { strictModeSection } from './strictMode';
 
 /**
  * The persona used to arrive as an instruction to go and read a file. Once the
@@ -46,13 +47,19 @@ export interface ComposeInput {
    * flag guarding it.
    */
   artifactLanguage?: string | null;
+  /**
+   * Whether the epic this step belongs to runs strict. Defaults to true when
+   * the caller does not know the epic — same fail-closed rule as
+   * `resolveEpicStrictMode`.
+   */
+  strictMode?: boolean;
 }
 
 export interface ComposedPrompt {
   /** The prompt text to hand the runner as `ctx.skill`. */
   text: string;
   /** Which layers this composition actually inlined — for `--dry-run` and doctor. */
-  included: { persona: boolean; instructions: boolean; language: boolean };
+  included: { persona: boolean; instructions: boolean; language: boolean; depth: boolean };
 }
 
 export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
@@ -61,11 +68,17 @@ export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
   const inlinePersona = !!persona && !harness.persona;
   const inlineInstructions = !!instructions && !harness.projectInstructions;
   const language = artifactLanguage?.trim() || null;
+  // `strictModeSection` returns null for strict, which is the prompt as it has
+  // always been — so a strict epic adds nothing and takes the fast path below.
+  const depth = strictModeSection(input.strictMode === false ? false : true);
 
   // Nothing to add ⇒ hand the skills through untouched. A workspace whose
   // agents have no persona file must see the exact prompt it saw before.
-  if (!inlinePersona && !inlineInstructions && !language) {
-    return { text: skills, included: { persona: false, instructions: false, language: false } };
+  if (!inlinePersona && !inlineInstructions && !language && !depth) {
+    return {
+      text: skills,
+      included: { persona: false, instructions: false, language: false, depth: false },
+    };
   }
 
   const parts: string[] = [];
@@ -91,6 +104,13 @@ export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
     parts.push(artifactLanguageSection(language));
   }
 
+  // Depth sits next to language for the same reason: both constrain how the
+  // phase writes rather than what it is, and both read better beside the phase
+  // behaviour than above the persona.
+  if (depth) {
+    parts.push(depth);
+  }
+
   // The skill layer keeps its path-based persona directive only when nothing
   // has replaced it — i.e. when the harness loads the persona itself.
   const skillText = inlinePersona ? stripPersonaDirectives(skills) : skills;
@@ -98,6 +118,11 @@ export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
 
   return {
     text: parts.join('\n\n---\n\n') + '\n',
-    included: { persona: inlinePersona, instructions: inlineInstructions, language: !!language },
+    included: {
+      persona: inlinePersona,
+      instructions: inlineInstructions,
+      language: !!language,
+      depth: !!depth,
+    },
   };
 }

@@ -279,6 +279,40 @@ name (`EPIC-001`, or `EPIC-001-native-lite`). A shared, hand-authored pipeline
 that an epic happens to run stays in `workspace.yaml`, where the other epics
 running it can still see it. `aidlc doctor` lists what is left.
 
+### How deep an epic goes — `strict_mode`
+
+A recipe decides *which steps* an epic runs. `strict_mode` decides *how far
+each one goes*, and it is set per epic because depth is a property of the work
+item, not of the team:
+
+```bash
+aidlc epic start EPIC-003 --recipe native-lite --no-strict
+aidlc epic strict EPIC-003            # show it
+aidlc epic strict EPIC-003 off        # change it on an epic already running
+```
+
+In the extension it is the **Keep it proportional** checkbox under Workflow in
+the Start epic modal, and the **Full depth / Proportional** chip on the epic
+card. Either way it lands as `"strict_mode": false` in the epic's `state.json`,
+and it takes effect on the next phase run — nothing already written changes.
+
+The templates are built for the largest thing an epic can be: a spec with
+non-functional requirements, risks, alternatives considered, a migration and
+rollback plan. That is right for an epic that earns it, and wrong for an epic
+the size of one migration task, where the same template produces pages nobody
+asked for, every phase after it has more to read, and two hours of work takes a
+day to get through the pipeline.
+
+Under `strict_mode: false` a phase covers what the change actually needs and
+stops. It keeps every heading the template has — the auto-reviewer and the
+traceability validator match on those exact strings, so a section dropped for
+brevity is a gate failed — and gives a heading that does not apply one honest
+line instead of invented content. It is a budget on breadth, never on
+correctness: the phase still reads the code it is changing, and still leaves
+the next phase what it needs.
+
+Absent means `true`, so every epic started before this keeps the depth it had.
+
 ## 8. Driving it from the extension
 
 Click the **AIDLC** icon in the activity bar. From the sidebar you can start an

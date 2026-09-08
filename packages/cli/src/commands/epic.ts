@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Table from 'cli-table3';
+import * as fs from 'fs';
 import * as path from 'path';
 import {
   validateWorkspace,
@@ -13,6 +14,9 @@ import {
   heuristicClassify,
   scaffoldEpic,
   EpicScaffoldError,
+  epicsRoot,
+  epicStrictMode,
+  STRICT_MODE_KEY,
   stepAgentId,
   RunStateStore,
   planAddEpicStep,
@@ -127,9 +131,10 @@ export function registerEpic(program: Command): void {
     .option('--title <title>', 'epic title')
     .option('--desc <description>', 'epic description / requirement snapshot')
     .option('--input <kv>', 'capability input as key=value (repeatable)', collectKv, [] as string[])
+    .option('--no-strict', 'work to the size of this epic — no invented NFR / risk / alternatives sections')
     .action((epicId: string, opts: {
       recipe?: string; pipeline?: string; brief?: string[]; llm?: boolean;
-      from?: string; title?: string; desc?: string; input: string[];
+      from?: string; title?: string; desc?: string; input: string[]; strict: boolean;
     }, actionCmd: Command) => {
       const root = resolveWorkspaceRoot(actionCmd);
       const doc  = requireYaml(root);
@@ -232,12 +237,16 @@ export function registerEpic(program: Command): void {
           agents,
           inputs,
           pipeline: pipelineCfg,
+          strictMode: opts.strict,
         });
         const steps = agents.join(' → ');
         console.log(chalk.green('✔') + ` Started epic ${chalk.bold(epicId)}`);
         console.log(chalk.dim(`  Pipeline: ${pipelineCfg.id}`));
         console.log(chalk.dim(`  Steps:    ${steps}`));
         console.log(chalk.dim(`  Dir:      ${epicDir}`));
+        if (!opts.strict) {
+          console.log(chalk.dim('  Depth:    strict_mode: false — phases stay proportional to the work'));
+        }
 
         // Resolve the slash command Claude actually has for the first step.
         // Commands are registered in workspace.yaml `slash_commands` and
@@ -313,6 +322,52 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
       console.log(chalk.green('✔') + ` Moved ${plan.length} pipeline(s) out of .aidlc/workspace.yaml.`);
       console.log(chalk.dim('  Commit the epic directories together with workspace.yaml.'));
     });
+  cmd
+    .command('strict <epicId> [value]')
+    .description('Show or set an epic\'s depth of work (strict_mode in its state.json)')
+    .action((epicId: string, value: string | undefined, _opts: unknown, actionCmd: Command) => {
+      const root = resolveWorkspaceRoot(actionCmd);
+      const doc  = requireYaml(root);
+      const file = path.join(epicsRoot(root, doc), epicId, 'state.json');
+      if (!fs.existsSync(file)) {
+        console.error(chalk.red(`No epic "${epicId}" — expected ${file}`));
+        process.exit(1);
+      }
+
+      let state: Record<string, unknown>;
+      try {
+        state = JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch (err) {
+        console.error(chalk.red(`Could not read ${file}: ${err instanceof Error ? err.message : String(err)}`));
+        process.exit(1);
+        return;
+      }
+
+      if (value === undefined) {
+        const on = epicStrictMode(state);
+        console.log(`${epicId}: strict_mode ${on ? chalk.bold('true') : chalk.bold('false')}`);
+        console.log(chalk.dim(on
+          ? '  Phases work at full depth. Set false for an epic the size of one task.'
+          : '  Phases stay proportional to the work — no invented NFR / risk sections.'));
+        return;
+      }
+
+      const truthy = ['on', 'true', 'yes', '1'];
+      const falsy  = ['off', 'false', 'no', '0'];
+      const v = value.trim().toLowerCase();
+      if (!truthy.includes(v) && !falsy.includes(v)) {
+        console.error(chalk.red(`Expected on|off, got "${value}".`));
+        process.exit(1);
+      }
+
+      // Read-modify-write the whole object: state.json carries run mirroring
+      // (stepStates, history) that nothing here understands and must survive.
+      state[STRICT_MODE_KEY] = truthy.includes(v);
+      fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n', 'utf8');
+      console.log(chalk.green('✔') + ` ${epicId}: strict_mode ${truthy.includes(v)}`);
+      console.log(chalk.dim('  Takes effect on the next phase run — nothing already written changes.'));
+    });
+
   const stepCmd = cmd
     .command('step')
     .description(

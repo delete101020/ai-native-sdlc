@@ -190,6 +190,7 @@ import {
   slugEpicId,
   scaffoldEpic,
   epicsRoot,
+  STRICT_MODE_KEY,
   EpicScaffoldError,
   installAnnotationTools,
   setEpicMemoryHook,
@@ -2162,6 +2163,27 @@ export class WorkspaceWebview {
         await this.editAgentInline(draft as Record<string, unknown>);
         return;
       }
+      case 'setEpicStrictMode': {
+        const epicId = String(msg.epicId ?? '');
+        const root = this.getRootOrWarn();
+        if (!root || !epicId) { return; }
+        const doc = readYaml(root);
+        const file = path.join(epicsRoot(root, doc), epicId, 'state.json');
+        try {
+          // Read-modify-write: state.json also carries the mirrored run
+          // (stepStates, history), and none of that is ours to rewrite.
+          const state = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+          state[STRICT_MODE_KEY] = msg.strict === true;
+          fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n', 'utf8');
+        } catch (err) {
+          void vscode.window.showWarningMessage(
+            `AIDLC: could not update strict_mode for ${epicId} — ${String(err)}`,
+          );
+          return;
+        }
+        this.refresh();
+        return;
+      }
       case 'startEpicInline': {
         const draft = msg.draft;
         if (!draft || typeof draft !== 'object') { return; }
@@ -3531,6 +3553,9 @@ export class WorkspaceWebview {
         inputs,
         extraProjects: extraProjects && extraProjects.length > 0 ? extraProjects : undefined,
         pipeline: pipelineCfg,
+        // Absent means strict — an older webview bundle that does not send the
+        // field gets the depth every epic worked at before it existed.
+        strictMode: draft.strictMode !== false,
         // aidlc-autopilot is experimental / "coming soon": off unless the user
         // opts in via the `aidlc.autopilot.enabled` setting.
         enableAutopilot: vscode.workspace

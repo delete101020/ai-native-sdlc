@@ -595,6 +595,9 @@ export interface EpicSummary {
   epicDir: string;
   existingArtifacts: string[];
   createdAt: string;
+  /** `strict_mode` from state.json: false = phases stay proportional to the
+   *  work. Absent on disk reads as true. */
+  strictMode: boolean;
   /** True when this folder has no state.json/pipeline and the summary was
    *  synthesized from the `.md` files in its artifacts/ folder. Steps are a
    *  straight lifecycle-ordered list with no run controls. */

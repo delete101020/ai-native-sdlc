@@ -89,6 +89,33 @@ describe('scaffoldEpic — on-disk layout', () => {
 
   // The epic doc is the only file a phase-1 skill reads for the user's own
   // words — the AI-Native intent skill opens `docs/epics/$0/$0.md` by name.
+  it('records an epic depth of work in state.json, strict by default', () => {
+    const strictRoot = tmpRoot();
+    scaffoldEpic({
+      workspaceRoot: strictRoot,
+      doc: null, epicId: 'CPD-1', title: '', description: '',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po', 'developer'], inputs: {}, pipeline: PIPELINE,
+    });
+
+    const liteRoot = tmpRoot();
+    scaffoldEpic({
+      workspaceRoot: liteRoot,
+      doc: null, epicId: 'CPD-2', title: '', description: '',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po', 'developer'], inputs: {}, pipeline: PIPELINE,
+      strictMode: false,
+    });
+
+    const read = (root: string, id: string) => JSON.parse(fs.readFileSync(
+      path.join(root, 'docs', 'epics', id, 'state.json'), 'utf8',
+    ));
+    // Written either way: a knob you cannot find in the file is one nobody
+    // flips on the epic that turns out bigger than it looked.
+    expect(read(strictRoot, 'CPD-1').strict_mode).toBe(true);
+    expect(read(liteRoot, 'CPD-2').strict_mode).toBe(false);
+  });
+
   it('writes <epicId>.md carrying the title and description', () => {
     const root = tmpRoot();
     scaffoldEpic({
@@ -225,6 +252,27 @@ describe('scaffoldEpic — on-disk layout', () => {
     const inputsPath = path.join(root, 'docs/epics', 'GH-67-C', 'inputs.json');
     const inputs = JSON.parse(fs.readFileSync(inputsPath, 'utf8'));
     expect(inputs.extra_projects).toBeUndefined();
+  });
+
+  it('scaffolds into a dir holding only the pipeline it was just given', () => {
+    // Both front doors assemble the pipeline and write the workspace before
+    // scaffolding, and writing the workspace routes an epic-owned pipeline
+    // into this directory — so the dir is already there, by our own hand.
+    const root = tmpRoot();
+    const dir = path.join(root, 'docs', 'epics', 'CPD-9');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'pipeline.yaml'), 'id: CPD-9\n', 'utf8');
+
+    scaffoldEpic({
+      workspaceRoot: root,
+      doc: null, epicId: 'CPD-9', title: '', description: '',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po', 'developer'], inputs: {}, pipeline: PIPELINE,
+    });
+
+    expect(fs.existsSync(path.join(dir, 'state.json'))).toBe(true);
+    // …and the pipeline we found there is untouched.
+    expect(fs.readFileSync(path.join(dir, 'pipeline.yaml'), 'utf8')).toBe('id: CPD-9\n');
   });
 
   it('throws when the epic dir already exists', () => {

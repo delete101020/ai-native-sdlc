@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   ARTIFACT_LANGUAGE_HEADING,
+  STRICT_MODE_HEADING,
   BUILTIN_WORKFLOWS,
   builtinTemplatesRoot,
   loadBuiltinPreset,
@@ -66,9 +67,9 @@ describe('workflow command provisioning', () => {
     const preset = loadBuiltinPreset(templatesRoot, NATIVE);
     writeWorkflowCommands(root, NATIVE, preset);
     const file = path.join(commandsDir(), 'intent.md');
-    // The section has to survive the edit for the file to read as current —
-    // a body without it is taken for one an older build wrote.
-    const mine = `mine\n\n${ARTIFACT_LANGUAGE_HEADING}\n`;
+    // Both sections have to survive the edit for the file to read as current —
+    // a body missing either is taken for one an older build wrote.
+    const mine = `mine\n\n${ARTIFACT_LANGUAGE_HEADING}\n\n${STRICT_MODE_HEADING}\n`;
     fs.writeFileSync(file, mine, 'utf8');
 
     writeWorkflowCommands(root, NATIVE, preset);

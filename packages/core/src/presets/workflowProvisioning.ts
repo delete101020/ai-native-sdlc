@@ -19,7 +19,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { commandBodyPredatesArtifactLanguage } from '../loader/artifactLanguage';
+import { commandBodyIsStale } from './commandBodyFreshness';
 import { WORKSPACE_DIR } from '../loader/WorkspaceLoader';
 import {
   type ArtifactTemplateOptions,
@@ -89,7 +89,7 @@ export function writeWorkflowCommands(
     // off: it cannot honour the setting, and the section it is missing is not
     // something a hand edit would have removed on purpose.
     if (fs.existsSync(file) && !overwrite
-      && !commandBodyPredatesArtifactLanguage(fs.readFileSync(file, 'utf8'))) { continue; }
+      && !commandBodyIsStale(fs.readFileSync(file, 'utf8'))) { continue; }
     const skillBody = preset.skillContents[phase.id] ?? `# ${phase.name}\n\n${phase.description}\n`;
     // The pipeline id is also the artifact-template folder name, so the
     // command body can point the agent at the blank template for its own

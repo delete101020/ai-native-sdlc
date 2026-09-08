@@ -17,6 +17,7 @@ import {
   resolvePath,
   mirrorRunStateToEpic,
   RUN_STATE_SCHEMA_VERSION,
+  epicStrictMode,
 } from '@aidlc/core';
 import type {
   RunState,
@@ -107,6 +108,11 @@ export interface EpicSummary {
   statePath: string;
   /** Absolute path to the epic dir (for opening artifacts/). */
   epicDir: string;
+  /**
+   * `strict_mode` from state.json — how deep this epic's phases go. Absent on
+   * disk reads as true, which is the depth every epic had before the setting.
+   */
+  strictMode: boolean;
   /**
    * True when this folder has no `state.json` / pipeline binding and the
    * summary was synthesized purely from the `.md` files in its `artifacts/`
@@ -349,6 +355,8 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
     inputs,
     inputsCount: Object.keys(inputs).length,
     statePath: '',
+    // An artifacts-only folder has no state.json to carry the setting.
+    strictMode: true,
     epicDir,
     runId: null,
     artifactsOnly: true,
@@ -646,6 +654,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       inputsCount: Object.keys(inputs).length,
       statePath: stateFile,
       epicDir,
+      strictMode: epicStrictMode(parsed as { strict_mode?: unknown }),
       runId: runState ? runState.runId : null,
     });
   }
