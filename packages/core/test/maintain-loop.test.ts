@@ -252,6 +252,24 @@ describe('registering a signal (W4 — the CLI entry point)', () => {
     expect(parseSignal(fs.readFileSync(result.signalPath, 'utf8'))).toEqual(SIGNAL);
   });
 
+  it('opens proportional by default, and full depth only when asked', () => {
+    // The one place whose default differs from `scaffoldEpic`'s. An incident
+    // epic is a single unattended step writing one file about one signal, and
+    // full depth on that shape produces the invented NFR / alternatives
+    // sections the setting exists to stop.
+    const depth = (r: { epicDir: string }) =>
+      JSON.parse(fs.readFileSync(path.join(r.epicDir, 'state.json'), 'utf8')).strict_mode;
+
+    expect(depth(openIncidentEpic({
+      workspaceRoot: tmpRoot(), doc: null, signal: SIGNAL, pipeline: MAINTAIN_PIPELINE,
+    }))).toBe(false);
+
+    expect(depth(openIncidentEpic({
+      workspaceRoot: tmpRoot(), doc: null, signal: SIGNAL, pipeline: MAINTAIN_PIPELINE,
+      strictMode: true,
+    }))).toBe(true);
+  });
+
   it('reads back round-trip, so follow-up needs only the epic id', () => {
     const root = tmpRoot();
     const { epicId } = openIncidentEpic({

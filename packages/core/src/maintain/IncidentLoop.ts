@@ -275,6 +275,19 @@ export interface OpenIncidentEpicArgs {
   epicId?: string;
   /** Id prefix when deriving. Defaults to `INC`. */
   prefix?: string;
+  /**
+   * `strict_mode` for the scaffolded epic. Defaults to **false**, unlike
+   * {@link scaffoldEpic}, whose default is `true`.
+   *
+   * An incident epic is one unattended `maintain` step writing one
+   * `incident.md` about one signal. Full depth on that shape is the failure it
+   * is named after: the template is written for the largest thing an epic can
+   * be, so the Operator fills in non-functional requirements and alternatives
+   * for a diagnosis that has exactly one subject. The caller can still ask for
+   * full depth — a signal that turns out to be systemic is a real case — but it
+   * has to ask.
+   */
+  strictMode?: boolean;
 }
 
 export interface OpenIncidentEpicResult extends ScaffoldEpicResult {
@@ -294,7 +307,7 @@ export interface OpenIncidentEpicResult extends ScaffoldEpicResult {
  * guessing. {@link openFollowUpEpic} is the separate step that runs after.
  */
 export function openIncidentEpic(args: OpenIncidentEpicArgs): OpenIncidentEpicResult {
-  const { workspaceRoot, doc, signal, pipeline } = args;
+  const { workspaceRoot, doc, signal, pipeline, strictMode = false } = args;
 
   const steps = Array.isArray(pipeline.steps) ? pipeline.steps : [];
   const agents = steps.map((s) => stepAgentId(s)).filter(Boolean);
@@ -320,6 +333,7 @@ export function openIncidentEpic(args: OpenIncidentEpicArgs): OpenIncidentEpicRe
       signal_scope: signal.scope,
     },
     pipeline,
+    strictMode,
   });
 
   // The signal, verbatim and re-parseable. Not folded into inputs.json: a later

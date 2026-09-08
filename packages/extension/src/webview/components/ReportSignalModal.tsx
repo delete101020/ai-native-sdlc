@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Radio } from 'lucide-react';
+import { AlertTriangle, Gauge, Radio } from 'lucide-react';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
 import { postMessage } from '@/lib/bridge';
 import { previewIncidentEpicId } from '@/lib/incidentId';
@@ -30,6 +30,8 @@ export interface ReportSignalDraft {
   scope: string;
   evidence: string;
   epicId: string;
+  /** `strict_mode` for the epic this opens. Defaults to false — see the checkbox. */
+  strictMode: boolean;
 }
 
 /** `<input type="datetime-local">` wants local wall-clock with no zone. */
@@ -51,6 +53,9 @@ export function ReportSignalModal({
   const [scope, setScope] = useState('');
   const [evidence, setEvidence] = useState('');
   const [epicId, setEpicId] = useState('');
+  // Ticked by default: an incident epic is one step writing one file about one
+  // signal, and that is the shape full depth handles worst.
+  const [proportional, setProportional] = useState(true);
 
   const derivedId = useMemo(() => previewIncidentEpicId(symptom), [symptom]);
   const effectiveId = epicId.trim() || derivedId;
@@ -80,6 +85,7 @@ export function ReportSignalModal({
       scope: scope.trim(),
       evidence: evidence.trim(),
       epicId: epicId.trim(),
+      strictMode: !proportional,
     };
     postMessage({ type: 'reportSignal', draft });
     onClose();
@@ -194,6 +200,26 @@ export function ReportSignalModal({
             host resolves collisions against the epics on disk.
           </Hint>
         </div>
+
+        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border bg-card/50 px-3 py-2">
+          <input
+            type="checkbox"
+            checked={proportional}
+            onChange={(e) => setProportional(e.target.checked)}
+            className="mt-0.5 h-3 w-3 shrink-0 accent-primary"
+          />
+          <span className="min-w-0">
+            <span className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
+              <Gauge className="h-3 w-3 text-muted-foreground" />
+              Depth: proportional
+            </span>
+            <span className="mt-0.5 block text-[10.5px] leading-relaxed text-muted-foreground">
+              <code className="font-mono text-foreground">incident.md</code> covers this signal and
+              stops — no invented non-functional, risk or alternatives sections. Untick it when the
+              symptom looks systemic rather than local.
+            </span>
+          </span>
+        </label>
 
         <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2.5 text-[10.5px] leading-relaxed text-muted-foreground">
           <Radio className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />

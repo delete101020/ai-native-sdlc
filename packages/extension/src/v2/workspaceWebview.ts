@@ -3829,7 +3829,13 @@ export class WorkspaceWebview {
 
     let result;
     try {
-      result = openIncidentEpic({ workspaceRoot: root, doc, signal, pipeline, epicId });
+      result = openIncidentEpic({
+        workspaceRoot: root, doc, signal, pipeline, epicId,
+        // Only a literal `true` asks for full depth. An older webview bundle
+        // sends no such field, and the incident default is the right answer for
+        // it — not the scaffold default.
+        strictMode: draft.strictMode === true,
+      });
     } catch (err) {
       void vscode.window.showWarningMessage(
         err instanceof EpicScaffoldError
