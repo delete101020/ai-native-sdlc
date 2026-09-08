@@ -937,6 +937,7 @@ function StepDetail({
         focused={focused}
         focusedIdx={focusedIdx}
         slashCommand={slashCommand}
+        artifactName={artifactName}
         artifactExists={artifactExists}
         activity={activity}
       />
@@ -1195,6 +1196,7 @@ function RunGate({
   focused,
   focusedIdx,
   slashCommand,
+  artifactName,
   artifactExists,
   activity,
 }: {
@@ -1202,6 +1204,8 @@ function RunGate({
   focused: EpicStepDetailFull;
   focusedIdx: number;
   slashCommand: string | undefined;
+  /** The file this step is supposed to write, from `produces[0]` or the persona. */
+  artifactName: string;
   artifactExists: boolean;
   activity: AgentActivity | null;
 }) {
@@ -1223,6 +1227,18 @@ function RunGate({
   // not told.
   const busy = !!activity;
   const busyTitle = 'An agent is still working on this run — wait for it, or dismiss the banner above';
+  // Marking done with no artifact on disk is not a choice the user gets to
+  // make: `markStepDone` in core validates `produces` and throws. Leaving the
+  // button live only turns that into an error toast after the click, and on a
+  // step nobody has run yet it reads as an invitation to skip the work. A step
+  // that declares no artifact keeps the button — there is nothing to check.
+  const artifactMissing = !!artifactName && !artifactExists;
+  const doneBlocked = busy || artifactMissing;
+  const doneTitle = busy
+    ? busyTitle
+    : artifactMissing
+    ? `${artifactName} has not been written yet — run the agent first`
+    : undefined;
   const labels: Record<string, string> = {
     awaiting_work: 'Awaiting work',
     awaiting_auto_review: 'Awaiting auto-review',
@@ -1231,6 +1247,7 @@ function RunGate({
   };
   const messages: Record<string, string> = {
     awaiting_work: 'Run the agent externally, then mark this step done to advance.',
+    awaiting_work_missing: 'Nothing written yet. Run the agent — Mark step done unlocks once its artifact exists.',
     awaiting_auto_review: 'Auto-reviewer pending. Run it to validate this step.',
     awaiting_review:
       'Step is paused for your approval. Approve to advance, reject to send back.',
@@ -1263,6 +1280,8 @@ function RunGate({
         <span className="flex-1 text-foreground/80">
           {busy
             ? 'An agent is working on this step. Wait for it to finish before advancing.'
+            : status === 'awaiting_work' && artifactMissing
+            ? messages.awaiting_work_missing
             : messages[status]}
         </span>
       </div>
@@ -1352,8 +1371,8 @@ function RunGate({
             })()}
             <GateButton
               variant="primary"
-              disabled={busy}
-              title={busy ? busyTitle : undefined}
+              disabled={doneBlocked}
+              title={doneTitle}
               onClick={() => postMessage({ type: 'markStepDone', runId: epic.runId!, stepIdx: focusedIdx })}
             >
               Mark step done
