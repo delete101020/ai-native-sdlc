@@ -683,6 +683,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const feedback = String(msg.feedback ?? '');
         if (!runId) { return; }
         await rerunStepInlineCommand(runId, feedback);
+        this.refresh();
         return;
       }
       case 'runStepWithFeedback': {
@@ -704,6 +705,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const feedback = String(msg.feedback ?? '');
         if (!runId || !Number.isInteger(stepIdx)) { return; }
         await requestStepUpdateInlineCommand(runId, stepIdx, feedback);
+        this.refresh();
         return;
       }
       case 'startPipelineRun':
@@ -718,6 +720,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const runId = String(msg.runId ?? '');
         const cmd = `aidlc.${msg.type}`;
         await vscode.commands.executeCommand(cmd, runId || undefined);
+        // Refresh from here rather than leaning on the runs/ watcher. The
+        // watcher is for edits made outside this window — the CLI, another
+        // editor — and it is the wrong tool for a button the user just
+        // pressed in this panel: it fires on the filesystem's own schedule,
+        // and on a network or virtual filesystem it may not fire at all.
+        // Approving a step and watching the panel keep showing the step you
+        // approved is the whole bug this closes.
+        this.refresh();
         return;
       }
       case 'deleteRun': {
@@ -748,6 +758,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const targetIdx = Number(msg.targetIdx);
         if (!runId || !Number.isInteger(targetIdx)) { return; }
         await rejectStepInlineCommand(runId, reason, targetIdx);
+        this.refresh();
         return;
       }
       case 'startRunInline': {
@@ -755,6 +766,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const runId = String(msg.runId ?? '');
         if (!pipelineId || !runId) { return; }
         await startPipelineRunInlineCommand(pipelineId, runId);
+        this.refresh();
         return;
       }
       case 'openArtifact': {
