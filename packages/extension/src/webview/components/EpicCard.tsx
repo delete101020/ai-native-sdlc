@@ -45,6 +45,7 @@ import { RerunModal } from './RerunModal';
 import { RunWithFeedbackModal } from './RunWithFeedbackModal';
 import { RequestUpdateModal } from './RequestUpdateModal';
 import { DeleteEpicModal } from './DeleteEpicModal';
+import { ConfirmModal } from './ConfirmModal';
 import { AgentRunningBanner } from './AgentRunningBanner';
 import { postMessage } from '@/lib/bridge';
 
@@ -230,28 +231,7 @@ export function EpicCard({
                 · <strong className="text-foreground">{done}/{total}</strong> steps done
               </span>
             )}
-            {!epic.artifactsOnly && (
-              <button
-                type="button"
-                title={epic.strictMode
-                  ? 'strict_mode: true — phases work at full depth. Click to keep them proportional to the work.'
-                  : 'strict_mode: false — phases cover what the change needs and stop, with no invented non-functional, risk or alternatives sections. Click to restore full depth.'}
-                onClick={() => postMessage({
-                  type: 'setEpicStrictMode',
-                  epicId: epic.id,
-                  strict: !epic.strictMode,
-                })}
-                className={cn(
-                  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider',
-                  epic.strictMode
-                    ? 'border-border text-muted-foreground hover:text-foreground'
-                    : 'border-primary/40 bg-primary/10 text-primary',
-                )}
-              >
-                <Gauge className="h-3 w-3" />
-                {epic.strictMode ? 'Full depth' : 'Proportional'}
-              </button>
-            )}
+            {!epic.artifactsOnly && <DepthBadge epic={epic} />}
             {epic.createdAt && (
               <span>
                 · Started{' '}
@@ -338,6 +318,121 @@ export function EpicCard({
  * open that file instead of dumping the text inline. Falls back to the plain
  * description when no such file exists.
  */
+/**
+ * `strict_mode` for one epic, as a badge that is also the only way to change it.
+ *
+ * Three things this deliberately does not do, each one a bug that was reported:
+ *
+ * 1. **It does not write on a single click.** The badge reads as a status chip,
+ *    and it used to be a one-click write to `state.json` with no undo — an
+ *    accidental click silently changed how every remaining phase composes its
+ *    prompt. It now asks first, and the question names the steps it affects.
+ * 2. **It says nothing when the setting is off.** `Proportional` on every card
+ *    is noise once that is the house style; the icon alone carries it, and the
+ *    tooltip has the words for anyone who wants them.
+ * 3. **It is frozen on a finished epic.** Depth is a budget on work that has yet
+ *    to happen. Once every step is done there is no prompt left to shorten, so
+ *    flipping it would change the record of how the artifacts were produced and
+ *    nothing else.
+ */
+function DepthBadge({ epic }: { epic: EpicSummary }) {
+  const [confirming, setConfirming] = useState(false);
+
+  // Done steps are the ones the setting can no longer reach: their artifacts are
+  // written. Everything else still has a prompt ahead of it.
+  const pending = epic.stepDetails.filter((s) => s.status !== 'done');
+  const frozen = epic.status === 'done' || pending.length === 0;
+
+  const label = epic.strictMode
+    ? 'strict_mode: true — every phase works at full depth.'
+    : 'strict_mode: false — phases cover what the change needs and stop, with no invented non-functional, risk or alternatives sections.';
+
+  const chip = cn(
+    'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider',
+    epic.strictMode
+      ? 'border-border text-muted-foreground'
+      : 'border-primary/40 bg-primary/10 text-primary',
+  );
+
+  if (frozen) {
+    return (
+      <span
+        title={`${label} This epic has no step left to run, so depth is fixed.`}
+        className={cn(chip, 'opacity-60')}
+      >
+        <Gauge className="h-3 w-3" />
+        {epic.strictMode && 'Full depth'}
+      </span>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        title={`${label} Click to switch — applies to the ${pending.length} step${pending.length === 1 ? '' : 's'} not yet done.`}
+        onClick={() => setConfirming(true)}
+        className={cn(chip, epic.strictMode && 'hover:text-foreground')}
+      >
+        <Gauge className="h-3 w-3" />
+        {epic.strictMode && 'Full depth'}
+      </button>
+
+      {confirming && (
+        <ConfirmModal
+          title={epic.strictMode ? 'Make this epic proportional?' : 'Restore full depth?'}
+          confirmLabel={epic.strictMode ? 'Set proportional' : 'Set full depth'}
+          onClose={() => setConfirming(false)}
+          onConfirm={() => postMessage({
+            type: 'setEpicStrictMode',
+            epicId: epic.id,
+            strict: !epic.strictMode,
+          })}
+          message={
+            <div className="space-y-3">
+              <p>
+                {epic.strictMode
+                  ? 'Phases will cover what this change actually needs and stop — no invented non-functional, risk or alternatives sections. Every heading stays, so the auto-reviewer and the traceability validator still pass.'
+                  : 'Phases go back to working at full depth: the templates are written for the largest thing an epic can be, and each one will be filled out in full.'}
+              </p>
+
+              <div className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-[11px] text-warning/90">
+                <div className="font-semibold">
+                  Nothing already written changes.
+                </div>
+                <div className="mt-0.5">
+                  Unlike <strong>Request update</strong>, this rewrites no artifact and rewinds no
+                  step. It changes the prompt for work that has yet to run — the{' '}
+                  {pending.length} step{pending.length === 1 ? '' : 's'} below. To reshape an
+                  artifact that already exists, use Request update on its step.
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-1 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Affected steps
+                </div>
+                <ul className="space-y-0.5 font-mono text-[11px] text-foreground/80">
+                  {pending.map((s, i) => (
+                    <li key={`${s.stepName ?? s.agent}-${i}`}>
+                      {s.stepName ?? s.agent}
+                      {s.status === 'in_progress' && (
+                        <span className="ml-1.5 font-sans text-[10px] text-warning">
+                          in progress — takes effect on its next run
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          }
+        />
+      )}
+    </>
+  );
+}
+
 function EpicDescription({ epic }: { epic: EpicSummary }) {
   const reqFile = epic.existingArtifacts.find((f) =>
     /init.?requirements?.*\.md$/i.test(f),

@@ -191,6 +191,7 @@ import {
   scaffoldEpic,
   epicsRoot,
   STRICT_MODE_KEY,
+  commandBodyIsStale,
   resolveEpicIdPrefixChain,
   readUserConfig,
   readGitUserName,
@@ -2243,10 +2244,11 @@ export class WorkspaceWebview {
         if (!root || !epicId) { return; }
         const doc = readYaml(root);
         const file = path.join(epicsRoot(root, doc), epicId, 'state.json');
+        let state: Record<string, unknown>;
         try {
           // Read-modify-write: state.json also carries the mirrored run
           // (stepStates, history), and none of that is ours to rewrite.
-          const state = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+          state = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
           state[STRICT_MODE_KEY] = msg.strict === true;
           fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n', 'utf8');
         } catch (err) {
@@ -2256,6 +2258,25 @@ export class WorkspaceWebview {
           return;
         }
         this.refresh();
+        // Writing the key is not the same as the key being read. Command
+        // bodies are generated once and never overwritten, so an epic
+        // provisioned before this setting existed runs slash commands that
+        // have no `## Depth of work` section — the flag flips on disk, the
+        // badge changes, and every prompt stays exactly as it was. Say so,
+        // because nothing else will.
+        if (msg.strict !== true) {
+          const stale = this.stepCommandsIgnoringStrictMode(root, state);
+          if (stale.length > 0) {
+            void vscode.window.showWarningMessage(
+              `AIDLC: ${epicId} is now proportional, but ${stale.length} of its slash commands were generated before strict_mode existed and will ignore it (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? ', …' : ''}). Re-apply the preset to refresh them.`,
+              'Load Template',
+            ).then((pick) => {
+              if (pick === 'Load Template') {
+                void vscode.commands.executeCommand('aidlc.applyPreset');
+              }
+            });
+          }
+        }
         return;
       }
       case 'startEpicInline': {
@@ -3724,6 +3745,38 @@ export class WorkspaceWebview {
    * looks wrong. Here the signal is written by `openIncidentEpic` as part of
    * scaffolding, so the epic cannot exist without it.
    */
+  /**
+   * The epic's slash commands that cannot honour `strict_mode`, by command id.
+   *
+   * `writeWorkflowCommands` never overwrites an existing body, so a workspace
+   * provisioned before this setting shipped keeps commands with no
+   * `## Depth of work` section. Those bodies never look at `state.json`, which
+   * makes the toggle a lie for exactly the epics most likely to want it — the
+   * old ones. Empty when the epic has no pipeline binding, or when every body
+   * is current.
+   */
+  private stepCommandsIgnoringStrictMode(root: string, state: Record<string, unknown>): string[] {
+    const pipeline = typeof state.pipeline === 'string' ? state.pipeline : '';
+    if (!pipeline) { return []; }
+    const steps = Array.isArray(state.stepStates) ? (state.stepStates as Array<Record<string, unknown>>) : [];
+    const commandsDir = path.join(root, '.claude', 'commands');
+    const stale = new Set<string>();
+    for (const step of steps) {
+      const phase = typeof step.name === 'string' && step.name
+        ? step.name
+        : typeof step.agent === 'string' ? step.agent : '';
+      if (!phase) { continue; }
+      const id = pipelineCommandId(pipeline, phase);
+      try {
+        // A command that was never written is not stale — it is absent, and
+        // the headless runner composes that prompt itself.
+        const body = fs.readFileSync(path.join(commandsDir, `${id}.md`), 'utf8');
+        if (commandBodyIsStale(body)) { stale.add(`/${id}`); }
+      } catch { /* absent — see above */ }
+    }
+    return [...stale];
+  }
+
   private async reportSignal(draft: Record<string, unknown>): Promise<void> {
     const root = this.getRootOrWarn();
     if (!root) { return; }
