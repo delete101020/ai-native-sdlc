@@ -1577,6 +1577,8 @@ function EpicActions({
           epicId={epic.id}
           epicDir={epic.epicDir}
           hasRun={!!epic.runId}
+          artifacts={epic.existingArtifacts}
+          doneSteps={epic.stepDetails.filter((s) => s.status === 'done').length}
           onConfirm={(deleteFolder) =>
             postMessage({
               type: 'deleteEpic',
