@@ -331,6 +331,13 @@ export function EpicCard({
  *    the setting was off left a bare 12px icon: quieter, and unreadable at a
  *    glance — which is the one thing a status chip has to be. The noise it was
  *    meant to cut comes back as colour instead.
+ *
+ *    The words are `Depth: full` / `Depth: proportional` rather than the shorter
+ *    `Full depth` / `Proportional`, because the underlying key is called
+ *    `strict_mode` and "strict" reads as a quality flag — as though `true` meant
+ *    *done properly*. It does not: it is a budget, and an epic that covers
+ *    exactly what was asked and stops is the `false` one. Naming the axis in the
+ *    badge is what stops the reader having to translate.
  * 3. **It is frozen on a finished epic.** Depth is a budget on work that has yet
  *    to happen. Once every step is done there is no prompt left to shorten, so
  *    flipping it would change the record of how the artifacts were produced and
@@ -362,7 +369,7 @@ function DepthBadge({ epic }: { epic: EpicSummary }) {
         className={cn(chip, 'opacity-60')}
       >
         <Gauge className="h-3.5 w-3.5" />
-        {epic.strictMode ? 'Full depth' : 'Proportional'}
+        {epic.strictMode ? 'Depth: full' : 'Depth: proportional'}
       </span>
     );
   }
@@ -376,13 +383,13 @@ function DepthBadge({ epic }: { epic: EpicSummary }) {
         className={cn(chip, epic.strictMode && 'hover:text-foreground')}
       >
         <Gauge className="h-3.5 w-3.5" />
-        {epic.strictMode ? 'Full depth' : 'Proportional'}
+        {epic.strictMode ? 'Depth: full' : 'Depth: proportional'}
       </button>
 
       {confirming && (
         <ConfirmModal
-          title={epic.strictMode ? 'Make this epic proportional?' : 'Restore full depth?'}
-          confirmLabel={epic.strictMode ? 'Set proportional' : 'Set full depth'}
+          title={epic.strictMode ? 'Set depth to proportional?' : 'Set depth to full?'}
+          confirmLabel={epic.strictMode ? 'Set proportional' : 'Set full'}
           onClose={() => setConfirming(false)}
           onConfirm={() => postMessage({
             type: 'setEpicStrictMode',

@@ -816,7 +816,7 @@ export function StartEpicModal({
             <span className="min-w-0">
               <span className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
                 <Gauge className="h-3 w-3 text-muted-foreground" />
-                Keep it proportional
+                Depth: proportional
               </span>
               <span className="mt-0.5 block text-[10.5px] leading-relaxed text-muted-foreground">
                 Artifacts cover only what this change needs — no non-functional, risk
