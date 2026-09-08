@@ -327,9 +327,10 @@ export function EpicCard({
  *    and it used to be a one-click write to `state.json` with no undo — an
  *    accidental click silently changed how every remaining phase composes its
  *    prompt. It now asks first, and the question names the steps it affects.
- * 2. **It says nothing when the setting is off.** `Proportional` on every card
- *    is noise once that is the house style; the icon alone carries it, and the
- *    tooltip has the words for anyone who wants them.
+ * 2. **It always says which setting is on, in words.** Dropping the label when
+ *    the setting was off left a bare 12px icon: quieter, and unreadable at a
+ *    glance — which is the one thing a status chip has to be. The noise it was
+ *    meant to cut comes back as colour instead.
  * 3. **It is frozen on a finished epic.** Depth is a budget on work that has yet
  *    to happen. Once every step is done there is no prompt left to shorten, so
  *    flipping it would change the record of how the artifacts were produced and
@@ -348,7 +349,7 @@ function DepthBadge({ epic }: { epic: EpicSummary }) {
     : 'strict_mode: false — phases cover what the change needs and stop, with no invented non-functional, risk or alternatives sections.';
 
   const chip = cn(
-    'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider',
+    'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider',
     epic.strictMode
       ? 'border-border text-muted-foreground'
       : 'border-primary/40 bg-primary/10 text-primary',
@@ -360,8 +361,8 @@ function DepthBadge({ epic }: { epic: EpicSummary }) {
         title={`${label} This epic has no step left to run, so depth is fixed.`}
         className={cn(chip, 'opacity-60')}
       >
-        <Gauge className="h-3 w-3" />
-        {epic.strictMode && 'Full depth'}
+        <Gauge className="h-3.5 w-3.5" />
+        {epic.strictMode ? 'Full depth' : 'Proportional'}
       </span>
     );
   }
@@ -374,8 +375,8 @@ function DepthBadge({ epic }: { epic: EpicSummary }) {
         onClick={() => setConfirming(true)}
         className={cn(chip, epic.strictMode && 'hover:text-foreground')}
       >
-        <Gauge className="h-3 w-3" />
-        {epic.strictMode && 'Full depth'}
+        <Gauge className="h-3.5 w-3.5" />
+        {epic.strictMode ? 'Full depth' : 'Proportional'}
       </button>
 
       {confirming && (
