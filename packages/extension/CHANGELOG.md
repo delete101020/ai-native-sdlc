@@ -1,5 +1,201 @@
 # Changelog
 
+## 3.9.0
+
+An epic stops being a row in the team's shared file. Its pipeline moves into its
+own directory, its artifacts get a git branch of their own, and its depth, its id
+and its gates stop being decisions the workspace makes on everyone's behalf.
+Alongside that, stage 6 — which had a CLI and no front door — gets a form to
+report a signal, and the work that comes out of a diagnosis is finally drawn as a
+link rather than left as two rows that happen to sort next to each other.
+
+### Added
+
+- **`docs/epics/<id>/pipeline.yaml` — an epic owns its pipeline.**
+  Starting an epic used to append its assembled pipeline to
+  `.aidlc/workspace.yaml`, so per-epic state and team-wide config shared one
+  tracked file with a single append point: every concurrent epic conflicted
+  there, and the file grew ~50 near-duplicate lines per epic with nothing to
+  garbage-collect. The definition now lives beside the epic's `state.json`.
+  Nothing downstream learns about it — the document is spliced together on read
+  and routed back out on write, so the ~40 call sites that look up
+  `doc.pipelines` are untouched and `WorkspaceLoader` still validates one whole
+  workspace with its cross-ref checks intact. Existing workspaces keep their
+  pipelines inline until `aidlc epic pipeline extract` moves them, deliberately a
+  command rather than a silent migration; `aidlc doctor` reports what is left
+  inline, what no longer parses, and a definition that exists in both places.
+
+- **`strict_mode` — how deep an epic's phases go.**
+  The artifact templates are built for the largest thing an epic can be. That is
+  right for an epic that earns it and wrong for one the size of a single task,
+  where the same template produces pages nobody asked for and every phase after
+  it has more to read. Depth now lives in the epic's own `state.json`, because it
+  is a property of the work item and not of the team. Absent means `true`, so
+  every epic started before this composes byte-identical prompts. Set it with
+  `aidlc epic start --no-strict`, read or change it with
+  `aidlc epic strict <id> [on|off]`, or use the checkbox in Start epic and the
+  `Depth:` badge on the epic card. The rule is a budget on breadth, never on
+  correctness: every heading the template has survives — auto-review rules assert
+  on those exact strings — and an inapplicable one gets one honest line instead
+  of invented content.
+
+- **`artifact_commit: on_approve` — an epic's artifacts get a branch of their own.**
+  Until a step's artifact was committed it was a dirty file on whatever branch
+  the user happened to be standing on, swept up later into the engineer's
+  `git add` and into the same commit as the code. Approving a step now writes it
+  to `epic/<id>` with git plumbing — a throwaway index, `hash-object`,
+  `commit-tree`, `update-ref` — so HEAD, the real index and the working tree are
+  never touched and a mid-epic approval cannot move the checkout out from under
+  an open editor. The branch is created lazily at the first approval and deleted
+  with `git branch -D` if the epic is abandoned, safe precisely because it was
+  never checked out. `docs/epics/` stays tracked on the user's own branch: this
+  is a durable second home, not a relocation. Off by default.
+
+- **`gates:` on a recipe — where the human review stands, per task type.**
+  A recipe picked which steps ran and nothing else, so every recipe drawn from
+  one pipeline inherited the same gates, and the only way to disagree was to
+  start the epic and turn gates off step by step. A recipe now states only where
+  it disagrees; the rest inherits. A gate keyed to a step the recipe does not run
+  is reported by `aidlc validate` instead of sitting there reading as if it were
+  in force, and `auto_review` with no runner to clear it is refused at assembly
+  rather than parking the step in `awaiting_auto_review` forever.
+
+- **`native-lite` — intent → build-plan → implement → review**, human gates on
+  the first two only. The shape a change with a precedent in the codebase
+  actually wants: no spec because the behaviour is not in question, no verify
+  because there is a pattern to follow, and review as the one quality gate, read
+  after the branch is finished rather than before.
+
+- **`epic_id_prefix` — two letters and a date in every epic id.**
+  Scanning `docs/epics/` for the highest `EPIC-NNN` fails twice on a shared repo:
+  two people are both offered the same number, and a hand-written prefix is not
+  counted at all, so the suggester keeps proposing an id that is already taken.
+  The suggestion becomes `EPIC-260908-NG-001`. The date leads on purpose —
+  `docs/epics/` is shared, so sorting by name is a team-wide timeline rather than
+  a grouping by author with time scattered inside it — and it is built from the
+  local calendar, not from slicing an ISO string, which at UTC+7 would file every
+  epic opened before 07:00 under yesterday. The prefix lives in gitignored
+  `.aidlc/user.yaml` so it belongs to the checkout and not the team, and a value
+  is derived from `git config user.name` (diacritics folded) as a suggestion that
+  is never written until someone accepts it. Unset behaves exactly as before, and
+  nothing renames an epic that already exists. `aidlc epic next-id` prints the
+  suggestion for scripting.
+
+- **Report a signal — stage 6 has a front door.**
+  `native-incident` was pickable in Start epic and reachable nowhere else: the
+  modal cannot write `signal.json`, and the skill's rule when the file is missing
+  is to write an `incident.md` saying so and stop — a green run whose artifact is
+  one line of apology. The new form collects the five `Signal` fields and
+  scaffolds the epic around them, so it cannot exist without its input. Start
+  epic warns when the picked recipe contains `maintain` and offers the other
+  form, without blocking. Incident epics default to proportional depth, unlike
+  every other front door: one unattended step writing one file about one signal
+  is precisely the shape full depth handles worst.
+
+- **The incident → follow-up edge, on the UI.**
+  `openFollowUpEpic` has always written `from_epic` into the new epic's
+  `inputs.json`, but nothing read it back. The card header now carries the link
+  in both directions, an incident and its follow-ups collapse into one group on
+  the Epics list, and a family that is entirely done starts collapsed. The
+  follow-up dialog names the epics that already follow this incident instead of
+  reading identically the second time — which is how one incident quietly ended
+  up with a `-FIX` and a `-FIX-2` nobody wanted. A second follow-up is still
+  reachable, since one diagnosis can fork into work that ships separately; it
+  just has to be asked for. Both dialogs offer `Choose recipe…`: `native-fix`
+  stays the default, but the work a diagnosis opens ranges from a one-file perf
+  fix to a redesign.
+
+- **Active Runs in the sidebar.** `buildState` had always computed `activeRuns`
+  and no component ever read it, so a run started from the Builder had no surface
+  once its toast faded and the only way to advance it was the CLI. Each card now
+  carries the step position, status, current agent, the slash command as a
+  click-to-copy chip, the artifacts the step should produce (dimmed until they
+  exist), missing upstream inputs, and the action the status actually allows.
+
+- **`artifact_language` on the UI.** Honoured by the prompt composer for a while,
+  but nothing wrote it — no control, no flag, only the key in `workspace.yaml` if
+  you knew it existed. Unset means each phase infers a language from the brief on
+  its own, which is how a Vietnamese intent ends up followed by an English spec
+  in the same epic; the pipeline's premise is that phase N+1 reads phase N. "No
+  preference" stays a real choice and deletes the key rather than writing an
+  empty string, and the named languages are a convenience, not a whitelist.
+
+- **A running agent is visible, and the buttons that mean it isn't are not
+  offered.** `awaiting_work` covered two situations under one name: nobody has
+  started this step, and Claude has been writing for four minutes. Work the
+  extension dispatches itself is now recorded and cleared on whichever signal
+  arrives first — the shell reporting the command finished, the terminal closing,
+  or the run's own step moving on. It never claims the negative: a step run by
+  pasting the slash command into your own Claude window is invisible to the
+  editor and always will be, so the registry only ever adds a running state.
+
+### Fixed
+
+- **`strict_mode` never reached the webview.** The DTO was built field by field
+  and this one was not copied, so every epic arrived `undefined` and rendered as
+  proportional no matter what `state.json` said — and the toggle then sent
+  `!undefined`, which is why clicking an epic that was already full depth looked
+  like it did nothing. The field is now declared on the interface, so the next
+  hand-built DTO that forgets it fails to compile instead of failing silently.
+
+- **"Mark step done" was offered before the artifact existed.** `markStepDone`
+  validates `produces` and throws, so the button was never a real choice — it was
+  an error toast with a delay, and on a step nobody had run it read as an
+  invitation to skip the work. The gate now distinguishes "the file is missing"
+  from "this step declares no file", and the status line says which file.
+
+- **New epics were seeded with blank templates.** `artifacts/` was filled from
+  the template directory at create time, which defeated the gate outright —
+  `canStartStep` and `markStepDone` check only that the path exists, so an
+  unfilled template satisfied them from the moment the epic did. The copy was
+  also keyed to the *source* pipeline, so a `native-fix` epic received a `spec.md`
+  and an `incident.md` its recipe drops. `artifacts/` is now created empty and
+  every file in it is something an agent wrote; the templates are still
+  provisioned, and the pointer to them moves into the command bodies.
+
+- **Approving a step did not advance the sidebar, on Windows.** The watchers built
+  their patterns with `path.join`, which yields `.aidlc\runs\*.json`, where a
+  backslash is a glob escape rather than a separator — so the runs watcher never
+  fired once. The deeper fix is that mutating handlers now refresh directly:
+  leaning on a filesystem watcher to learn about a transition your own button just
+  caused is the wrong instrument even when the glob is right.
+
+- **Recent Epics opened `state.json`, not the epic.** The storage format is not
+  what the click asked for. It now reveals the epic's card, expands it and scrolls
+  to it, with the deep link held until the webview says it is ready and handled by
+  a component that is always mounted. The raw JSON is still one button away inside
+  the expanded card.
+
+- **The depth badge wrote `state.json` on a single click.** It reads as a status
+  chip and was an undoable write that changed how every remaining phase composes
+  its prompt. It now asks first, and the question names the steps the change can
+  still reach and states what it is not — unlike Request update it rewrites no
+  artifact and rewinds no step. A finished epic freezes the badge. Where a
+  workspace's command bodies predate the setting and would ignore it silently, the
+  warning offers to refresh them.
+
+- **The badge said `Full depth` / `Proportional`,** which reads as a quality flag
+  — as though `true` meant "done properly". It is the opposite way round, so the
+  badge now names its axis: `Depth: full` / `Depth: proportional`. The key stays
+  `strict_mode`; renaming it would be a migration for a wording problem.
+
+- **The delete dialog now names what it deletes** — the artifact filenames and how
+  many approved steps go with them, listed under the folder checkbox. "State,
+  inputs, and every artifact" asks the user to remember what an epic they opened
+  last week contains.
+
+- **The slash command in the "run this next" message was invented.**
+  `slash_commands` names are free text and only coincidentally match the agent
+  they target. It is resolved from `workspace.yaml`, and when nothing targets the
+  agent the message says so instead of guessing.
+
+### Changed
+
+- `epic_id_prefix` moved from `.aidlc/workspace.yaml` to gitignored
+  `.aidlc/user.yaml`. The committed key is demoted to a fallback rather than
+  dropped — workspaces already have it set, and removing its effect would silently
+  renumber their next epic — but `aidlc validate` says it should move.
+
 ## 3.8.0
 
 The step list of a running epic became editable in 3.7.0; its review gates
