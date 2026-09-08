@@ -192,6 +192,14 @@ export {
   commandBodyPredatesArtifactLanguage,
   resolveArtifactLanguage,
 } from './loader/artifactLanguage';
+// Per-checkout epic id prefix, and the id suggester both front doors share.
+export {
+  EPIC_ID_PREFIX_KEY,
+  EPIC_ID_PREFIX_PATTERN,
+  epicIdDateStamp,
+  resolveEpicIdPrefix,
+  suggestEpicId,
+} from './loader/epicId';
 // Per-epic depth of work, and the prompt section that states it.
 export {
   STRICT_MODE_HEADING,

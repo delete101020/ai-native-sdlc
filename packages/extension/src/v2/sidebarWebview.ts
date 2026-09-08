@@ -30,6 +30,8 @@ import {
   provisionDeclaredWorkflows,
   relativeEpicRoot,
   resolveArtifactLanguage,
+  resolveEpicIdPrefix,
+  EPIC_ID_PREFIX_PATTERN,
   writeTwoLayerCommands,
 } from '@aidlc/core';
 import type { PipelineConfig, DiscoveredAsset } from '@aidlc/core';
@@ -147,6 +149,10 @@ interface SidebarState {
    * YAML, and a workspace that never sets it gets a Vietnamese intent followed
    * by an English spec. */
   artifactLanguage: string | null;
+  /** `epic_id_prefix` from workspace.yaml — the two letters that keep this
+   * checkout’s epic ids from colliding with a colleague’s, or null when the
+   * workspace declares none. */
+  epicIdPrefix: string | null;
   /** `aidlc.autopilot.enabled` setting — drives the AIDLC Autopilot row's
    * "Coming soon" vs "On" state in the Common workflows. */
   autopilotEnabled: boolean;
@@ -200,6 +206,7 @@ function buildState(
       mcpLoading: mcp.loading,
       mcpError: mcp.error,
       artifactLanguage: null,
+      epicIdPrefix: null,
       autopilotEnabled,
     };
   }
@@ -268,6 +275,7 @@ function buildState(
       mcpError: mcp.error,
       extraProjects: sidebarExtraProjects,
       artifactLanguage: null,
+      epicIdPrefix: null,
       autopilotEnabled,
     };
   }
@@ -314,6 +322,7 @@ function buildState(
     // `YamlDocument` models only the keys the sidebar reads; the setting is a
     // free top-level string the schema knows about and this type does not.
     artifactLanguage: resolveArtifactLanguage(doc as { artifact_language?: unknown }),
+    epicIdPrefix: resolveEpicIdPrefix(doc as { epic_id_prefix?: unknown }),
     autopilotEnabled,
   };
 }
@@ -623,6 +632,33 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           // in place — worth logging, not worth failing the edit over.
           output.appendLine(`[setArtifactLanguage] command refresh failed: ${String(err)}`);
         }
+        this.refresh();
+        return;
+      }
+      case 'setEpicIdPrefix': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) { return; }
+        const doc = readYaml(root);
+        if (!doc) { return; }
+        const next = String(msg.prefix ?? '').trim().toUpperCase();
+        // Empty removes the key rather than writing `""`: no prefix is a real
+        // choice, and it is the one every existing workspace already made.
+        if (next && !EPIC_ID_PREFIX_PATTERN.test(next)) {
+          void vscode.window.showWarningMessage(
+            `epic_id_prefix must be exactly two letters — "${next}" was not saved.`,
+          );
+          this.refresh();
+          return;
+        }
+        if (next) {
+          (doc as { epic_id_prefix?: string }).epic_id_prefix = next;
+        } else {
+          delete (doc as { epic_id_prefix?: string }).epic_id_prefix;
+        }
+        writeYaml(root, doc);
+        // Nothing to regenerate: the prefix is read when an id is *suggested*,
+        // not baked into any command body, and epics already on disk keep the
+        // ids they were created with.
         this.refresh();
         return;
       }

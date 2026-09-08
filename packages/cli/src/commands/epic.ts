@@ -15,6 +15,8 @@ import {
   scaffoldEpic,
   EpicScaffoldError,
   epicsRoot,
+  resolveEpicIdPrefix,
+  suggestEpicId,
   epicStrictMode,
   STRICT_MODE_KEY,
   stepAgentId,
@@ -321,6 +323,20 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
       writeYaml(root, doc);
       console.log(chalk.green('✔') + ` Moved ${plan.length} pipeline(s) out of .aidlc/workspace.yaml.`);
       console.log(chalk.dim('  Commit the epic directories together with workspace.yaml.'));
+    });
+  cmd
+    .command('next-id')
+    .description('Print the id to give the next epic — honours epic_id_prefix in workspace.yaml')
+    .action((_opts: unknown, actionCmd: Command) => {
+      const root = resolveWorkspaceRoot(actionCmd);
+      const doc  = requireYaml(root);
+      const dir  = epicsRoot(root, doc);
+      const existing = fs.existsSync(dir)
+        ? fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)
+        : [];
+      // Bare id on stdout and nothing else, so `aidlc epic start $(aidlc epic
+      // next-id)` works. Anything explanatory belongs on stderr or nowhere.
+      console.log(suggestEpicId(existing, resolveEpicIdPrefix(doc as { epic_id_prefix?: unknown })));
     });
   cmd
     .command('strict <epicId> [value]')

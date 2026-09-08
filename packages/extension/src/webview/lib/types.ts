@@ -381,6 +381,10 @@ export interface SidebarState {
    * sidebar's language picker — the setting governs the prose in every
    * artifact, and without a control the only way to reach it was the YAML. */
   artifactLanguage: string | null;
+  /** `epic_id_prefix` from workspace.yaml, or null when unset. Two letters
+   * that scope this checkout’s suggested epic ids, so two people on one
+   * repo are never offered the same id. */
+  epicIdPrefix: string | null;
   /** Value of the `aidlc.autopilot.enabled` setting. Drives whether the
    * AIDLC Autopilot row in the Common workflows shows "Coming soon"
    * (disabled) or an active "On" state. */

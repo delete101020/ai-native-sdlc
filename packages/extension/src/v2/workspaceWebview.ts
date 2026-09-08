@@ -191,6 +191,8 @@ import {
   scaffoldEpic,
   epicsRoot,
   STRICT_MODE_KEY,
+  resolveEpicIdPrefix,
+  suggestEpicId,
   EpicScaffoldError,
   installAnnotationTools,
   setEpicMemoryHook,
@@ -644,7 +646,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       epicsCount: epics.length,
       runIds: listRunIds(root),
       skillTemplates: SKILL_TEMPLATE_REFS,
-      nextEpicId: suggestNextEpicId(epicIds0),
+      nextEpicId: suggestNextEpicId(epicIds0, null),
       existingEpicIds: epicIds0,
       requirementRuns: scanRequirementRuns(root),
       initialView,
@@ -715,7 +717,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     defaultPipeline: BUILTIN_WORKFLOWS[0]
       ? getBuiltinPipelineSummary(BUILTIN_WORKFLOWS[0])
       : undefined,
-    nextEpicId: suggestNextEpicId(epicIds),
+    nextEpicId: suggestNextEpicId(epicIds, doc),
     existingEpicIds: epicIds,
     requirementRuns: scanRequirementRuns(root),
     initialView,
@@ -831,13 +833,13 @@ function listEpicIdsFromDir(workspaceRoot: string, epicRoot: string): string[] {
   }
 }
 
-function suggestNextEpicId(existing: string[]): string {
-  const numbered = existing
-    .map((n) => n.match(/^EPIC-(\d+)$/i))
-    .filter((m): m is RegExpMatchArray => !!m)
-    .map((m) => parseInt(m[1], 10));
-  const next = numbered.length > 0 ? Math.max(...numbered) + 1 : 1;
-  return `EPIC-${String(next).padStart(3, '0')}`;
+/**
+ * The id the Start-Epic modal opens with. Scoped by the workspace's
+ * `epic_id_prefix` so two people on one repo are never offered the same one;
+ * with no prefix declared this is the plain `EPIC-<nnn>` it always was.
+ */
+function suggestNextEpicId(existing: string[], doc: unknown): string {
+  return suggestEpicId(existing, resolveEpicIdPrefix(doc as { epic_id_prefix?: unknown }));
 }
 
 /**

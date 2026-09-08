@@ -656,6 +656,17 @@ export const WorkspaceSchema = z.object({
   artifact_language: z.string().min(1).optional(),
 
   /**
+   * Two letters that separate this checkout's epic ids from a colleague's, as
+   * in `EPIC-260908-NG-001`. Unset keeps the plain `EPIC-<nnn>` scheme.
+   *
+   * Validated, unlike `artifact_language`, because the value is not handed to
+   * a model to interpret — it is spliced into a directory name, a branch name
+   * and a slash-command argument, where a typo is a folder nobody finds again.
+   * See `loader/epicId.ts`.
+   */
+  epic_id_prefix: z.string().regex(/^[A-Za-z]{2}$/, 'epic_id_prefix must be exactly two letters').optional(),
+
+  /**
    * Whether an epic's artifacts are committed to a branch of their own as each
    * step passes its human gate. See `runs/EpicArtifactCommit.ts`.
    *

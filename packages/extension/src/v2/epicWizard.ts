@@ -40,6 +40,8 @@ import {
   WORKSPACE_FILENAME,
   type TaskTypeVerdict,
   type RecipeConfig,
+  resolveEpicIdPrefix,
+  suggestEpicId,
 } from '@aidlc/core';
 import type { PipelineConfig } from '@aidlc/core';
 
@@ -139,7 +141,7 @@ export async function startEpicCommand(): Promise<void> {
   }
 
   const epicRoot = readEpicRoot(doc);
-  const epicId = await pickEpicId(root, epicRoot);
+  const epicId = await pickEpicId(root, epicRoot, doc);
   if (!epicId) { return; }
 
   // Materialize a recipe target into a concrete pipeline named after the epic
@@ -456,24 +458,30 @@ function readEpicRoot(doc: YamlDocument): string {
 }
 
 /**
- * Suggest the next sequential epic id by scanning existing folders under
- * the epic root. Falls back to EPIC-001 when none exist.
+ * Suggest the next epic id by scanning existing folders under the epic root.
+ *
+ * The shape depends on the workspace's `epic_id_prefix`: with one declared the
+ * suggestion is `EPIC-<yymmdd>-<XX>-<nnn>` and the counter is scoped to that
+ * prefix on today, and without one it is the plain `EPIC-<nnn>` this wizard has
+ * always offered. Either way the user can still type whatever they like — the
+ * suggestion is a default, not a rule.
  */
-async function pickEpicId(workspaceRoot: string, epicRoot: string): Promise<string | undefined> {
+async function pickEpicId(
+  workspaceRoot: string,
+  epicRoot: string,
+  doc: YamlDocument,
+): Promise<string | undefined> {
   const dir = path.resolve(workspaceRoot, epicRoot);
-  let next = 1;
-  if (fs.existsSync(dir)) {
-    const existing = fs.readdirSync(dir, { withFileTypes: true })
+  const existing = fs.existsSync(dir)
+    ? fs.readdirSync(dir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
-      .map((d) => d.name);
-    const numbered = existing
-      .map((n) => n.match(/^EPIC-(\d+)$/i))
-      .filter((m): m is RegExpMatchArray => !!m)
-      .map((m) => parseInt(m[1], 10));
-    if (numbered.length > 0) { next = Math.max(...numbered) + 1; }
-  }
+      .map((d) => d.name)
+    : [];
 
-  const suggested = `EPIC-${String(next).padStart(3, '0')}`;
+  const suggested = suggestEpicId(
+    existing,
+    resolveEpicIdPrefix(doc as { epic_id_prefix?: unknown }),
+  );
   const id = await vscode.window.showInputBox({
     prompt: 'Epic id',
     placeHolder: 'e.g. EPIC-001 (uppercase + dashes + digits)',

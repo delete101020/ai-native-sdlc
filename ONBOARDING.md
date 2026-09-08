@@ -279,6 +279,43 @@ name (`EPIC-001`, or `EPIC-001-native-lite`). A shared, hand-authored pipeline
 that an epic happens to run stays in `workspace.yaml`, where the other epics
 running it can still see it. `aidlc doctor` lists what is left.
 
+### Who an epic belongs to, and when — `epic_id_prefix`
+
+Left unset, a new epic is suggested as `EPIC-001`, `EPIC-002`, … numbered
+across the whole folder. That is fine alone and wrong in a team: two people
+are both offered `EPIC-003`, and the second to scaffold walks into *Epic dir
+already exists*.
+
+Two letters in `.aidlc/workspace.yaml` — set them per checkout, not per repo —
+give each person their own lane:
+
+```yaml
+epic_id_prefix: NG
+```
+
+The suggestion becomes `EPIC-260908-NG-001`: **date first**, then the prefix,
+then a counter that restarts each day within that prefix.
+
+- The date is `yymmdd`, read from the machine’s **local** calendar, and it is
+  the day the epic was opened, frozen from then on. `createdAt` in the epic’s
+  `state.json` still carries the precise ISO-UTC timestamp.
+- Date first is deliberate: `docs/epics/` is shared, so sorting it by name
+  gives the whole team one timeline. Putting the person first would group the
+  listing by author and scatter time inside each group.
+- Exactly two letters, validated. The id is not only a directory name — it is
+  the argument of every slash command the epic runs and the branch
+  `artifact_commit` writes to.
+
+Set it from the sidebar’s **Epic id prefix** box, or by hand. Either front
+door then suggests the right id; you can still type anything you like over the
+suggestion, and epics already on disk keep the ids they were created with.
+From a terminal:
+
+```bash
+aidlc epic next-id                      # EPIC-260908-NG-001
+aidlc epic start "$(aidlc epic next-id)" --recipe native-quick --no-strict
+```
+
 ### How deep an epic goes — `strict_mode`
 
 A recipe decides *which steps* an epic runs. `strict_mode` decides *how far

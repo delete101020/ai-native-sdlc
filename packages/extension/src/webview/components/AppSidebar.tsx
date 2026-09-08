@@ -1,4 +1,4 @@
-import { useState, useCallback, type MouseEvent as ReactMouseEvent } from 'react';
+import { useState, useEffect, useCallback, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   Bot,
   GitBranch,
@@ -20,6 +20,7 @@ import {
   ListTree,
   Github,
   Languages,
+  Fingerprint,
   Check,
   Clipboard,
   ScanEye,
@@ -123,6 +124,8 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
             )}
 
             {state.configExists && <ArtifactLanguageRow value={state.artifactLanguage} />}
+
+            {state.configExists && <EpicIdPrefixRow value={state.epicIdPrefix} />}
 
             {!state.configExists && (
               <div className="rounded-md border border-dashed border-border bg-surface/50 p-3 text-[11px] text-muted-foreground leading-relaxed">
@@ -248,6 +251,45 @@ function ArtifactLanguageRow({ value }: { value: string | null }) {
           <option key={lang} value={lang}>{lang}</option>
         ))}
       </select>
+    </label>
+  );
+}
+
+/**
+ * Sets the two letters that scope this checkout's suggested epic ids.
+ *
+ * Unset is the historical behaviour and stays available: the Start-Epic
+ * suggestion is then `EPIC-<nnn>`, numbered across the whole folder. With two
+ * letters set it becomes `EPIC-<yymmdd>-<XX>-<nnn>`, the date read locally, and
+ * the counter restarts each day within this prefix. Nothing renames an epic
+ * that already exists.
+ */
+function EpicIdPrefixRow({ value }: { value: string | null }) {
+  const [draft, setDraft] = useState(value ?? '');
+  useEffect(() => { setDraft(value ?? ''); }, [value]);
+  const invalid = draft !== '' && !/^[A-Za-z]{2}$/.test(draft);
+  const commit = () => {
+    if (invalid) { return; }
+    const next = draft.toUpperCase();
+    if (next !== (value ?? '')) { postMessage({ type: 'setEpicIdPrefix', prefix: next }); }
+  };
+  return (
+    <label
+      className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground"
+      title="epic_id_prefix in workspace.yaml — two letters of your own, so a new epic is suggested as EPIC-260908-NG-001 instead of a number a colleague may already be using. Leave it empty for plain EPIC-001."
+    >
+      <Fingerprint className="h-3.5 w-3.5 shrink-0" />
+      <span className="shrink-0">Epic id prefix</span>
+      <input
+        value={draft}
+        maxLength={2}
+        placeholder="none"
+        spellCheck={false}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
+        className={`ml-auto w-14 rounded border bg-surface px-1.5 py-0.5 text-center text-[11px] uppercase text-foreground ${invalid ? 'border-destructive' : 'border-border'}`}
+      />
     </label>
   );
 }
