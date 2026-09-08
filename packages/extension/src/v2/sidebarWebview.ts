@@ -49,6 +49,7 @@ import {
 } from './runCommands';
 import { WorkspaceWebview } from './workspaceWebview';
 import { missingBundleHtml } from './webviewBundleGuard';
+import { agentActivity, type AgentActivityMap } from './agentActivity';
 
 // VS Code reuses output channels by name, so this resolves to the same
 // channel created in extension.ts activate().
@@ -156,6 +157,12 @@ interface SidebarState {
   /** `aidlc.autopilot.enabled` setting — drives the AIDLC Autopilot row's
    * "Coming soon" vs "On" state in the Common workflows. */
   autopilotEnabled: boolean;
+  /**
+   * Runs with an agent this window dispatched still working, keyed by run id.
+   * Empty for a run whose agent the user launched in their own Claude window —
+   * see {@link agentActivity} for why that case is unknowable.
+   */
+  agentActivity: AgentActivityMap;
 }
 
 interface McpSnapshot {
@@ -208,6 +215,7 @@ function buildState(
       artifactLanguage: null,
       epicIdPrefix: null,
       autopilotEnabled,
+      agentActivity: {},
     };
   }
 
@@ -277,6 +285,7 @@ function buildState(
       artifactLanguage: null,
       epicIdPrefix: null,
       autopilotEnabled,
+      agentActivity: agentActivity.snapshot(),
     };
   }
 
@@ -324,6 +333,7 @@ function buildState(
     artifactLanguage: resolveArtifactLanguage(doc as { artifact_language?: unknown }),
     epicIdPrefix: resolveEpicIdPrefix(doc as { epic_id_prefix?: unknown }),
     autopilotEnabled,
+    agentActivity: agentActivity.snapshot(),
   };
 }
 
@@ -458,6 +468,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       if (e.affectsConfiguration('aidlc.autopilot.enabled')) { this.refresh(); }
     });
     view.onDidDispose(() => cfgReg.dispose());
+    // A dispatch or its completion is a state change like any other — the
+    // panel has to redraw for the running indicator to appear and go away.
+    const activityReg = agentActivity.onDidChange(() => this.refresh());
+    view.onDidDispose(() => activityReg.dispose());
     this.refresh();
     // First-time MCP load happens once the panel is up — kicks off the
     // spawn and re-posts state when the result lands.
@@ -711,6 +725,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'startPipelineRun':
         await vscode.commands.executeCommand('aidlc.startPipelineRun');
         return;
+      case 'clearAgentActivity': {
+        // The user's override: they can see the agent is finished even though
+        // no end signal reached us. Trusting them here is what keeps a missed
+        // signal from being a dead end.
+        const runId = String(msg.runId ?? '');
+        if (!runId) { return; }
+        agentActivity.end(runId);
+        return;
+      }
       case 'markStepDone':
       case 'approveStep':
       case 'rejectStep':

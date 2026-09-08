@@ -46,6 +46,32 @@ export interface ArtifactPath {
   exists: boolean;
 }
 
+/**
+ * One agent dispatch the host is still waiting on. Mirrors
+ * `src/v2/agentActivity.ts` — keep the two in step.
+ *
+ * Its absence is not evidence of absence: the host only sees agents it
+ * launched itself, so a step the user is working in their own Claude window
+ * has no entry. The UI therefore uses this to *add* a running state, never to
+ * assert that nothing is running.
+ */
+export interface AgentActivity {
+  runId: string;
+  stepIdx: number | null;
+  /** The prompt that was dispatched — shown in the tooltip. */
+  command: string;
+  /** Epoch ms, for the elapsed-time label. */
+  startedAt: number;
+  /**
+   * True when the host will be told the moment the command finishes. False
+   * means it is relying on the terminal closing or the step advancing, so the
+   * UI offers a dismiss instead of implying certainty.
+   */
+  tracked: boolean;
+}
+
+export type AgentActivityMap = Record<string, AgentActivity>;
+
 export interface ActiveRun {
   runId: string;
   /** Set when this run belongs to an epic (`runId === epic.id`); undefined for
@@ -389,6 +415,12 @@ export interface SidebarState {
    * AIDLC Autopilot row in the Common workflows shows "Coming soon"
    * (disabled) or an active "On" state. */
   autopilotEnabled: boolean;
+  /**
+   * Runs whose agent this VS Code window launched and has not seen finish,
+   * keyed by run id. Only covers work the extension dispatched — a step run
+   * from the user's own Claude window is invisible to it.
+   */
+  agentActivity: AgentActivityMap;
 }
 
 export type AssetScope = 'project' | 'aidlc' | 'global';
@@ -661,6 +693,12 @@ export interface WorkspaceState {
   epicMemoryHookEnabled?: boolean;
   /** Current epics directory (relative path from project root). */
   epicsDir: string;
+  /**
+   * Runs whose agent this VS Code window launched and has not seen finish,
+   * keyed by run id. Only covers work the extension dispatched — a step run
+   * from the user's own Claude window is invisible to it.
+   */
+  agentActivity: AgentActivityMap;
 }
 
 export interface TestAgentTarget {

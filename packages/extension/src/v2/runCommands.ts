@@ -48,6 +48,7 @@ import type { PipelineConfig, RunState } from '@aidlc/core';
 
 import { readYaml } from './yamlIO';
 import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
+import { agentActivity } from './agentActivity';
 
 /**
  * Save the runtime RunState file AND mirror its display fields + per-step
@@ -64,6 +65,12 @@ import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
  */
 function saveRun(workspaceRoot: string, next: RunState, prev?: RunState): void {
   RunStateStore.save(workspaceRoot, next);
+  // Every transition passes through here, and a transition settles the
+  // question: whatever agent we dispatched for this run, the run has moved on
+  // without waiting for it. Marking a step done while Claude is still typing
+  // is the user's call to make — but once made, the "agent running" flag it
+  // overrode is stale and must not keep buttons disabled.
+  agentActivity.end(next.runId);
   const doc = readYaml(workspaceRoot);
   try {
     mirrorRunStateToEpic(workspaceRoot, next, doc);

@@ -32,11 +32,14 @@ import type {
   TemplateRef,
   McpServerInfo,
   ActiveRun,
+  AgentActivity,
+  AgentActivityMap,
 } from '@/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { SavePresetModal } from './SavePresetModal';
 import { LoadDemoModal } from './LoadDemoModal';
 import { ThemeToggle } from './ThemeToggle';
+import { AgentRunningBanner } from './AgentRunningBanner';
 import { postMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
 
 interface CollapseState {
@@ -161,6 +164,7 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
                 {state.activeRuns.length > 0 && (
                   <ActiveRunsSection
                     runs={state.activeRuns}
+                    activity={state.agentActivity ?? {}}
                     collapsed={collapsed.activeRuns}
                     onToggle={() => toggleSection('activeRuns')}
                   />
@@ -545,10 +549,12 @@ function SectionHeader({
  */
 function ActiveRunsSection({
   runs,
+  activity,
   collapsed,
   onToggle,
 }: {
   runs: ActiveRun[];
+  activity: AgentActivityMap;
   collapsed: boolean;
   onToggle: () => void;
 }) {
@@ -565,7 +571,7 @@ function ActiveRunsSection({
       {!collapsed && (
         <div className="mt-1.5 space-y-1.5">
           {runs.map((r) => (
-            <ActiveRunCard key={r.runId} run={r} />
+            <ActiveRunCard key={r.runId} run={r} activity={activity[r.runId] ?? null} />
           ))}
         </div>
       )}
@@ -582,7 +588,13 @@ const RUN_STEP_STATUS: Record<string, { label: string; cls: string }> = {
   approved: { label: 'Approved', cls: 'border-success/40 bg-success/15 text-success' },
 };
 
-function ActiveRunCard({ run }: { run: ActiveRun }) {
+function ActiveRunCard({
+  run,
+  activity,
+}: {
+  run: ActiveRun;
+  activity: AgentActivity | null;
+}) {
   const status = RUN_STEP_STATUS[run.currentStepStatus] ?? {
     label: run.currentStepStatus || 'unknown',
     cls: 'border-border bg-secondary text-muted-foreground',
@@ -591,6 +603,10 @@ function ActiveRunCard({ run }: { run: ActiveRun }) {
   // runId, so the sidebar never has to reason about step indices.
   const act = (type: string) => () => postMessage({ type, runId: run.runId });
   const missingRequires = run.requires.filter((r) => !r.exists);
+  // Same rule as the epic card: while an agent we launched is still on this
+  // run, there is nothing yet to mark done, approve or reject.
+  const busy = !!activity;
+  const busyTitle = 'An agent is still working on this run — wait for it, or dismiss the banner above';
 
   return (
     <div className="rounded-md border border-border bg-card/50 px-2.5 py-2 text-[11px]">
@@ -656,6 +672,8 @@ function ActiveRunCard({ run }: { run: ActiveRun }) {
         </button>
       )}
 
+      {activity && <AgentRunningBanner activity={activity} className="mt-1.5" />}
+
       {(run.rejectReason || run.feedback) && (
         <div className="mt-1.5 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[10px] leading-snug text-muted-foreground">
           {run.rejectReason || run.feedback}
@@ -693,19 +711,19 @@ function ActiveRunCard({ run }: { run: ActiveRun }) {
 
       <div className="mt-1.5 flex flex-wrap gap-1">
         {run.currentStepStatus === 'awaiting_work' && (
-          <RunAction icon={<Check className="h-2.5 w-2.5" />} label="Mark step done" onClick={act('markStepDone')} primary />
+          <RunAction icon={<Check className="h-2.5 w-2.5" />} label="Mark step done" onClick={act('markStepDone')} primary disabled={busy} title={busy ? busyTitle : undefined} />
         )}
         {run.currentStepStatus === 'awaiting_auto_review' && (
-          <RunAction icon={<ScanEye className="h-2.5 w-2.5" />} label="Run auto-review" onClick={act('runAutoReview')} primary />
+          <RunAction icon={<ScanEye className="h-2.5 w-2.5" />} label="Run auto-review" onClick={act('runAutoReview')} primary disabled={busy} title={busy ? busyTitle : undefined} />
         )}
         {run.currentStepStatus === 'awaiting_review' && (
           <>
-            <RunAction icon={<Check className="h-2.5 w-2.5" />} label="Approve" onClick={act('approveStep')} primary />
-            <RunAction icon={<X className="h-2.5 w-2.5" />} label="Reject" onClick={act('rejectStep')} />
+            <RunAction icon={<Check className="h-2.5 w-2.5" />} label="Approve" onClick={act('approveStep')} primary disabled={busy} title={busy ? busyTitle : undefined} />
+            <RunAction icon={<X className="h-2.5 w-2.5" />} label="Reject" onClick={act('rejectStep')} disabled={busy} title={busy ? busyTitle : undefined} />
           </>
         )}
         {run.currentStepStatus === 'rejected' && (
-          <RunAction icon={<RefreshCw className="h-2.5 w-2.5" />} label="Rerun" onClick={act('rerunStep')} primary />
+          <RunAction icon={<RefreshCw className="h-2.5 w-2.5" />} label="Rerun" onClick={act('rerunStep')} primary disabled={busy} title={busy ? busyTitle : undefined} />
         )}
       </div>
     </div>
@@ -717,21 +735,32 @@ function RunAction({
   label,
   onClick,
   primary,
+  disabled,
+  title,
 }: {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
   primary?: boolean;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
+      title={title}
       className={cn(
         'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium transition-colors',
         primary
-          ? 'border-primary/40 bg-primary/15 text-primary hover:bg-primary/25'
-          : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+          ? 'border-primary/40 bg-primary/15 text-primary'
+          : 'border-border bg-card text-muted-foreground',
+        disabled
+          ? 'cursor-not-allowed opacity-40'
+          : primary
+          ? 'hover:bg-primary/25'
+          : 'hover:bg-accent hover:text-foreground',
       )}
     >
       {icon}

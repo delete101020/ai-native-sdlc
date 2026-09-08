@@ -190,6 +190,9 @@ export function EpicsView({
               agentMeta={state.agentMeta}
               slashCommandsByAgent={state.slashCommandsByAgent}
               focusNonce={focusEpic?.id === e.id ? focusEpic.nonce : 0}
+              // Keyed by run id, and an epic's run id is the epic id by
+              // convention — but read it off the epic rather than assuming.
+              activity={(e.runId && state.agentActivity?.[e.runId]) || null}
             />
           ))}
         </div>

@@ -248,6 +248,7 @@ import { pickAndReadTextFile } from './pickAndReadTextFile';
 import { scaffoldRequirementAnalysis } from './requirementWizard';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
+import { agentActivity, type AgentActivityMap } from './agentActivity';
 
 // ── Shared helper: open/reuse the Claude terminal and send a slash command ───
 
@@ -511,6 +512,12 @@ interface WorkspaceState {
   epicMemoryHookEnabled: boolean;
   /** Current epics directory (relative path from project root). */
   epicsDir: string;
+  /**
+   * Runs with an agent this window dispatched still working, keyed by run id.
+   * Lets the epic card show "agent running" instead of inviting the user to
+   * mark a step done that nobody has worked yet — see {@link agentActivity}.
+   */
+  agentActivity: AgentActivityMap;
 }
 
 const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
@@ -572,6 +579,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       testAgentTargets: [],
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(),
       epicsDir: DEFAULT_EPICS_DIR,
+      agentActivity: agentActivity.snapshot(),
     };
   }
 
@@ -653,6 +661,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       ...(() => { const ta = readTestAgentTargets(root); return { testAgentConfigExists: ta.exists, testAgentTargets: ta.targets }; })(),
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(),
       epicsDir: DEFAULT_EPICS_DIR,
+      agentActivity: agentActivity.snapshot(),
     };
   }
 
@@ -724,6 +733,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     ...(() => { const ta = readTestAgentTargets(root); return { testAgentConfigExists: ta.exists, testAgentTargets: ta.targets }; })(),
     epicMemoryHookEnabled: isEpicMemoryHookEnabled(),
     epicsDir: epicRoot,
+    agentActivity: agentActivity.snapshot(),
   };
 }
 
@@ -1460,6 +1470,10 @@ export class WorkspaceWebview {
       breakdownWatcher.onDidDelete(refresh, null, this.disposables);
       this.disposables.push(breakdownWatcher);
     }
+
+    // Not a file change, but the same kind of event as far as the panel is
+    // concerned: something moved and the epic card is now out of date.
+    this.disposables.push(agentActivity.onDidChange(() => this.refresh()));
 
     this.refresh();
   }
@@ -2225,6 +2239,15 @@ export class WorkspaceWebview {
           runId,
           feedback,
         );
+        return;
+      }
+      case 'clearAgentActivity': {
+        // The user's override: they can see the agent is finished even though
+        // no end signal reached us. Trusting them here is what keeps a missed
+        // signal from being a dead end.
+        const runId = String(msg.runId ?? '');
+        if (!runId) { return; }
+        agentActivity.end(runId);
         return;
       }
       case 'requestStepUpdate': {

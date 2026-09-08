@@ -36,6 +36,7 @@ import type {
   StepHistoryEntry,
   StepStatus,
   UiStatus,
+  AgentActivity,
 } from '@/lib/types';
 import { StatusBadge } from './StatusBadge';
 import { RejectModal } from './RejectModal';
@@ -43,6 +44,7 @@ import { RerunModal } from './RerunModal';
 import { RunWithFeedbackModal } from './RunWithFeedbackModal';
 import { RequestUpdateModal } from './RequestUpdateModal';
 import { DeleteEpicModal } from './DeleteEpicModal';
+import { AgentRunningBanner } from './AgentRunningBanner';
 import { postMessage } from '@/lib/bridge';
 
 function fmtCost(c: number): string {
@@ -96,9 +98,21 @@ interface Props {
    * appearing to do nothing the second time.
    */
   focusNonce?: number;
+  /**
+   * Set while an agent this window dispatched for the epic's run is still
+   * working. Null covers both "idle" and "running somewhere we cannot see" —
+   * the UI adds a busy state from this, it never infers an idle one.
+   */
+  activity?: AgentActivity | null;
 }
 
-export function EpicCard({ epic, agentMeta, slashCommandsByAgent, focusNonce = 0 }: Props) {
+export function EpicCard({
+  epic,
+  agentMeta,
+  slashCommandsByAgent,
+  focusNonce = 0,
+  activity = null,
+}: Props) {
   const [expanded, setExpanded] = useState<boolean>(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -282,6 +296,7 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent, focusNonce = 0
               focusedIdx={focusedIdx}
               focused={focused}
               meta={agentMeta[focused.agent]}
+              activity={activity}
               slashCommand={
                 // Use the host-resolved command (matched against the actual
                 // workspace.yaml slash_commands — bare `/implement` or
@@ -309,7 +324,7 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent, focusNonce = 0
             </div>
           )}
 
-          <EpicActions epic={epic} hasInputs={inputKeys.length > 0} />
+          <EpicActions epic={epic} hasInputs={inputKeys.length > 0} activity={activity} />
         </div>
       )}
     </div>
@@ -614,12 +629,14 @@ function StepDetail({
   focused,
   meta,
   slashCommand,
+  activity,
 }: {
   epic: EpicSummary;
   focusedIdx: number;
   focused: EpicStepDetailFull;
   meta: AgentMeta | undefined;
   slashCommand: string | undefined;
+  activity: AgentActivity | null;
 }) {
   const total = epic.stepDetails.length;
   const ui = (() => {
@@ -817,6 +834,7 @@ function StepDetail({
         focusedIdx={focusedIdx}
         slashCommand={slashCommand}
         artifactExists={artifactExists}
+        activity={activity}
       />
       <RequestUpdateAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <StepHistory step={focused} />
@@ -1074,12 +1092,14 @@ function RunGate({
   focusedIdx,
   slashCommand,
   artifactExists,
+  activity,
 }: {
   epic: EpicSummary;
   focused: EpicStepDetailFull;
   focusedIdx: number;
   slashCommand: string | undefined;
   artifactExists: boolean;
+  activity: AgentActivity | null;
 }) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rerunOpen, setRerunOpen] = useState(false);
@@ -1092,6 +1112,13 @@ function RunGate({
   if (!ui) { return null; }
 
   const status = focused.runStatus!;
+  // While an agent we launched is still on this run, the gate buttons are
+  // answers to a question that has not been asked yet: there is nothing to
+  // mark done, approve or reject until the agent stops writing. The banner
+  // above them carries a dismiss for the case where it did stop and we were
+  // not told.
+  const busy = !!activity;
+  const busyTitle = 'An agent is still working on this run — wait for it, or dismiss the banner above';
   const labels: Record<string, string> = {
     awaiting_work: 'Awaiting work',
     awaiting_auto_review: 'Awaiting auto-review',
@@ -1129,8 +1156,14 @@ function RunGate({
         <span className="text-[9.5px] font-bold uppercase tracking-wider">
           {labels[status] ?? status}
         </span>
-        <span className="flex-1 text-foreground/80">{messages[status]}</span>
+        <span className="flex-1 text-foreground/80">
+          {busy
+            ? 'An agent is working on this step. Wait for it to finish before advancing.'
+            : messages[status]}
+        </span>
       </div>
+
+      {activity && <AgentRunningBanner activity={activity} />}
 
       {status === 'rejected' && focused.rejectReason && (
         <div className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 font-mono text-[10.5px] text-destructive">
@@ -1193,6 +1226,8 @@ function RunGate({
               return (
                 <GateButton
                   variant="approve"
+                  disabled={busy}
+                  title={busy ? busyTitle : undefined}
                   onClick={() => {
                     if (hasFeedback) {
                       setRunOpen(true);
@@ -1213,6 +1248,8 @@ function RunGate({
             })()}
             <GateButton
               variant="primary"
+              disabled={busy}
+              title={busy ? busyTitle : undefined}
               onClick={() => postMessage({ type: 'markStepDone', runId: epic.runId!, stepIdx: focusedIdx })}
             >
               Mark step done
@@ -1222,6 +1259,8 @@ function RunGate({
         {status === 'awaiting_auto_review' && (
           <GateButton
             variant="primary"
+            disabled={busy}
+            title={busy ? busyTitle : undefined}
             onClick={() => postMessage({ type: 'runAutoReview', runId: epic.runId!, stepIdx: focusedIdx })}
           >
             Run auto-review
@@ -1231,12 +1270,16 @@ function RunGate({
           <>
             <GateButton
               variant="approve"
+              disabled={busy}
+              title={busy ? busyTitle : undefined}
               onClick={() => postMessage({ type: 'approveStep', runId: epic.runId!, stepIdx: focusedIdx })}
             >
               <Check className="h-3 w-3" /> Approve
             </GateButton>
             <GateButton
               variant="reject"
+              disabled={busy}
+              title={busy ? busyTitle : undefined}
               onClick={() => setRejectOpen(true)}
             >
               <X className="h-3 w-3" /> Reject
@@ -1244,7 +1287,12 @@ function RunGate({
           </>
         )}
         {status === 'rejected' && (
-          <GateButton variant="primary" onClick={() => setRerunOpen(true)}>
+          <GateButton
+            variant="primary"
+            disabled={busy}
+            title={busy ? busyTitle : undefined}
+            onClick={() => setRerunOpen(true)}
+          >
             Rerun
           </GateButton>
         )}
@@ -1294,17 +1342,24 @@ function GateButton({
   children,
   variant,
   onClick,
+  disabled,
+  title,
 }: {
   children: React.ReactNode;
   variant: 'primary' | 'approve' | 'reject';
   onClick: () => void;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
+      title={title}
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-semibold transition-colors',
+        disabled && 'cursor-not-allowed opacity-40 hover:!border-inherit hover:!bg-inherit',
         variant === 'primary' &&
           'border-primary/40 bg-primary/15 text-primary hover:border-primary/60 hover:bg-primary/25',
         variant === 'approve' &&
@@ -1318,8 +1373,20 @@ function GateButton({
   );
 }
 
-function EpicActions({ epic, hasInputs }: { epic: EpicSummary; hasInputs: boolean }) {
+function EpicActions({
+  epic,
+  hasInputs,
+  activity,
+}: {
+  epic: EpicSummary;
+  hasInputs: boolean;
+  activity: AgentActivity | null;
+}) {
   const [deleteOpen, setDeleteOpen] = useState(false);
+  // Deleting an epic out from under a running agent leaves the agent writing
+  // into a folder whose run state no longer exists — half-written artifacts in
+  // a directory nothing points at. The button stayed live through all of it.
+  const busy = !!activity;
   return (
     <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
       {!epic.runId && epic.pipeline && (
@@ -1378,8 +1445,18 @@ function EpicActions({ epic, hasInputs }: { epic: EpicSummary; hasInputs: boolea
       <button
         type="button"
         onClick={() => setDeleteOpen(true)}
-        className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-[11px] text-destructive hover:border-destructive/60 hover:bg-destructive/15"
-        title="Delete this epic — removes the run state, optionally the docs/epics folder too"
+        disabled={busy}
+        className={cn(
+          'ml-auto inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-[11px] text-destructive',
+          busy
+            ? 'cursor-not-allowed opacity-40'
+            : 'hover:border-destructive/60 hover:bg-destructive/15',
+        )}
+        title={
+          busy
+            ? 'An agent is still working on this epic — deleting it now would strand the work in progress'
+            : 'Delete this epic — removes the run state, optionally the docs/epics folder too'
+        }
       >
         <Trash2 className="h-3 w-3" />
         Delete

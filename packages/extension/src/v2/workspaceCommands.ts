@@ -42,6 +42,7 @@ import { loadAllBuiltinPresets, BUILTIN_WORKFLOWS } from './builtinPresets';
 import { installWorkflowGlobalsCommand } from './installWorkflowGlobalsCommand';
 import { uninstallWorkflowGlobalsCommand } from './uninstallWorkflowGlobalsCommand';
 import { readYaml } from './yamlIO';
+import { agentActivity } from './agentActivity';
 import { StandardPickerWebview } from './standardPickerWebview';
 import { startEpicCommand } from './epicWizard';
 import { analyzeRequirementsCommand } from './requirementWizard';
@@ -98,6 +99,63 @@ sidebar:
     - type: agents-list
     - type: skills-list
 `;
+}
+
+/**
+ * Follow a dispatched agent terminal for as long as it lives, so the panel can
+ * say "agent running" instead of offering *Mark step done* the moment the step
+ * opens.
+ *
+ * Three things end an entry, and none of them is reliable alone:
+ *
+ *  - the shell reporting that the command finished, which is exact but needs
+ *    shell integration;
+ *  - the terminal closing, which always fires but only when the user gets
+ *    round to closing it;
+ *  - the step transitioning (handled in `runCommands.saveRun`) — if the run
+ *    moved on, whatever was running is no longer what we are waiting for.
+ *
+ * The registry's own age limit is the fourth, for the case where none of the
+ * above ever happens. Listeners are torn down as soon as they fire, so a long
+ * session does not accumulate one pair per launch.
+ */
+function trackAgentRun(
+  terminal: vscode.Terminal,
+  runId: string,
+  command: string,
+): void {
+  agentActivity.begin({
+    runId,
+    stepIdx: null,
+    command,
+    startedAt: Date.now(),
+    tracked: false,
+  });
+
+  const subs: vscode.Disposable[] = [];
+  const finish = () => {
+    agentActivity.end(runId);
+    for (const s of subs) { s.dispose(); }
+    subs.length = 0;
+  };
+
+  // `onDidEndTerminalShellExecution` landed in VS Code 1.93 and the manifest
+  // still declares ^1.85 — absent it, the terminal-close signal carries alone.
+  const onEnd = vscode.window.onDidEndTerminalShellExecution;
+  if (typeof onEnd === 'function') {
+    subs.push(
+      onEnd((e) => {
+        // The terminal is created fresh per dispatch and runs exactly one
+        // command, so matching on the terminal is enough to identify it.
+        if (e.terminal === terminal) { finish(); }
+      }),
+    );
+  }
+  subs.push(
+    vscode.window.onDidCloseTerminal((t) => {
+      if (t === terminal) { finish(); }
+    }),
+  );
 }
 
 export function registerV2WorkspaceCommands(
@@ -391,11 +449,19 @@ export function registerV2WorkspaceCommands(
       const escaped = prompt.replace(/'/g, "'\\''");
       const oneShot = `claude '${escaped}'`;
 
+      // From here on the UI knows this step has an agent on it. Registered
+      // before the command is sent, so even an immediate failure has an entry
+      // to clear rather than leaving a half-started dispatch untracked.
+      trackAgentRun(terminal, id, prompt);
+
       let sent = false;
       const integ = vscode.window.onDidChangeTerminalShellIntegration((e) => {
         if (e.terminal === terminal && e.shellIntegration && !sent) {
           sent = true;
           e.shellIntegration.executeCommand(oneShot);
+          // Shell integration is up, so the end of this command will be
+          // reported — the UI can say "running" and mean it.
+          agentActivity.markTracked(id);
           integ.dispose();
         }
       });
