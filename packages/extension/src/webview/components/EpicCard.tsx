@@ -137,6 +137,20 @@ export function EpicCard({
   }, [focusNonce]);
 
   const [focusedIdx, setFocusedIdx] = useState<number>(epic.currentStep ?? 0);
+
+  // The stepper reads epic.currentStep, which is live; the body reads
+  // focusedIdx, which was only ever seeded at mount. So approving a step moved
+  // the highlight and left the panel showing the step that had just been
+  // approved. Follow the run, but only while the user is actually following it
+  // — someone who clicked back to an earlier step stays where they parked.
+  const followedStep = useRef<number>(epic.currentStep ?? 0);
+  useEffect(() => {
+    const next = epic.currentStep ?? 0;
+    if (next === followedStep.current) { return; }
+    setFocusedIdx((idx) => (idx === followedStep.current ? next : idx));
+    followedStep.current = next;
+  }, [epic.currentStep]);
+
   const ui = epicUiStatus(epic.status);
   const total = epic.stepDetails.length;
   const done = epic.stepDetails.filter((s) => s.status === 'done').length;
