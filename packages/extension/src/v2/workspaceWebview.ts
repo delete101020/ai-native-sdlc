@@ -5178,6 +5178,28 @@ export class WorkspaceWebview {
       return;
     }
     const epic = listEpics(root, doc).find((x) => x.id === epicId);
+    // `.aidlc/runs/` is gitignored and an epic that finished long ago may have
+    // no run file left, so "no run state" is not the same as "no progress".
+    // Starting here calls mirrorRunStateToEpic, which overwrites the epic's
+    // state.json with a fresh all-pending one — approvals, revisions, feedback
+    // and history gone, for a click that reads like it only creates something.
+    // The artifacts survive on disk, but the record of them being reviewed
+    // does not, so the epic has to be re-approved step by step to get back.
+    const doneSteps = epic?.stepDetails.filter((s) => s.status === 'done').length ?? 0;
+    if (epic && (epic.status === 'done' || doneSteps > 0)) {
+      const answer = await vscode.window.showWarningMessage(
+        `"${epicId}" already has ${doneSteps} completed step${doneSteps === 1 ? '' : 's'} recorded.`,
+        {
+          modal: true,
+          detail:
+            'Starting a run resets every step to pending and discards the approvals, '
+            + 'revisions and feedback in the epic\'s state.json. The artifact files are '
+            + 'not touched.\n\nTo carry this work forward instead, open a follow-up epic.',
+        },
+        'Start over',
+      );
+      if (answer !== 'Start over') { return; }
+    }
     const context: Record<string, string> = { epic: epicId };
     if (epic) {
       try {

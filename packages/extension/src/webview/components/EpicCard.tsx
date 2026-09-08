@@ -1616,7 +1616,11 @@ function EpicActions({
   const busy = !!activity;
   return (
     <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
-      {!epic.runId && epic.pipeline && (
+      {/* A finished epic is offered no start button. The run file is gitignored
+          and gets cleaned up, so `!epic.runId` on its own reads a done epic as
+          one that never ran — and starting resets state.json to all-pending.
+          The way forward from a done epic is a follow-up, not a rerun. */}
+      {!epic.runId && epic.pipeline && epic.status !== 'done' && (
         <button
           type="button"
           onClick={() =>
