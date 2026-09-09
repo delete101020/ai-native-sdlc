@@ -1,7 +1,7 @@
 {
   "name": "aidlc",
   "displayName": "AIDLC",
-  "description": "AI-driven SDLC pipeline runner for VS Code. Plan → Prototype → Design ∥ Test → Implement → Release. Discovery gates for human-in-the-loop questions, prototype phase for visual UI design, requirements traceability, AIDLC Monitor with token usage & live observability. Supports Spec Kit (spec-driven development), recipe-based task classification, multi-pipeline workspaces.",
+  "description": "AI-driven SDLC pipeline runner for VS Code. Declare a pipeline once, then drive Claude through it step by step — or run an epic to completion unattended. Recipes right-size the workflow to the task; each epic owns its pipeline, depth and review gates. Human-in-the-loop + headless auto-review gates, artifact annotation, requirements traceability, an incident loop that opens the follow-up epic, and an AIDLC Monitor with token usage & live observability. Supports the AI-Native SDLC Playbook and Spec Kit.",
   "version": "3.10.0",
   "publisher": "delete101020",
   "license": "MIT",
