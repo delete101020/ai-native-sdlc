@@ -1,5 +1,58 @@
 # Changelog
 
+## 3.11.0
+
+Starting an epic added a pipeline, and that pipeline was then offered as a
+workflow to start the next epic with. After a dozen epics the Domain picker was
+mostly rows nobody would ever pick. They are gone from the pickers — and because
+that closed the only way to edit one, two new ways in open.
+
+### Added
+
+- **`Show epic pipelines` — Builder > Workflows.**
+  Puts the hidden rows back, in a dropdown group of their own, for when an
+  epic's own workflow does need a change. Off by default and remembered between
+  sessions. The toggle also renders beside the empty state: with every pipeline
+  in the workspace owned by an epic, hiding them would otherwise leave an empty
+  picker and no visible way back.
+
+- **`Edit workflow` on the epic card.**
+  Opens the Builder on that epic's own pipeline — unhiding it first, since
+  landing on the Workflows tab is no use when the target is filtered out of the
+  list. What can be changed there is unchanged: gates and `depends_on` always,
+  the step list until a run pins the positions its history indexes into.
+
+- **`Reload` on the Epics page.**
+  Re-reads the epics from disk. The panel follows file changes on its own; this
+  is the way back when it has not.
+
+### Changed
+
+- **Epic-owned pipelines no longer appear as workflows.**
+  Builder > Workflows > Domain, its count badge, the Workflows tab badge and the
+  Start-epic modal all filter through one helper now. An epic's pipeline is that
+  epic's run shape, not something to start other work with.
+
+  Only the modal filtered before, and only on `derived_from` — a marker inside
+  the YAML, absent from any epic pipeline written before it existed or edited by
+  hand. The second signal is where the definition was read from
+  (`docs/epics/<id>/pipeline.yaml`), which is a fact about the file rather than
+  its contents, so nothing can strip it.
+
+- **The extension description and the Details tab.**
+  The blurb still advertised a fixed six-stage pipeline that recipes replaced,
+  and `README.md` — which renders as the Details tab — stopped at "New in 3.6".
+  3.7 through 3.10 are now described there.
+
+### Fixed
+
+- **A deleted epic kept its card.**
+  The file watchers are registered on the very files a recursive folder delete
+  removes, and such a delete does not reliably emit an event per file. Deletion
+  now refreshes the panel itself instead of waiting for a watcher that may never
+  fire.
+
+
 ## 3.10.0
 
 `runExecLoop` was extracted into `@aidlc/core` so both front ends could drive a
