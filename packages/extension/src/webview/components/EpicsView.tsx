@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight } from 'lucide-react';
+import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
 import { EpicCard } from './EpicCard';
@@ -192,6 +192,15 @@ export function EpicsView({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => postMessage({ type: 'refresh' })}
+            title="Re-read the epics from disk. The panel follows file changes on its own; this is the way back when it hasn't — an epic folder removed outside the editor, or a deletion whose watcher event never arrived."
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Reload
+          </button>
           <button
             type="button"
             onClick={() =>

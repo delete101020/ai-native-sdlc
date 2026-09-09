@@ -29,6 +29,7 @@ import {
   ClipboardList,
   Trash2,
   Gauge,
+  Workflow,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -1659,6 +1660,23 @@ function EpicActions({
         >
           <FileText className="h-3 w-3" />
           Open state.json
+        </button>
+      )}
+      {/* The Domain picker hides epic-owned pipelines, so this is the way in to
+          the one this epic runs — Builder opens with it unhidden and selected.
+          Which steps are still editable is the card's call: a run pins the ones
+          it has locked. */}
+      {epic.pipeline && (
+        <button
+          type="button"
+          onClick={() =>
+            postMessage({ type: 'openBuilderPipeline', pipelineId: epic.pipeline })
+          }
+          title={`Edit ${epic.pipeline} in the Builder — this epic's own workflow. Steps a run has already locked stay read-only.`}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <Workflow className="h-3 w-3" />
+          Edit workflow
         </button>
       )}
       {hasInputs && (

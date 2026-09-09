@@ -208,6 +208,7 @@ import {
   SIGNAL_FILE,
   type Signal,
   installAnnotationTools,
+  epicOwningPipeline,
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
   expandHome,
@@ -751,6 +752,15 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     ...(typeof p.derived_from === 'string' && p.derived_from
       ? { derivedFrom: p.derived_from }
       : {}),
+    // Spliced in from `docs/epics/<id>/pipeline.yaml`: one epic's own run
+    // shape, not a workflow anyone can start something else with. Epic
+    // pipelines written before `derived_from` existed — and any hand-edited
+    // one — carry no marker inside the YAML, so the file it was read from is
+    // the only reliable signal. Either one hides the row.
+    ...(() => {
+      const owner = epicOwningPipeline(doc, String(p.id));
+      return owner ? { ownedByEpic: owner } : {};
+    })(),
     steps: Array.isArray(p.steps)
       ? (p.steps as PipelineStepConfig[]).map((raw) => {
           const norm = normalizeStep(raw);
@@ -1797,6 +1807,15 @@ export class WorkspaceWebview {
         return;
       }
 
+      // Manual re-read of the workspace. The file watchers cover the normal
+      // cases, but a folder removed outside the editor (or a deletion whose
+      // watcher event never arrives) leaves the panel showing an epic that is
+      // no longer on disk, with nothing the user can do about it.
+      case 'refresh': {
+        this.refresh();
+        return;
+      }
+
       case 'setTheme': {
         const mode = String(msg.mode ?? '');
         if (mode === 'auto' || mode === 'light' || mode === 'dark') {
@@ -1850,6 +1869,18 @@ export class WorkspaceWebview {
       case 'openBuilder':
         this.setView('builder');
         return;
+
+      // "Edit workflow" on an epic card. The epic's pipeline is hidden from the
+      // Domain picker by default, so switching the view is not enough — the
+      // React side has to unhide it and select it, which is what `focusPipeline`
+      // carries. Sent after `setView` so Builder is the mounted view.
+      case 'openBuilderPipeline': {
+        const pipelineId = String(msg.pipelineId ?? '');
+        if (!pipelineId) { return; }
+        this.setView('builder');
+        void this.panel.webview.postMessage({ type: 'focusPipeline', pipelineId });
+        return;
+      }
       case 'openAnalyzeView':
         this.setView('analyze');
         return;

@@ -807,6 +807,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           msg.deleteFolder === true,
           msg.confirmed === true,
         );
+        // A removed folder is not a file change: the recursive delete need not
+        // emit a watcher event per file, so the deleted epic could survive in
+        // this list until something else forced a re-read.
+        this.refresh();
         return;
       }
       case 'rejectStepInline': {

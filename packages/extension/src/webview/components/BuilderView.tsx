@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import type { WorkspaceState, AgentSummary, SkillSummary, AssetScope } from '@/lib/types';
 import { AgentCard, KebabMenu } from './AgentCard';
 import { PipelineCard } from './PipelineCard';
+import { isEpicOwnedPipeline, selectablePipelines } from '@/lib/pipelines';
 import { RenameModal } from './RenameModal';
 import { ConfirmModal } from './ConfirmModal';
 import { PipelineModal } from './PipelineModal';
@@ -14,14 +15,39 @@ import { postMessage } from '@/lib/bridge';
 
 type BuilderTab = 'workflows' | 'agents' | 'skills';
 
-export function BuilderView({ state }: { state: WorkspaceState }) {
+export function BuilderView({
+  state,
+  focusPipeline,
+}: {
+  state: WorkspaceState;
+  /** "Edit workflow" on an epic card — open Workflows on this pipeline. */
+  focusPipeline?: { id: string; nonce: number } | null;
+}) {
   const [tab, setTab] = useState<BuilderTab>('agents');
   const [addPipelineOpen, setAddPipelineOpen] = useState(false);
   const [addSkillOpen, setAddSkillOpen] = useState(false);
   const [addAgentOpen, setAddAgentOpen] = useState(false);
+  // Off by default — one dead row per epic started is what the filter is for.
+  // The toggle is the way back to an epic's own workflow when it does need a
+  // change, and it lives here rather than in the grid so the tab badge and the
+  // list can never disagree about what "Workflows" means.
+  const [showEpicOwned, setShowEpicOwned] = useState(
+    () => getPersistedUi<PersistedBuilderUi>()?.showEpicPipelines === true,
+  );
+
+  const onToggleEpicOwned = (next: boolean) => {
+    setShowEpicOwned(next);
+    const prev = getPersistedUi<PersistedBuilderUi>() ?? {};
+    setPersistedUi<PersistedBuilderUi>({ ...prev, showEpicPipelines: next });
+  };
+
+  const visiblePipelines = useMemo(
+    () => (showEpicOwned ? state.pipelines : selectablePipelines(state.pipelines)),
+    [state.pipelines, showEpicOwned],
+  );
 
   const tabs: { id: BuilderTab; label: string; count: number }[] = [
-    { id: 'workflows', label: 'Workflows', count: state.pipelines.length },
+    { id: 'workflows', label: 'Workflows', count: visiblePipelines.length },
     { id: 'agents', label: 'Agents', count: state.agents.length },
     { id: 'skills', label: 'Skills', count: state.skills.length },
   ];
@@ -64,6 +90,17 @@ export function BuilderView({ state }: { state: WorkspaceState }) {
       }
     });
   }, []);
+
+  // An epic's own pipeline is hidden by default, so landing on the Workflows
+  // tab is not enough — unhide it too, or the deep link opens on a list that
+  // does not contain what the user clicked.
+  useEffect(() => {
+    if (!focusPipeline) { return; }
+    setTab('workflows');
+    const target = state.pipelines.find((p) => p.id === focusPipeline.id);
+    if (target && isEpicOwnedPipeline(target)) { onToggleEpicOwned(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusPipeline]);
 
   const allSkillIds = useMemo(() => state.skills.map((s) => s.id), [state.skills]);
   const allAgentIds = useMemo(() => state.agents.map((a) => a.id), [state.agents]);
@@ -121,7 +158,15 @@ export function BuilderView({ state }: { state: WorkspaceState }) {
 
       {tab === 'agents' && <AgentsByScope agents={state.agents} skills={state.skills} />}
       {tab === 'skills' && <SkillsByScope skills={state.skills} />}
-      {tab === 'workflows' && <PipelinesGrid state={state} />}
+      {tab === 'workflows' && (
+        <PipelinesGrid
+          state={state}
+          pipelines={visiblePipelines}
+          showEpicOwned={showEpicOwned}
+          onToggleEpicOwned={onToggleEpicOwned}
+          focusPipeline={focusPipeline}
+        />
+      )}
 
       {addPipelineOpen && (
         <PipelineModal
@@ -400,6 +445,7 @@ const DEFAULT_PIPELINE_ID = 'aidlc-workflow-full';
 
 interface PersistedBuilderUi {
   workflowDomain?: string;
+  showEpicPipelines?: boolean;
   agentScope?: AssetScope;
   skillScope?: AssetScope;
 }
@@ -412,32 +458,66 @@ function pickInitialPipelineId(pipelines: WorkspaceState['pipelines']): string {
   return pipelines[0].id;
 }
 
-function PipelinesGrid({ state }: { state: WorkspaceState }) {
-  const [selectedId, setSelectedId] = useState(() => pickInitialPipelineId(state.pipelines));
+function PipelinesGrid({
+  state,
+  pipelines: workflows,
+  showEpicOwned,
+  onToggleEpicOwned,
+  focusPipeline,
+}: {
+  state: WorkspaceState;
+  /** Already filtered by BuilderView — see `showEpicOwned`. */
+  pipelines: WorkspaceState['pipelines'];
+  showEpicOwned: boolean;
+  onToggleEpicOwned: (next: boolean) => void;
+  focusPipeline?: { id: string; nonce: number } | null;
+}) {
+  const [selectedId, setSelectedId] = useState(() => pickInitialPipelineId(workflows));
 
   // Re-resolve the selection when the pipeline list changes (e.g. a workflow
   // was just applied / removed). Falls back through persisted → sdlc default →
   // first available so the dropdown never points at a stale id.
   useEffect(() => {
-    if (state.pipelines.length === 0) { return; }
-    if (!state.pipelines.some((p) => p.id === selectedId)) {
-      setSelectedId(pickInitialPipelineId(state.pipelines));
+    if (workflows.length === 0) { return; }
+    if (!workflows.some((p) => p.id === selectedId)) {
+      setSelectedId(pickInitialPipelineId(workflows));
     }
-  }, [state.pipelines, selectedId]);
+  }, [workflows, selectedId]);
 
-  const { builtinOptions, customOptions } = useMemo(() => {
-    const builtin = state.pipelines.filter((p) => p.builtin === true);
-    const custom = state.pipelines.filter((p) => p.builtin !== true);
-    return { builtinOptions: builtin, customOptions: custom };
-  }, [state.pipelines]);
+  // A deep link from an epic card names the pipeline to show. It only reaches
+  // the list once BuilderView has unhidden epic-owned rows, so guard on
+  // membership rather than assuming it is selectable.
+  useEffect(() => {
+    if (!focusPipeline) { return; }
+    if (workflows.some((p) => p.id === focusPipeline.id)) { setSelectedId(focusPipeline.id); }
+  }, [focusPipeline, workflows]);
 
-  if (state.pipelines.length === 0) { return <EmptyHint kind="pipelines" />; }
+  const { builtinOptions, customOptions, epicOptions } = useMemo(() => {
+    const epic = workflows.filter((p) => isEpicOwnedPipeline(p));
+    const rest = workflows.filter((p) => !isEpicOwnedPipeline(p));
+    return {
+      builtinOptions: rest.filter((p) => p.builtin === true),
+      customOptions: rest.filter((p) => p.builtin !== true),
+      epicOptions: epic,
+    };
+  }, [workflows]);
+
+  // The toggle rides along with the empty state too: with every pipeline owned
+  // by an epic, hiding them leaves an empty list and no visible way back.
+  if (workflows.length === 0) {
+    return (
+      <div className="space-y-3">
+        <EpicPipelineToggle checked={showEpicOwned} onChange={onToggleEpicOwned} />
+        <EmptyHint kind="pipelines" />
+      </div>
+    );
+  }
   // PipelineCard renders existing steps + lets the user swap the agent on
   // each row. Existing built-in pipelines reference workspace.yaml-only
   // AIDLC agents (`plan`, `design`, …); new ones reference file-based
   // project/global agents. Pass the union so both render correctly.
   const allAgents = state.agents;
-  const selected = state.pipelines.find((p) => p.id === selectedId) ?? state.pipelines[0];
+  const selected = workflows.find((p) => p.id === selectedId) ?? workflows[0];
 
   const onChange = (id: string) => {
     setSelectedId(id);
@@ -475,10 +555,20 @@ function PipelinesGrid({ state }: { state: WorkspaceState }) {
               ))}
             </optgroup>
           )}
+          {epicOptions.length > 0 && (
+            <optgroup label="Epic pipelines">
+              {epicOptions.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name ?? p.id}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
         <span className="text-[11px] text-muted-foreground">
-          {state.pipelines.length} available
+          {workflows.length} available
         </span>
+        <EpicPipelineToggle checked={showEpicOwned} onChange={onToggleEpicOwned} />
       </div>
       <PipelineCard
         pipeline={selected}
@@ -487,6 +577,37 @@ function PipelinesGrid({ state }: { state: WorkspaceState }) {
         allPipelineIds={state.pipelines.map((p) => p.id)}
       />
     </div>
+  );
+}
+
+/**
+ * Un-hides the pipelines an epic owns (`docs/epics/<id>/pipeline.yaml`).
+ *
+ * They are off by default because one arrives per epic started and none of
+ * them is a workflow to author against — but an epic's own run shape is still
+ * editable (gates always; the step list until a run pins it), and this is the
+ * only place to reach it besides the epic card's "Edit workflow".
+ */
+function EpicPipelineToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label
+      className="ml-auto inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+      title="Show the pipeline each epic owns (docs/epics/<id>/pipeline.yaml). Hidden by default — one row per epic started, none of them reusable as a workflow."
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-3 w-3 accent-primary"
+      />
+      Show epic pipelines
+    </label>
   );
 }
 

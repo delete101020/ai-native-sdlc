@@ -593,13 +593,20 @@ export function registerV2WorkspaceCommands(
   );
   const deleteEpicCmd = vscode.commands.registerCommand(
     'aidlc.deleteEpic',
-    (epicId?: unknown, runId?: unknown, deleteFolder?: unknown, skipConfirm?: unknown) =>
-      deleteEpicCommand(
+    async (epicId?: unknown, runId?: unknown, deleteFolder?: unknown, skipConfirm?: unknown) => {
+      await deleteEpicCommand(
         typeof epicId === 'string' ? epicId : '',
         typeof runId === 'string' ? runId : undefined,
         deleteFolder === true,
         skipConfirm === true,
-      ),
+      );
+      // Deleting the epic folder removes files the watchers are registered on
+      // rather than changing them, and a recursive directory removal does not
+      // reliably emit a delete event per file — so the panel kept showing an
+      // epic whose folder was already gone. Refresh from the mutation itself
+      // instead of waiting for a watcher that may never fire.
+      WorkspaceWebview.refreshCurrent();
+    },
   );
 
   return {

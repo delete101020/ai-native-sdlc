@@ -5,6 +5,7 @@ import type { AgentMeta, ExtraProject, PipelineSummary, RecipeSummary } from '@/
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
 import { pickAndReadFile, pickFolder } from '@/lib/pickFile';
 import { postMessage, onHostMessage } from '@/lib/bridge';
+import { isEpicOwnedPipeline, selectablePipelines } from '@/lib/pipelines';
 
 const ID_PATTERN = /^[A-Z][A-Z0-9-]*$/;
 
@@ -114,8 +115,8 @@ export function StartEpicModal({
   const [selected, setSelected] = useState<Selection>(
     recipes.length > 0
       ? { kind: 'auto' }
-      : pipelines.find((p) => !p.derivedFrom)
-        ? { kind: 'pipeline', id: pipelines.find((p) => !p.derivedFrom)!.id }
+      : pipelines.find((p) => !isEpicOwnedPipeline(p))
+        ? { kind: 'pipeline', id: pipelines.find((p) => !isEpicOwnedPipeline(p))!.id }
         : { kind: 'auto' },
   );
   // Start empty (nextEpicId is shown only as a placeholder). A pre-filled
@@ -152,21 +153,18 @@ export function StartEpicModal({
   const [loadElapsed, setLoadElapsed] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // A pipeline assembled from a recipe is written into workspace.yaml under the
-  // epic's own id and belongs to that one epic — it is a record of what ran, not
-  // a workflow to start something else with. Listing them made "Your pipelines"
-  // grow by one dead row per epic, each looking like a reusable choice.
+  // A pipeline an epic owns is a record of what that one epic runs, not a
+  // workflow to start something else with — see `isEpicOwnedPipeline`. Listing
+  // them made "Your pipelines" grow by one dead row per epic, each looking
+  // like a reusable choice.
   const userPipelines = useMemo(
-    () => pipelines.filter((p) => !p.builtin && !p.derivedFrom),
+    () => pipelines.filter((p) => !p.builtin && !isEpicOwnedPipeline(p)),
     [pipelines],
   );
   // Everything the picker will actually show — the fallback selection has to
   // come from here, or it can land on a pipeline that has no row.
-  const selectablePipelines = useMemo(
-    () => pipelines.filter((p) => !p.derivedFrom),
-    [pipelines],
-  );
-  const hasWorkflows = selectablePipelines.length > 0 || recipes.length > 0;
+  const selectable = useMemo(() => selectablePipelines(pipelines), [pipelines]);
+  const hasWorkflows = selectable.length > 0 || recipes.length > 0;
   // Most steps first. The list is a coverage ladder, not a menu of equals:
   // dropping a step drops a guarantee, so reading top-down reads from "every
   // gate kept" down to "one phase only". Source order was authored by task
@@ -242,7 +240,7 @@ export function StartEpicModal({
   // selection valid: fall back to a pipeline when `auto` has no recipes, or
   // fill in a pipeline id once one exists.
   useEffect(() => {
-    const first = selectablePipelines[0];
+    const first = selectable[0];
     if (selected.kind === 'auto' && recipes.length === 0 && first) {
       setSelected({ kind: 'pipeline', id: first.id });
     } else if (selected.kind === 'pipeline' && !selected.id && first) {
@@ -254,7 +252,7 @@ export function StartEpicModal({
         ? { kind: 'auto' }
         : first ? { kind: 'pipeline', id: first.id } : { kind: 'auto' });
     }
-  }, [selectablePipelines, recipes, selected]);
+  }, [selectable, recipes, selected]);
 
   // Host messages: classifier verdict + external requirement loads.
   useEffect(() => {

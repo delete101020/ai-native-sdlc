@@ -491,6 +491,13 @@ export interface PipelineSummary {
    * Present means it belongs to one epic and is not a reusable workflow.
    */
   derivedFrom?: string;
+  /**
+   * Epic that owns this pipeline's definition (it was read from
+   * `docs/epics/<id>/pipeline.yaml`). Like `derivedFrom` it means "belongs to
+   * one epic", but it survives epic pipelines written before `derived_from`
+   * existed, so pickers filter on both.
+   */
+  ownedByEpic?: string;
   /** Human label for built-in pipelines (e.g. "iOS Native Pipeline"). User-defined pipelines leave this undefined. */
   name?: string;
   /**

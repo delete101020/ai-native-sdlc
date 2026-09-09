@@ -19,6 +19,9 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   // would land on a component that does not exist yet. The nonce makes
   // clicking the same epic twice a fresh request.
   const [focusEpic, setFocusEpic] = useState<{ id: string; nonce: number } | null>(null);
+  // Same deal for "Edit workflow" on an epic card: Builder is not mounted when
+  // the host posts, so the request is parked here and handed down as a prop.
+  const [focusPipeline, setFocusPipeline] = useState<{ id: string; nonce: number } | null>(null);
 
   // Host can switch the view at runtime via openBuilder/openEpicsList.
   useEffect(() => {
@@ -27,6 +30,11 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
         const id = msg.epicId;
         setView('epics');
         setFocusEpic((prev) => ({ id, nonce: (prev?.nonce ?? 0) + 1 }));
+      }
+      if (msg.type === 'focusPipeline' && typeof msg.pipelineId === 'string') {
+        const id = msg.pipelineId;
+        setView('builder');
+        setFocusPipeline((prev) => ({ id, nonce: (prev?.nonce ?? 0) + 1 }));
       }
       if (msg.type === 'setView') {
         const next = msg.view;
@@ -131,7 +139,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
       <main className="flex-1 overflow-y-auto">
         <div className="p-6">
           {view === 'builder' ? (
-            <BuilderView state={state} />
+            <BuilderView state={state} focusPipeline={focusPipeline} />
           ) : view === 'epics' ? (
             <EpicsView state={state} focusEpic={focusEpic} />
           ) : view === 'analyze' ? (
