@@ -21,19 +21,21 @@ import { readYaml } from './yamlIO';
 // ── Run persistence ───────────────────────────────────────────────────────────
 
 /**
- * Persist a transitioned run, and — when the workspace opted into
- * `artifact_commit: on_approve` — commit the artifacts of any step that just
- * reached `approved` onto the epic's own branch.
+ * Persist a transitioned run, mirror it into the epic's `state.json`, and —
+ * when the workspace opted into `artifact_commit: on_approve` — commit the
+ * artifacts of any step that just reached `approved` onto the epic's own branch.
  *
  * Pass `prev` (the state before the transition) at every mutating site; without
  * it there is nothing to diff and only the save happens.
  *
- * The epic's `state.json` is re-mirrored here, but *only* when the feature is
- * on. The CLI has never mirrored (the extension does), and turning that on
- * unconditionally would change behaviour for every workspace. It is not
- * optional for a workspace that did opt in, though: the approval and the
- * artifact it approves go into one commit, and a stale state.json in that
- * commit would record the wrong verdict.
+ * The mirror used to be gated behind `artifact_commit` on the grounds that the
+ * CLI had never written it and the extension would. That reasoning only holds
+ * for a workspace driven from the IDE. Drive one from the terminal and
+ * `docs/epics/<id>/state.json` — the file `aidlc epic status` and the Epics
+ * panel both read — silently keeps reporting the run as it was at scaffold
+ * time, while `aidlc status` shows the truth. Two commands disagreeing about
+ * the same run is worse than the behaviour change of always mirroring, which
+ * only ever brings a derived file up to date with the run state beside it.
  */
 export function saveRunState(root: string, next: RunState, prev?: RunState): void {
   RunStateStore.save(root, next);
@@ -45,13 +47,12 @@ export function saveRunState(root: string, next: RunState, prev?: RunState): voi
   } catch {
     return; // Unreadable workspace.yaml — the save already succeeded; say nothing.
   }
-  if (resolveArtifactCommitConfig(doc).mode !== 'on_approve') { return; }
+  // Mirror first, unconditionally: it is a no-op when the epic has no
+  // state.json, and when `artifact_commit` is on it has to precede the commit
+  // so the approval and a state.json recording that approval land together.
+  mirrorEpicState(root, next, doc);
 
-  try {
-    mirrorRunStateToEpic(root, next, doc);
-  } catch (err) {
-    console.error(chalk.yellow('!') + ` Could not mirror run state into epic state.json — ${msg(err)}`);
-  }
+  if (resolveArtifactCommitConfig(doc).mode !== 'on_approve') { return; }
 
   const result = commitApprovedArtifacts({ workspaceRoot: root, before: prev, after: next, doc });
   if (result.committed) {
@@ -62,6 +63,39 @@ export function saveRunState(root: string, next: RunState, prev?: RunState): voi
     for (const f of result.files ?? []) { console.log(chalk.dim(`    ${f}`)); }
   } else if (result.reason && !isRoutineSkip(result.reason)) {
     console.error(chalk.yellow('!') + ` Could not commit epic artifacts — ${result.reason}`);
+  }
+}
+
+/**
+ * Bring `docs/epics/<id>/state.json` in line with a run that just changed.
+ *
+ * Split out of {@link saveRunState} because `aidlc step …` writes run state
+ * directly rather than through it: those commands are the deliberate escape
+ * hatch around the gates, so they must not inherit the artifact commit — but
+ * the epic view has no business going stale just because a run was moved by
+ * hand. No-op when the epic has no `state.json`.
+ *
+ * Pass `doc` when the caller already parsed workspace.yaml; omitted, it is
+ * read here and an unreadable one silently skips the mirror (the run state
+ * itself is already saved by then, and that is the file of record).
+ */
+export function mirrorEpicState(
+  root: string,
+  next: RunState,
+  doc?: ReturnType<typeof readYaml>,
+): void {
+  let resolved = doc;
+  if (resolved === undefined) {
+    try {
+      resolved = readYaml(root);
+    } catch {
+      return;
+    }
+  }
+  try {
+    mirrorRunStateToEpic(root, next, resolved ?? null);
+  } catch (err) {
+    console.error(chalk.yellow('!') + ` Could not mirror run state into epic state.json — ${msg(err)}`);
   }
 }
 

@@ -209,9 +209,21 @@ export function splitEpicPipelines(
  * Write each epic-owned pipeline to its own file, atomically. Runs before the
  * `workspace.yaml` dump: if that dump then fails, the epic files are still the
  * definitions that win on the next read, so the two never disagree silently.
+ *
+ * A file whose pipeline already matches what we would write is left alone.
+ * That is not an optimisation — it is the difference between a tool that
+ * rewrites one epic and one that rewrites every epic in the repo.
+ * {@link mergeEpicPipelines} splices *all* of them into the document at read
+ * time, so any command that saves `workspace.yaml` for its own reasons —
+ * `aidlc epic start`, `agent add`, `pipeline edit` — would otherwise dump
+ * every epic's file back out, replacing whatever comments their authors wrote
+ * with the generated header and surfacing as unexplained modifications in
+ * `git status`. Comparing parsed content, not bytes, is what makes that safe:
+ * formatting and hand-written comments survive, a real change still lands.
  */
 export function writeEpicPipelines(entries: readonly ExternalEpicPipeline[]): void {
   for (const { file, pipeline, epicId } of entries) {
+    if (epicPipelineUnchanged(file, pipeline)) { continue; }
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const header =
       `# Pipeline for ${epicId}, owned by this epic.\n`
@@ -228,6 +240,42 @@ export function writeEpicPipelines(entries: readonly ExternalEpicPipeline[]): vo
     fs.writeFileSync(tmp, text, 'utf8');
     fs.renameSync(tmp, file);
   }
+}
+
+/**
+ * Does `file` already hold this exact pipeline?
+ *
+ * Compares the parsed document, so a file that says the same thing in a
+ * different layout — or with comments around it — counts as unchanged. A
+ * missing or unparseable file is "changed", which rewrites it: that is the
+ * repair path, and the only case where losing the old bytes is right.
+ */
+function epicPipelineUnchanged(file: string, pipeline: Record<string, unknown>): boolean {
+  let existing: unknown;
+  try {
+    existing = yaml.load(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return false;
+  }
+  if (!existing || typeof existing !== 'object') { return false; }
+  // Key order is not meaning here — both sides are plain data headed for the
+  // same serializer, so a stable-key JSON comparison is exact enough and far
+  // cheaper than a structural walk.
+  return stableJson(existing) === stableJson(pipeline);
+}
+
+/** JSON with object keys sorted at every level, so key order can't fake a diff. */
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_key, val) => {
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      const sorted: Record<string, unknown> = {};
+      for (const k of Object.keys(val as Record<string, unknown>).sort()) {
+        sorted[k] = (val as Record<string, unknown>)[k];
+      }
+      return sorted;
+    }
+    return val;
+  });
 }
 
 export interface EpicPipelineExtraction {
