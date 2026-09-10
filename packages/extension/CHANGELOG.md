@@ -1,5 +1,36 @@
 # Changelog
 
+## 3.11.1
+
+Three bugs that only show up when a pipeline is driven from the terminal rather
+than the IDE — which is why they lasted this long.
+
+### Fixed
+
+- **`aidlc run mark-done` now runs the `auto_review` validator.** It never did:
+  `markStepDone` only decides *that* a validator is due and parks the step at
+  `awaiting_auto_review`, and nothing outside `run exec` ever ran one. So a
+  hand-driven run stopped dead there while the CLI printed
+  "auto-approved, advancing…". mark-done now runs the validator and reports its
+  verdict, exiting 2 on a reject and 1 when the runner itself cannot load — the
+  codes `run exec` already uses, so CI reads a rejected artifact as a failure.
+  Re-running mark-done is the retry path after fixing a broken runner.
+- **An epic's `state.json` no longer goes stale on terminal-driven runs.** The
+  mirror sat behind `artifact_commit: on_approve`, on the grounds that the CLI
+  had never written it and the extension would — true only for a workspace
+  driven from the IDE. Drive one from the terminal and `aidlc epic status` kept
+  reporting the run as it was at scaffold time while `aidlc status` showed the
+  truth. The `aidlc step …` commands write run state directly, so the mirror is
+  now shared by both paths: `step` stays the escape hatch that skips the
+  artifact commit, without leaving the epic view lying.
+- **Saving `workspace.yaml` no longer rewrites every other epic's
+  `pipeline.yaml`.** All epic pipelines are spliced into the document at read
+  time, so all of them were handed back at write time and dumped — replacing
+  whatever comments their authors wrote with the generated header. Starting one
+  new epic showed up as unexplained modifications to every other epic in the
+  repo. A file whose pipeline already matches is now left alone; one that is
+  missing or unparseable is still rewritten, which is the repair path.
+
 ## 3.11.0
 
 Starting an epic added a pipeline, and that pipeline was then offered as a
