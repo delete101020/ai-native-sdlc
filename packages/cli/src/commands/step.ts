@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { RunStateStore, type StepStatus } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import {
+  mirrorEpicState,
   requireRun,
   requireStepIdx,
   printRunSummary,
@@ -53,6 +54,7 @@ export function registerStep(program: Command): void {
       state.status = 'running';
 
       RunStateStore.save(root, state);
+      mirrorEpicState(root, state);
       const agent = state.steps[idx].agent;
       console.log(chalk.yellow('▶') + ` Step ${idx} "${agent}" → ${chalk.yellow('awaiting_work')}`);
       if (prevIdx !== idx && state.steps[prevIdx]?.agent) {
@@ -98,6 +100,7 @@ export function registerStep(program: Command): void {
       }
 
       RunStateStore.save(root, state);
+      mirrorEpicState(root, state);
       const agent = state.steps[idx].agent;
       console.log(chalk.green('✔') + ` Step ${idx} "${agent}" → ${chalk.green('approved')}`);
       printRunSummary(state);
@@ -136,6 +139,7 @@ export function registerStep(program: Command): void {
       }
 
       RunStateStore.save(root, state);
+      mirrorEpicState(root, state);
       const agent = state.steps[idx].agent;
       console.log(chalk.green('⤼') + ` Step ${idx} "${agent}" skipped → ${chalk.green('approved')}`);
     });
@@ -161,6 +165,7 @@ export function registerStep(program: Command): void {
       state.status = 'running';
 
       RunStateStore.save(root, state);
+      mirrorEpicState(root, state);
       const agent = state.steps[idx].agent;
       console.log(chalk.dim('↺') + ` Step ${idx} "${agent}" → ${colorStatus('pending')}`);
       console.log(chalk.dim(`  Use "aidlc step start ${runId} ${step}" to begin work on it.`));
@@ -185,6 +190,7 @@ export function registerStep(program: Command): void {
       state.status = 'running';
 
       RunStateStore.save(root, state);
+      mirrorEpicState(root, state);
       const agent = state.steps[idx].agent;
       console.log(chalk.green('✔') + ` Step ${idx} "${agent}" → ${colorStatus(status)}`);
     });
@@ -226,6 +232,7 @@ export function registerStep(program: Command): void {
       state.status = 'running';
 
       RunStateStore.save(root, state);
+      mirrorEpicState(root, state);
       const agent = state.steps[idx].agent;
       console.log(chalk.yellow('⤷') + ` Jumped to step ${idx} "${chalk.bold(agent)}"`);
       if (autoApproved > 0) {

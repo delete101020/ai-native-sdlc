@@ -89,8 +89,8 @@ export function registerRun(program: Command): void {
   // ── mark-done ──────────────────────────────────────────────────────────────
   cmd
     .command('mark-done <runId>')
-    .description('Mark the current step done (validates produces paths, then advances or awaits review)')
-    .action((runId: string, _opts: unknown, actionCmd: Command) => {
+    .description('Mark the current step done (validates produces paths, runs auto-review, then advances or awaits review)')
+    .action(async (runId: string, _opts: unknown, actionCmd: Command) => {
       const root     = resolveWorkspaceRoot(actionCmd);
       const state    = requireRun(root, runId);
       const pipeline = requirePipelineForRun(root, state);
@@ -112,6 +112,16 @@ export function registerRun(program: Command): void {
       saveRunState(root, next, state);
       const prevStatus = state.steps[state.currentStepIdx].status;
       const step = next.steps[state.currentStepIdx];
+
+      // An `auto_review` step lands here, not on a verdict: markStepDone only
+      // moves it to awaiting_auto_review. Nothing else in the CLI drives the
+      // validator, so mark-done runs it — otherwise a hand-driven run parks
+      // there forever while the message claims it advanced.
+      if (step.status === 'awaiting_auto_review') {
+        await driveAutoReview(root, runId, next);
+        return;
+      }
+
       if (step.status === prevStatus) {
         // Idempotent no-op: step was already marked done in this revision.
         console.log(chalk.dim(`• Step "${step.agent}" is already ${step.status} — nothing to do.`));
@@ -120,7 +130,7 @@ export function registerRun(program: Command): void {
         console.log(chalk.dim(`  Approve: aidlc run approve ${runId}`));
         console.log(chalk.dim(`  Reject:  aidlc run reject ${runId} --reason "..."`));
       } else {
-        console.log(chalk.green('✔') + ` Step "${step.agent}" auto-approved, advancing…`);
+        console.log(chalk.green('✔') + ` Step "${step.agent}" approved, advancing…`);
         printRunSummary(next);
       }
     });
@@ -428,6 +438,63 @@ async function execLoop(
     { untilIdx, autoApprove: opts.autoApprove, message: opts.message, dryRun: opts.dryRun },
     cliExecHooks(runId, claudeOut),
   );
+}
+
+/**
+ * Run the current step's `auto_review` validator and submit its verdict.
+ *
+ * {@link markStepDone} decides *that* a validator is due and stops at
+ * `awaiting_auto_review`; it never runs one. The exec loop drives that half
+ * from core, but a hand-driven run had nothing to — so the step sat there
+ * while mark-done printed "auto-approved, advancing…". This is the missing
+ * half, and it is why mark-done is idempotent on `awaiting_auto_review`:
+ * running it again retries a validator that failed to load.
+ *
+ * Exit codes mirror `run exec`: 2 when the verdict parks the run on a gate,
+ * 1 when the validator itself could not run, so CI reads a rejected artifact
+ * as a failure rather than a success.
+ */
+async function driveAutoReview(root: string, runId: string, state: RunState): Promise<void> {
+  const pipeline = requirePipelineForRun(root, state);
+  const step = state.steps[state.currentStepIdx];
+  console.log(chalk.bold(`
+🔍 Auto-review: "${step.agent}"`));
+
+  let verdict;
+  try {
+    verdict = await runAutoReview({ workspaceRoot: root, state, pipeline });
+  } catch (err) {
+    // Config-level failure — a missing or unloadable runner. Validator-internal
+    // errors never land here; runAutoReview turns those into a reject verdict.
+    console.error(chalk.red(`Auto-review could not run — ${err instanceof Error ? err.message : String(err)}`));
+    console.error(chalk.dim(`  Fix the runner, then retry: aidlc run mark-done ${runId}`));
+    process.exit(1);
+  }
+
+  let next: RunState;
+  try {
+    next = submitAutoReviewVerdict({ state, pipeline, verdict });
+  } catch (err) {
+    console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+    process.exit(1);
+  }
+  saveRunState(root, next, state);
+
+  if (verdict.decision === 'reject') {
+    console.log(chalk.red('✘') + ' Auto-review rejected' + chalk.dim(` — ${verdict.reason}`));
+    console.log(chalk.dim(`  Fix the issue, then: aidlc run rerun ${runId} [--feedback "..."]`));
+    printRunSummary(next);
+    process.exit(2);
+  }
+
+  console.log(chalk.green('✔') + ' Auto-review passed' + chalk.dim(` — ${verdict.reason}`));
+  const after = next.steps[state.currentStepIdx];
+  if (after.status === 'awaiting_review') {
+    console.log(chalk.cyan('✔') + ` Step "${after.agent}" is now ${chalk.cyan('awaiting_review')}`);
+    console.log(chalk.dim(`  Approve: aidlc run approve ${runId}`));
+    console.log(chalk.dim(`  Reject:  aidlc run reject ${runId} --reason "..."`));
+  }
+  printRunSummary(next);
 }
 
 /**

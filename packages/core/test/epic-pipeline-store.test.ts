@@ -166,3 +166,54 @@ describe('planEpicPipelineExtraction', () => {
     expect(planEpicPipelineExtraction(root, doc([{ id: 'EPIC-001', steps: [STEP] }]))).toEqual([]);
   });
 });
+
+describe('writeEpicPipelines', () => {
+  it('leaves a file alone when its pipeline is unchanged, comments and all', () => {
+    // Every read splices *all* epic pipelines into the document, so any command
+    // that saves workspace.yaml for its own reasons hands us every epic's file
+    // back. Rewriting them all would replace whatever their authors wrote with
+    // the generated header — an unexplained `git status` entry per epic.
+    const d = doc([{ id: 'EPIC-001', steps: [STEP] }]);
+    stageEpicPipeline(d, 'EPIC-001', 'EPIC-001');
+    const external = splitEpicPipelines(root, d).external;
+    writeEpicPipelines(external);
+
+    const file = epicPipelinePath(root, d, 'EPIC-001');
+    const annotated =
+      '# Why this epic skips the spec step: the incident loop measures first.\n'
+      + fs.readFileSync(file, 'utf8');
+    fs.writeFileSync(file, annotated, 'utf8');
+
+    writeEpicPipelines(external);
+
+    expect(fs.readFileSync(file, 'utf8')).toBe(annotated);
+  });
+
+  it('writes when the pipeline actually changed', () => {
+    const d = doc([{ id: 'EPIC-001', steps: [STEP] }]);
+    stageEpicPipeline(d, 'EPIC-001', 'EPIC-001');
+    writeEpicPipelines(splitEpicPipelines(root, d).external);
+    const file = epicPipelinePath(root, d, 'EPIC-001');
+
+    const changed = doc([{ id: 'EPIC-001', steps: [STEP, { agent: 'reviewer' }] }]);
+    stageEpicPipeline(changed, 'EPIC-001', 'EPIC-001');
+    writeEpicPipelines(splitEpicPipelines(root, changed).external);
+
+    const onDisk = yaml.load(fs.readFileSync(file, 'utf8')) as { steps: unknown[] };
+    expect(onDisk.steps).toHaveLength(2);
+  });
+
+  it('rewrites a file that is missing or unparseable — that is the repair path', () => {
+    const d = doc([{ id: 'EPIC-001', steps: [STEP] }]);
+    stageEpicPipeline(d, 'EPIC-001', 'EPIC-001');
+    const external = splitEpicPipelines(root, d).external;
+    writeEpicPipelines(external);
+
+    const file = epicPipelinePath(root, d, 'EPIC-001');
+    fs.writeFileSync(file, 'steps: [oh no: {{{', 'utf8');
+    writeEpicPipelines(external);
+
+    const onDisk = yaml.load(fs.readFileSync(file, 'utf8')) as { id: string };
+    expect(onDisk.id).toBe('EPIC-001');
+  });
+});
