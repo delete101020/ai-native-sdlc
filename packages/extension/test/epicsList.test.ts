@@ -198,3 +198,132 @@ describe('epicPinningPipeline', () => {
     expect(epicPinningPipeline([epic('LOOSE-1', 'p', true)], 'p')).toBeNull();
   });
 });
+
+/**
+ * A pipeline whose artifacts live outside the epic folder — a document
+ * pipeline writing to `docs/snp/`, say.
+ *
+ * The panel used to answer "has this step produced its artifact?" by looking
+ * for the basename in `docs/epics/<id>/artifacts/`, which such a pipeline
+ * never writes to. Every step therefore read as missing and *Mark step done*
+ * stayed disabled forever, even though `markStepDone` resolves `produces`
+ * against the workspace root and would have accepted it.
+ */
+describe('listEpics artifact existence for produces outside the epic folder', () => {
+  let root: string;
+  const epicId = 'SNP-1';
+
+  const doc = {
+    state: { root: 'docs/epics' },
+    slash_commands: [],
+    pipelines: [
+      {
+        id: 'snp',
+        steps: [
+          { agent: 'registrar', name: 'intake', produces: ['docs/snp/00-source-register.md'] },
+          { agent: 'analyst', name: 'align', produces: ['docs/snp/analysis/{topic}.md'] },
+        ],
+      },
+    ],
+  } as unknown as Parameters<typeof listEpics>[1];
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-epicslist-outside-'));
+    const epicDir = path.join(root, 'docs', 'epics', epicId);
+    fs.mkdirSync(epicDir, { recursive: true });
+    fs.mkdirSync(path.join(root, '.aidlc', 'runs'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'docs', 'snp'), { recursive: true });
+    // Step 0's artifact exists on disk; step 1's does not.
+    fs.writeFileSync(path.join(root, 'docs', 'snp', '00-source-register.md'), '# sổ nguồn\n');
+
+    fs.writeFileSync(
+      path.join(epicDir, 'state.json'),
+      JSON.stringify({
+        id: epicId,
+        title: 'Doc alignment',
+        pipeline: 'snp',
+        currentStep: 0,
+        status: 'in_progress',
+        stepStates: [
+          { agent: 'registrar', status: 'in_progress' },
+          { agent: 'analyst', status: 'pending' },
+        ],
+      }),
+    );
+    fs.writeFileSync(
+      path.join(root, '.aidlc', 'runs', `${epicId}.json`),
+      JSON.stringify({
+        schemaVersion: 1,
+        runId: epicId,
+        pipelineId: 'snp',
+        context: { epic: epicId, topic: 'container-stowage-rules' },
+        startedAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+        currentStepIdx: 0,
+        status: 'running',
+        steps: [
+          { stepIdx: 0, agent: 'registrar', revision: 1, status: 'awaiting_work', artifactsProduced: [] },
+          { stepIdx: 1, agent: 'analyst', revision: 1, status: 'pending', artifactsProduced: [] },
+        ],
+      }),
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('reports the produced file as present even though the epic folder is empty', () => {
+    const epic = listEpics(root, doc).find((e) => e.id === epicId);
+    expect(epic).toBeDefined();
+    // docs/epics/SNP-1/artifacts/ was never created — the old basename lookup
+    // had nothing to find here.
+    expect(fs.existsSync(path.join(root, 'docs', 'epics', epicId, 'artifacts'))).toBe(false);
+
+    const step = epic!.stepDetails[0];
+    expect(step.artifact).toBe('00-source-register.md');
+    expect(step.artifactPath).toBe('docs/snp/00-source-register.md');
+    expect(step.artifactExists).toBe(true);
+  });
+
+  it('resolves placeholders from the run context and reports a missing file as missing', () => {
+    const epic = listEpics(root, doc).find((e) => e.id === epicId);
+    const step = epic!.stepDetails[1];
+
+    // The label is taken off the resolved path — the raw `produces` basename
+    // would put a literal `{topic}.md` on the card.
+    expect(step.artifact).toBe('container-stowage-rules.md');
+    expect(step.artifactPath).toBe('docs/snp/analysis/container-stowage-rules.md');
+    expect(step.artifactExists).toBe(false);
+    expect(step.artifactStale).toBe(false);
+  });
+
+  it('flags an artifact older than the step as inherited, not produced here', () => {
+    // Step 1 opens now; its output file was written a day ago by an earlier
+    // step that declares the same `produces` path.
+    const analysis = path.join(root, 'docs', 'snp', 'analysis', 'container-stowage-rules.md');
+    fs.mkdirSync(path.dirname(analysis), { recursive: true });
+    fs.writeFileSync(analysis, '# phân tích\n');
+    const old = new Date('2025-12-31T00:00:00Z');
+    fs.utimesSync(analysis, old, old);
+
+    const runPath = path.join(root, '.aidlc', 'runs', `${epicId}.json`);
+    const run = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+    run.currentStepIdx = 1;
+    run.steps[0].status = 'approved';
+    run.steps[1].status = 'awaiting_work';
+    run.steps[1].startedAt = '2026-01-01T00:00:00Z';
+    fs.writeFileSync(runPath, JSON.stringify(run));
+
+    const epic = listEpics(root, doc).find((e) => e.id === epicId);
+    const step = epic!.stepDetails[1];
+    expect(step.artifactExists).toBe(true);
+    expect(step.artifactStale).toBe(true);
+
+    // Touching it after the step started clears the flag.
+    const fresh = new Date('2026-01-02T00:00:00Z');
+    fs.utimesSync(analysis, fresh, fresh);
+    const after = listEpics(root, doc).find((e) => e.id === epicId);
+    expect(after!.stepDetails[1].artifactStale).toBe(false);
+  });
+});

@@ -1015,6 +1015,9 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
       stepName: s.name,
       slashCommand: s.slashCommand,
       artifact: s.artifact,
+      artifactPath: s.artifactPath,
+      artifactExists: s.artifactExists,
+      artifactStale: s.artifactStale,
       status: s.status,
       runStatus: s.runStatus,
       isCurrentRunStep: s.isCurrentRunStep,
@@ -1417,6 +1420,23 @@ function formatEpicMemoryMarkdown(mem: Record<string, unknown>, epicId: string):
     lines.push('', '_(empty — add entries with `/epic-context` while working the epic)_');
   }
   return lines.join('\n') + '\n';
+}
+
+/**
+ * Absolute path of a step artifact.
+ *
+ * `produces` may name any path in the repo — a docs pipeline writes to
+ * `docs/snp/…`, not into the epic folder — so the webview sends the resolved
+ * workspace-relative path alongside the basename. Fall back to the epic's own
+ * `artifacts/` folder when it does not (older payloads, agent-meta artifacts).
+ */
+function artifactAbsPath(epicDir: string, filename: string, rel: unknown): string {
+  if (typeof rel === 'string' && rel.trim() !== '') {
+    if (path.isAbsolute(rel)) { return rel; }
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (root) { return path.join(root, rel); }
+  }
+  return path.join(epicDir, 'artifacts', filename);
 }
 
 export class WorkspaceWebview {
@@ -2095,7 +2115,7 @@ export class WorkspaceWebview {
         const epicDir = String(msg.epicDir ?? '');
         const filename = String(msg.filename ?? '');
         if (!epicDir || !filename) { return; }
-        const filePath = path.join(epicDir, 'artifacts', filename);
+        const filePath = artifactAbsPath(epicDir, filename, msg.path);
         if (!fs.existsSync(filePath)) { return; }
         const doc = await vscode.workspace.openTextDocument(filePath);
         await vscode.window.showTextDocument(doc, { preview: false });
@@ -2113,7 +2133,7 @@ export class WorkspaceWebview {
         const epicDir = String(msg.epicDir ?? '');
         const filename = String(msg.filename ?? '');
         if (!epicDir || !filename) { return; }
-        const filePath = path.join(epicDir, 'artifacts', filename);
+        const filePath = artifactAbsPath(epicDir, filename, msg.path);
         if (!fs.existsSync(filePath)) { return; }
         const uri = vscode.Uri.file(filePath);
         void vscode.commands.executeCommand('markdown.showPreview', uri).then(
