@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.11.2
+
+Two fixes to the epic panel, both found driving a document pipeline, whose
+steps write to `docs/` instead of the epic's own `artifacts/` folder and whose
+review notes run long.
+
+### Fixed
+
+- **Mark step done works for a step whose artifact lives outside the epic
+  folder.** The panel looked for the step's output in
+  `docs/epics/<id>/artifacts/`, which a pipeline writing anywhere else never
+  touches. The button stayed disabled forever, even though `markStepDone`
+  resolves `produces` against the workspace root and would have accepted the
+  file. The panel now asks the host, which resolves the first `produces` path
+  with the run's context and checks it the same way. The artifact label shows
+  the resolved name instead of a literal `{topic}.md`, and Open / Preview open
+  the real file.
+- **A file inherited from an earlier step is called out instead of passing for
+  this step's work.** Consecutive steps of a document pipeline often share one
+  `produces` file, so "it exists" said nothing about whether this step had run.
+  A file unchanged since the step started is now labelled *from earlier step*,
+  and Mark step done warns before recording it. It warns rather than blocks,
+  because core accepts the file.
+- **Long reject reasons and rerun feedback no longer push the step controls off
+  the card.** Both are free text and can run to dozens of lines. The sidebar's
+  Active Runs card and the step gate now show three lines with *Show more*,
+  keeping line breaks so a numbered list stays one.
+
 ## 3.11.1
 
 Three bugs that only show up when a pipeline is driven from the terminal rather
