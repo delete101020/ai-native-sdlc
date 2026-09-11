@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ClampedNote } from './ClampedNote';
 import {
   ChevronRight,
   ChevronDown,
@@ -1409,15 +1410,17 @@ function RunGate({
       {activity && <AgentRunningBanner activity={activity} />}
 
       {status === 'rejected' && focused.rejectReason && (
-        <div className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 font-mono text-[10.5px] text-destructive">
-          ↳ {focused.rejectReason}
-        </div>
+        <ClampedNote
+          text={`↳ ${focused.rejectReason.trim()}`}
+          className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 font-mono text-[10.5px] text-destructive"
+        />
       )}
 
       {status === 'awaiting_work' && focused.feedback && (
-        <div className="rounded border border-warning/40 bg-warning/10 px-2 py-1 font-mono text-[10.5px] text-warning">
-          ↳ {focused.feedback}
-        </div>
+        <ClampedNote
+          text={`↳ ${focused.feedback.trim()}`}
+          className="rounded border border-warning/40 bg-warning/10 px-2 py-1 font-mono text-[10.5px] text-warning"
+        />
       )}
 
       {focused.autoReviewVerdict && (

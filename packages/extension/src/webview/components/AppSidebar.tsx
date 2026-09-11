@@ -42,6 +42,7 @@ import { SavePresetModal } from './SavePresetModal';
 import { LoadDemoModal } from './LoadDemoModal';
 import { ThemeToggle } from './ThemeToggle';
 import { AgentRunningBanner } from './AgentRunningBanner';
+import { ClampedNote } from './ClampedNote';
 import { postMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
 
 interface CollapseState {
@@ -756,9 +757,10 @@ function ActiveRunCard({
       {activity && <AgentRunningBanner activity={activity} className="mt-1.5" />}
 
       {(run.rejectReason || run.feedback) && (
-        <div className="mt-1.5 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[10px] leading-snug text-muted-foreground">
-          {run.rejectReason || run.feedback}
-        </div>
+        <ClampedNote
+          text={run.rejectReason || run.feedback || ''}
+          className="mt-1.5 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[10px] leading-snug text-muted-foreground"
+        />
       )}
 
       {missingRequires.length > 0 && (
