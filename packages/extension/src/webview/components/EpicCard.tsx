@@ -838,7 +838,22 @@ function StepDetail({
   // the persona's default — one persona handles multiple phases that each
   // emit different files, so the step is the authoritative source.
   const artifactName = focused.artifact || m.artifact || '';
-  const artifactExists = artifactName ? epic.existingArtifacts.includes(artifactName) : false;
+  // The host resolves the step's `produces` path against the workspace root
+  // and reports whether it is there, which is the same check `markStepDone`
+  // makes. Fall back to the epic's own `artifacts/` listing only when the
+  // step declares no path — a pipeline that writes outside the epic folder is
+  // invisible to that listing, and the fallback used to keep *Mark step done*
+  // disabled forever on one.
+  const artifactExists = focused.artifact && focused.artifactExists !== undefined
+    ? focused.artifactExists
+    : artifactName ? epic.existingArtifacts.includes(artifactName) : false;
+  // Several steps of a document pipeline can declare the same `produces`
+  // file, so "it exists" does not mean "this step wrote it". The host
+  // compares mtime against the step's startedAt and tells us which it is.
+  const artifactStale = artifactExists && !!focused.artifactStale;
+  // Annotron opens artifacts by `<epicId> <filename>` under the epic folder,
+  // so its two entries only make sense for artifacts that actually live there.
+  const artifactInEpicFolder = !!artifactName && epic.existingArtifacts.includes(artifactName);
   const [artifactMenuOpen, setArtifactMenuOpen] = useState(false);
 
   const accent = (() => {
@@ -913,9 +928,16 @@ function StepDetail({
                   setArtifactMenuOpen((v) => !v);
                 }}
                 className="inline-flex w-fit items-center gap-1 rounded border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[11px] text-primary transition-colors hover:border-primary/50 hover:bg-primary/20"
-                title={`Open ${artifactName}`}
+                title={
+                  artifactStale
+                    ? `Open ${artifactName} — unchanged since this step started, so it is an earlier step's output`
+                    : `Open ${artifactName}`
+                }
               >
                 <span>{artifactName}</span>
+                {artifactStale && (
+                  <span className="text-[9.5px] font-sans uppercase tracking-wider opacity-70">· from earlier step</span>
+                )}
                 <ChevronDown className={cn('h-2.5 w-2.5 opacity-70 transition-transform', artifactMenuOpen && 'rotate-180')} />
               </button>
               {artifactMenuOpen && (
@@ -931,7 +953,7 @@ function StepDetail({
                       onClick={(e) => {
                         e.stopPropagation();
                         setArtifactMenuOpen(false);
-                        postMessage({ type: 'openArtifactFile', epicDir: epic.epicDir, filename: artifactName });
+                        postMessage({ type: 'openArtifactFile', epicDir: epic.epicDir, filename: artifactName, path: focused.artifactPath });
                       }}
                       className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
                     >
@@ -943,7 +965,7 @@ function StepDetail({
                       onClick={(e) => {
                         e.stopPropagation();
                         setArtifactMenuOpen(false);
-                        postMessage({ type: 'previewArtifactInVsCode', epicDir: epic.epicDir, filename: artifactName });
+                        postMessage({ type: 'previewArtifactInVsCode', epicDir: epic.epicDir, filename: artifactName, path: focused.artifactPath });
                       }}
                       className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
                       title="Render in VS Code's own Markdown preview — no terminal, no browser. Mermaid diagrams need a Markdown-preview extension; use Preview below for those."
@@ -951,6 +973,8 @@ function StepDetail({
                       <Eye className="h-3 w-3 text-muted-foreground" />
                       <span>Preview (VS Code)</span>
                     </button>
+                    {artifactInEpicFolder && (
+                      <>
                     <button
                       type="button"
                       onClick={(e) => {
@@ -977,6 +1001,8 @@ function StepDetail({
                       <Highlighter className="h-3 w-3 text-primary" />
                       <span>Feedback</span>
                     </button>
+                      </>
+                    )}
                   </div>
                 </>
               )}
@@ -1019,6 +1045,7 @@ function StepDetail({
         slashCommand={slashCommand}
         artifactName={artifactName}
         artifactExists={artifactExists}
+        artifactStale={artifactStale}
         activity={activity}
       />
       <RequestUpdateAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
@@ -1278,6 +1305,7 @@ function RunGate({
   slashCommand,
   artifactName,
   artifactExists,
+  artifactStale,
   activity,
 }: {
   epic: EpicSummary;
@@ -1287,6 +1315,8 @@ function RunGate({
   /** The file this step is supposed to write, from `produces[0]` or the persona. */
   artifactName: string;
   artifactExists: boolean;
+  /** Artifact is on disk but older than this step — inherited from an earlier step. */
+  artifactStale: boolean;
   activity: AgentActivity | null;
 }) {
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -1315,10 +1345,15 @@ function RunGate({
   // that declares no artifact keeps the button — there is nothing to check.
   const artifactMissing = !!artifactName && !artifactExists;
   const doneBlocked = busy || artifactMissing;
+  // A stale artifact does *not* block: `markStepDone` accepts it, and a UI
+  // that refuses what core allows is a dead end. Warn instead, so the file
+  // sitting there is not mistaken for this step's output.
   const doneTitle = busy
     ? busyTitle
     : artifactMissing
     ? `${artifactName} has not been written yet — run the agent first`
+    : artifactStale
+    ? `${artifactName} has not changed since this step started — marking done records an artifact this step did not write`
     : undefined;
   const labels: Record<string, string> = {
     awaiting_work: 'Awaiting work',
@@ -1329,6 +1364,8 @@ function RunGate({
   const messages: Record<string, string> = {
     awaiting_work: 'Run the agent externally, then mark this step done to advance.',
     awaiting_work_missing: 'Nothing written yet. Run the agent — Mark step done unlocks once its artifact exists.',
+    awaiting_work_stale:
+      'This step shares its output file with an earlier step, and the file has not changed since this step started. Run the agent before marking done.',
     awaiting_auto_review: 'Auto-reviewer pending. Run it to validate this step.',
     awaiting_review:
       'Step is paused for your approval. Approve to advance, reject to send back.',
@@ -1363,6 +1400,8 @@ function RunGate({
             ? 'An agent is working on this step. Wait for it to finish before advancing.'
             : status === 'awaiting_work' && artifactMissing
             ? messages.awaiting_work_missing
+            : status === 'awaiting_work' && artifactStale
+            ? messages.awaiting_work_stale
             : messages[status]}
         </span>
       </div>

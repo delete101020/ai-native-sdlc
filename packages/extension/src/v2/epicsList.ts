@@ -59,6 +59,27 @@ export interface EpicSummary {
     /** Basename of the first `produces:` path — surfaced as the step's
      *  artifact label on the Epic detail panel. */
     artifact?: string;
+    /**
+     * Workspace-relative path of the first `produces:` entry, run-context
+     * resolved. Set whenever the step declares one — including artifacts that
+     * live outside the epic folder, e.g. a docs pipeline writing to `docs/snp/`.
+     */
+    artifactPath?: string;
+    /**
+     * Whether {@link artifactPath} exists, checked against the workspace root
+     * exactly as `markStepDone` does. The panel used to infer this from the
+     * epic's own `artifacts/` listing, which is blind to a pipeline that
+     * writes anywhere else and left *Mark step done* permanently disabled
+     * for it.
+     */
+    artifactExists?: boolean;
+    /**
+     * The artifact exists but was last written *before* this step started —
+     * so it was inherited from an earlier step that declares the same
+     * `produces` path, not produced by this one. Set alongside
+     * {@link artifactExists}; false when the file is missing or fresh.
+     */
+    artifactStale?: boolean;
     status: EpicStatus;
     startedAt: string | null;
     finishedAt: string | null;
@@ -169,6 +190,15 @@ function mergeHistory(
   if (!merged.length) { return undefined; }
   merged.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
   return merged;
+}
+
+/** `fs.statSync` that answers null instead of throwing on a missing file. */
+function statOrNull(filePath: string): fs.Stats | null {
+  try {
+    return fs.statSync(filePath);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -452,9 +482,11 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const runVerdictByIdx = new Map<number, AutoReviewVerdict>();
     const runHistoryByIdx = new Map<number, StepHistoryEntry[]>();
     const runFeedbackByIdx = new Map<number, string>();
+    const runStartedAtByIdx = new Map<number, string>();
     if (runState) {
       for (const sr of runState.steps) {
         runStepByIdx.set(sr.stepIdx, sr.status);
+        if (sr.startedAt) { runStartedAtByIdx.set(sr.stepIdx, sr.startedAt); }
         if (sr.rejectReason) { runRejectByIdx.set(sr.stepIdx, sr.rejectReason); }
         if (sr.autoReviewVerdict) { runVerdictByIdx.set(sr.stepIdx, sr.autoReviewVerdict); }
         if (sr.history && sr.history.length > 0) {
@@ -475,6 +507,10 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const stepDependsByIdx = new Map<number, string[]>();
     const stepNameByIdx = new Map<number, string>();
     const stepArtifactByIdx = new Map<number, string>();
+    const stepArtifactPathByIdx = new Map<number, string>();
+    // Same context the runner resolves `produces` with, so the panel and
+    // `markStepDone` are looking at the same file.
+    const artifactContext: Record<string, string> = runState?.context ?? { epic: epicId };
     if (pipelineCfg && Array.isArray(pipelineCfg.steps)) {
       pipelineCfg.steps.forEach((raw, i) => {
         const norm = normalizeStep(raw as PipelineStepConfig);
@@ -487,8 +523,13 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         // the basename and resolves the absolute path via `epic.epicDir`.
         const first = norm.produces[0];
         if (typeof first === 'string' && first.length > 0) {
-          const basename = first.split('/').pop() ?? first;
+          // Take the label off the *resolved* path: a document pipeline names
+          // its output `docs/snp/analysis/{topic}.md`, and the raw basename
+          // would put the literal `{topic}.md` on the card.
+          const resolved = resolvePath(first, artifactContext);
+          const basename = resolved.split(/[/\\]/).pop() ?? resolved;
           if (basename) { stepArtifactByIdx.set(i, basename); }
+          stepArtifactPathByIdx.set(i, resolved);
         }
       });
 
@@ -594,6 +635,29 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
           ? ('in_progress' as const)
           : asStatus(s.status);
 
+      // Existence is checked against the workspace root, not the epic folder:
+      // `produces` may name any path in the repo and the runner resolves it
+      // that way (PipelineRunner.markStepDone).
+      const artifactRel = stepArtifactPathByIdx.get(i);
+      const artifactAbs = artifactRel === undefined
+        ? undefined
+        : path.isAbsolute(artifactRel) ? artifactRel : path.join(workspaceRoot, artifactRel);
+      const artifactStat = artifactAbs === undefined ? undefined : statOrNull(artifactAbs);
+      const artifactOnDisk = artifactRel === undefined ? undefined : !!artifactStat;
+
+      // Consecutive steps may declare the *same* `produces` file — a document
+      // pipeline where one step drafts the analysis and the next appends to
+      // it. Existence alone then says nothing about whether *this* step has
+      // run: the file was already there when the step opened. Compare the
+      // file's mtime against the step's `startedAt` to tell "written for this
+      // step" from "inherited from an earlier one".
+      const stepStartedAt = runStartedAtByIdx.get(i)
+        ?? (typeof s.startedAt === 'string' ? s.startedAt : undefined);
+      const startedMs = stepStartedAt ? Date.parse(stepStartedAt) : NaN;
+      const artifactStale = !!artifactStat
+        && !Number.isNaN(startedMs)
+        && artifactStat.mtimeMs < startedMs;
+
       // GH-74 Part 2: Parse branch info from artifact summary (for implement/branch-artifact steps)
       const branchInfo = artifactForStep?.toUpperCase() === 'IMPLEMENT-SUMMARY.MD'
         ? parseBranchInfoFromSummary(path.join(epicDir, 'artifacts', 'IMPLEMENT-SUMMARY.md'))
@@ -604,6 +668,9 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         name: stepNameByIdx.get(i),
         slashCommand: slashForStep(stepNameByIdx.get(i)),
         artifact: stepArtifactByIdx.get(i),
+        ...(artifactRel === undefined
+          ? {}
+          : { artifactPath: artifactRel, artifactExists: !!artifactOnDisk, artifactStale }),
         status: displayStatus,
         startedAt: typeof s.startedAt === 'string' ? s.startedAt : null,
         finishedAt: typeof s.finishedAt === 'string' ? s.finishedAt : null,

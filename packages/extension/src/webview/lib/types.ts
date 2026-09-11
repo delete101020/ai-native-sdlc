@@ -608,6 +608,14 @@ export interface EpicStepDetailFull {
    *  expects to see written by this step (e.g. `PRD.md`). Falls back to
    *  the agent meta artifact when the step doesn't declare one. */
   artifact?: string;
+  /** Workspace-relative path of that same `produces:` entry, run-context
+   *  resolved — set even when the artifact lives outside the epic folder. */
+  artifactPath?: string;
+  /** Whether `artifactPath` exists, checked host-side against the workspace
+   *  root the way `markStepDone` does. Authoritative when present. */
+  artifactExists?: boolean;
+  /** Artifact exists but predates this step — inherited, not produced here. */
+  artifactStale?: boolean;
   status: 'pending' | 'in_progress' | 'done' | 'failed';
   runStatus: StepStatus | null;
   isCurrentRunStep: boolean;
