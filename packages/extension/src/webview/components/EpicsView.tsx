@@ -118,9 +118,13 @@ export function EpicsView({
       if (i === undefined) { at.set(key, out.length); out.push({ rootId: key, epics: [e] }); }
       else { out[i].epics.push(e); }
     }
-    // The incident leads its own family wherever it happened to sort.
+    // The incident leads its own family wherever it happened to sort; its
+    // follow-ups read in id order (natural, so -W2 comes before -W10) rather
+    // than newest first, since they are siblings of one batch, not a timeline.
     for (const f of out) {
-      f.epics.sort((a, b) => Number(b.id === f.rootId) - Number(a.id === f.rootId));
+      f.epics.sort((a, b) =>
+        Number(b.id === f.rootId) - Number(a.id === f.rootId)
+        || a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: 'base' }));
     }
     return out;
   }, [visible]);
