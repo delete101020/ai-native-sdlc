@@ -440,7 +440,11 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
       writeEdit(root, doc, plan);
       console.log(chalk.green('✔') + ` Added step ${chalk.bold(plan.stepId)} at index ${plan.index} of ${chalk.bold(pipelineCfg.id)}`);
       printSteps(plan);
-      console.log(chalk.dim('  The step is pending — it opens when the run reaches it.'));
+      console.log(chalk.dim(
+        plan.runState.steps[plan.index].status === 'awaiting_work'
+          ? '  The step is open — what it waits on is already approved.'
+          : '  The step is pending — it opens when the run reaches it.',
+      ));
     });
 
   stepCmd

@@ -660,6 +660,9 @@ export interface EpicSummary {
   /** True when `signal.json` sits in the epic folder — i.e. this is an incident
    *  epic opened by stage 6, and a follow-up epic can be derived from it. */
   hasSignal?: boolean;
+  /** True when `followups.json` sits in the epic folder — a step handed work
+   *  forward, and child epics can be opened from its items. */
+  hasFollowUps?: boolean;
   /** True when this folder has no state.json/pipeline and the summary was
    *  synthesized from the `.md` files in its artifacts/ folder. Steps are a
    *  straight lifecycle-ordered list with no run controls. */

@@ -286,6 +286,76 @@ describe('planAddEpicStep', () => {
     expect(plan.runState.status).toBe('running');
   });
 
+  /**
+   * A finished epic that gains a closing step: the approval that would have
+   * opened it happened before the step existed, so the add has to open it.
+   */
+  it('opens a step appended to a completed sequential run and points at it', () => {
+    const runState = run(
+      [record('po', 'intent', 'approved'), record('eng', 'build', 'approved')],
+      { status: 'completed', currentStepIdx: 1 },
+    );
+    const plan = planAddEpicStep({
+      runState,
+      pipeline: pipeline([{ agent: 'po', name: 'intent' }, { agent: 'eng', name: 'build' }]),
+      step: { agent: 'qa', name: 'verify' },
+    });
+    expect(plan.runState.steps[2].status).toBe('awaiting_work');
+    expect(plan.runState.steps[2].startedAt).toBeTruthy();
+    expect(plan.runState.currentStepIdx).toBe(2);
+    expect(plan.runState.status).toBe('running');
+  });
+
+  it('opens a DAG step whose depends_on are all approved', () => {
+    const runState = run(
+      [record('po', 'intent', 'approved'), record('eng', 'build', 'approved')],
+      { status: 'completed', currentStepIdx: 1 },
+    );
+    const dag = pipeline([
+      { agent: 'po', name: 'intent' },
+      { agent: 'eng', name: 'build', depends_on: ['intent'] },
+    ]);
+    const plan = planAddEpicStep({
+      runState, pipeline: dag, step: { agent: 'qa', name: 'verify', depends_on: ['build'] },
+    });
+    expect(plan.runState.steps[2].status).toBe('awaiting_work');
+    expect(plan.runState.currentStepIdx).toBe(2);
+  });
+
+  it('opens a ready DAG step beside one in flight without moving the pointer', () => {
+    const runState = run(
+      [record('po', 'intent', 'approved'), record('eng', 'build', 'awaiting_review')],
+      { currentStepIdx: 1 },
+    );
+    const dag = pipeline([
+      { agent: 'po', name: 'intent' },
+      { agent: 'eng', name: 'build', depends_on: ['intent'] },
+    ]);
+    const plan = planAddEpicStep({
+      runState, pipeline: dag, step: { agent: 'qa', name: 'test-plan', depends_on: ['intent'] },
+    });
+    expect(plan.runState.steps[2].status).toBe('awaiting_work');
+    expect(plan.runState.currentStepIdx).toBe(1);
+  });
+
+  it('leaves a step pending while its gate is still closed', () => {
+    const { runState, pipelineCfg } = midFlight();
+    const plan = planAddEpicStep({
+      runState, pipeline: pipelineCfg, step: { agent: 'reviewer', name: 'review' },
+    });
+    expect(plan.runState.steps[3].status).toBe('pending');
+    expect(plan.runState.currentStepIdx).toBe(1);
+
+    const dag = pipeline([
+      { agent: 'po', name: 'intent' },
+      { agent: 'eng', name: 'build', depends_on: ['intent'] },
+      { agent: 'qa', name: 'verify', depends_on: ['build'] },
+    ]);
+    expect(planAddEpicStep({
+      runState, pipeline: dag, step: { agent: 'reviewer', name: 'review', depends_on: ['build'] },
+    }).runState.steps[3].status).toBe('pending');
+  });
+
   it('is refused, like removal, once the run has drifted', () => {
     const runState = run([record('po', 'intent')]);
     expect(() => planAddEpicStep({
