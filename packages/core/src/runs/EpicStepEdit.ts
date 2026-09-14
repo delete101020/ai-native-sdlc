@@ -390,12 +390,27 @@ export function planAddEpicStep(args: {
     ...(step.auto_review ? { auto_review: true } : {}),
   } as PipelineStepConfig;
 
+  // `advance` opens a step at the moment its gate clears — the step before it
+  // approved, or the last of its `depends_on`. A step added after that moment
+  // has already passed would wait for an approval that is never coming, which
+  // is exactly the finished epic that gains a closing step. So open it here,
+  // the way `advance` would have.
+  const approvedIds = new Set(
+    runState.steps
+      .map((s, i) => (s.status === 'approved' ? stepDagId(raw[i]) : null))
+      .filter((x): x is string => x !== null),
+  );
+  const gateClear = usesDag
+    ? dependsOn.every((d) => approvedIds.has(d))
+    : at > 0 && runState.steps[at - 1].status === 'approved';
+
   const newRecord: StepRecord = {
     stepIdx: at,
     agent,
     ...(name ? { name } : {}),
     revision: 1,
-    status: 'pending',
+    status: gateClear ? 'awaiting_work' : 'pending',
+    ...(gateClear ? { startedAt: new Date().toISOString() } : {}),
     artifactsProduced: [],
   };
 
@@ -403,9 +418,15 @@ export function planAddEpicStep(args: {
   const nextSteps = [...runState.steps.slice(0, at), newRecord, ...runState.steps.slice(at)];
   const oldToNew = runState.steps.map((_, i) => (i >= at ? i + 1 : i));
 
+  const nextRun = reindex(runState, nextSteps, oldToNew, runState.currentStepIdx);
+  // The pointer follows the new step only when nothing else is in flight — a
+  // DAG sibling mid-review is still the thing the user is looking at.
+  const othersActive = runState.steps.some((s) => s.status !== 'approved' && s.status !== 'pending');
+  if (gateClear && !othersActive) { nextRun.currentStepIdx = at; }
+
   return {
     pipeline: { ...pipeline, steps: nextRaw },
-    runState: reindex(runState, nextSteps, oldToNew, runState.currentStepIdx),
+    runState: nextRun,
     stepId: id,
     index: at,
     previousCurrentStepIdx: runState.currentStepIdx,
