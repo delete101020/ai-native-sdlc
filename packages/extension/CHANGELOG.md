@@ -1,5 +1,34 @@
 # Changelog
 
+## 3.12.0
+
+A finished epic can hand its work forward. Until now only an incident could
+open the epic that follows it; a document pipeline that closes by splitting its
+decisions into pieces of work left a person copying each one into Start Epic.
+
+### Added
+
+- **Open follow-up epics from `followups.json`.** Any step can write
+  `docs/epics/<epic>/followups.json`: one item per piece of work, with its
+  `intent`, `recipe`, `blockedBy` and `dependsOn`. The epic card then offers
+  **Open follow-up epics**, done epics included. The picker pre-selects every
+  item that is neither blocked nor already opened, and asks once before
+  opening either. Each pick is scaffolded at stage 1 as `<parent>-<key>` with
+  `intent.md` already written, and `from_epic` / `follow_up_key` in its
+  `inputs.json`, so the epic list groups the family the way it groups an
+  incident and its fix. A malformed manifest names every problem at once, and
+  one item that fails to open does not stop the rest.
+
+### Fixed
+
+- **A step added after its gate cleared now opens.** `aidlc epic step add` on
+  a run that was already past the approval that would have opened the new
+  step — a finished epic gaining a closing step — left it `pending` with
+  nothing left to approve, and the only way forward was editing the run file
+  and `state.json` by hand. The step now opens the way `advance` would have
+  opened it, and the pointer moves to it unless another step is still in
+  flight. The CLI says which happened.
+
 ## 3.11.2
 
 Two fixes to the epic panel, both found driving a document pipeline, whose
