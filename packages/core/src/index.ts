@@ -141,6 +141,39 @@ export type {
   OpenManifestFollowUpArgs,
   OpenManifestFollowUpResult,
 } from './epics/FollowUps';
+export {
+  FOLLOW_UP_HOOK_KEYS,
+  FOLLOW_UP_HOOK_PLACEHOLDERS,
+  collectFollowUpHookIssues,
+  stepProducesFollowUps,
+} from './schema/FollowUpHookSchema';
+export type { FollowUpHookKey, FollowUpHookIssue } from './schema/FollowUpHookSchema';
+export {
+  FOLLOW_UP_HOOKS_LEDGER,
+  FOLLOW_UP_HOOK_TIMEOUT_MS,
+  epicPipelineId,
+  resolveFollowUpHooks,
+  fillFollowUpHookCommand,
+  runFollowUpHook,
+  followUpHookLedgerPath,
+  readFollowUpHookLedger,
+  writeFollowUpHookLedger,
+  trackFollowUpChildren,
+  applyFollowUpHookRun,
+  pendingFollowUpDone,
+  followUpHookFailures,
+} from './epics/FollowUpHooks';
+export type {
+  FollowUpHooks,
+  FollowUpHookChild,
+  FollowUpHookEvent,
+  FollowUpHookPayload,
+  FollowUpHookRun,
+  RunFollowUpHookArgs,
+  FollowUpHookLedger,
+  FollowUpDoneBySync,
+  LedgerRun,
+} from './epics/FollowUpHooks';
 
 export { collectContext } from './epics/ContextCollector';
 export type { EpicContext } from './epics/ContextCollector';

@@ -24,6 +24,7 @@ import { themeManager } from './v2/themeManager';
 import { registerTokenMonitor } from './v2/tokenMonitor';
 import { registerAidlcMonitor } from './v2/aidlcMonitor';
 import { registerAstGraph } from './v2/astGraph';
+import { registerFollowUpDoneHooks } from './v2/followUpHooks';
 import { installAnnotationTools } from './v2/annotationToolsInstaller';
 import { registerClaudeAccounts } from './v2/claudeAccounts';
 import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './v2/epicsDirSync';
@@ -230,6 +231,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // background, registers it as a Claude MCP server so Claude can read
   // structural code context cheaply instead of grep+read sweeps.
   registerAstGraph(context, output);
+
+  // A follow-up epic reaching done runs its parent's `on_followup_done`, however
+  // it got there — panel, CLI or autopilot all end in a run file / state.json.
+  registerFollowUpDoneHooks(context);
 
   // Auto-open the workspace webview so the user sees the panel immediately.
   // No folder → Epics tab (start epic / load from folder); folder → Builder.

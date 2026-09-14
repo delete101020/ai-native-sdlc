@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Follow-up hooks.** The step that produces `followups.json` can declare
+  `on_followups_opened` and `on_followup_done` in `.aidlc/workspace.yaml`.
+  `on_followups_opened` runs once per batch after **Open follow-up epics**,
+  never once per child, with `{epic}` filled in. `on_followup_done` runs when
+  a child reaches done, however it got there, with `{epic}`, `{child}` and
+  `{key}` filled in. Both are read from the parent's pipeline, never from the
+  child's recipe. A hook runs from the workspace root. It receives
+  `AIDLC_PARENT_EPIC`, `AIDLC_CHILD_EPIC`, `AIDLC_FOLLOW_UP_KEY` and
+  `AIDLC_FOLLOWUPS_PAYLOAD`, a JSON file listing each child with its key,
+  recipe and status. A non-zero exit keeps the epics already opened and shows
+  stderr on the parent's card. The runs are recorded in the parent's
+  `followups-hooks.json`, which is also what keeps the done hook to once per
+  child.
+- **Sync follow-ups** on the parent card re-runs `on_followups_opened` over
+  every child found by `from_epic`. Use it after a failure, or after opening
+  more children from an epic that is already done.
+- A misspelt `on_*` key, an empty command, a hook on a step that does not
+  produce `followups.json`, or a placeholder the hook is not given is now a
+  validation error. Before this change it would have been dropped without a
+  word.
+
 ## 3.12.0
 
 A finished epic can hand its work forward. Until now only an incident could

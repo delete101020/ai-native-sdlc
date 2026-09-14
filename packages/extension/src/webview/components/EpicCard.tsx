@@ -185,6 +185,15 @@ export function EpicCard({
           <span className="shrink-0 font-mono text-xs font-bold text-primary">{epic.id}</span>
           <span className="truncate text-sm text-foreground">{epic.title}</span>
           <EpicLinks fromEpic={fromEpic} followUps={followUps} onNavigate={onNavigate} />
+          {(epic.followUpHookFailures?.length ?? 0) > 0 && (
+            <span
+              title="A follow-up hook failed — expand the card for its error, then Sync follow-ups."
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive"
+            >
+              <AlertTriangle className="h-2.5 w-2.5" />
+              hook failed
+            </span>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <div className="flex items-center gap-1.5">
@@ -333,9 +342,51 @@ export function EpicCard({
             </div>
           )}
 
-          <EpicActions epic={epic} hasInputs={inputKeys.length > 0} activity={activity} />
+          <FollowUpHookFailures epic={epic} />
+          <EpicActions
+            epic={epic}
+            hasInputs={inputKeys.length > 0}
+            activity={activity}
+            followUpCount={followUps.length}
+          />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A follow-up hook that failed, with its stderr. The epics it ran for were
+ * opened and stay opened — what is left is re-running the hook, which a done
+ * epic can only do from Sync follow-ups.
+ */
+function FollowUpHookFailures({ epic }: { epic: EpicSummary }) {
+  const failures = epic.followUpHookFailures ?? [];
+  if (failures.length === 0) { return null; }
+  return (
+    <div className="mb-4 space-y-2.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-destructive">
+        <AlertTriangle className="h-3 w-3" />
+        Follow-up hook failed — the epics it ran for are kept
+      </div>
+      {failures.map((f) => (
+        <div key={`${f.hook}-${f.at}`} className="space-y-1">
+          <div className="font-mono text-[10.5px] text-muted-foreground">
+            {f.hook} · {f.event === 'done' ? f.children.join(', ') : `${f.children.length} follow-up(s)`}
+            {' · '}exit {f.exitCode ?? '—'} · {new Date(f.at).toLocaleString()}
+          </div>
+          <div className="break-all font-mono text-[10.5px] text-muted-foreground">$ {f.command}</div>
+          {f.stderr.trim() && (
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/60 px-2 py-1.5 font-mono text-[10.5px] text-destructive/90">
+              {f.stderr.trim()}
+            </pre>
+          )}
+        </div>
+      ))}
+      <div className="text-[11px] text-muted-foreground">
+        Fix the cause, then press <span className="font-semibold text-foreground">Sync follow-ups</span> to
+        run <span className="font-mono">on_followups_opened</span> again over every follow-up of this epic.
+      </div>
     </div>
   );
 }
@@ -1647,10 +1698,13 @@ function EpicActions({
   epic,
   hasInputs,
   activity,
+  followUpCount,
 }: {
   epic: EpicSummary;
   hasInputs: boolean;
   activity: AgentActivity | null;
+  /** Epics opened from this one. */
+  followUpCount: number;
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   // Deleting an epic out from under a running agent leaves the agent writing
@@ -1705,6 +1759,24 @@ function EpicActions({
         >
           <GitBranchPlus className="h-3 w-3" />
           Open follow-up epics
+        </button>
+      )}
+      {/* A done epic cannot re-run the step that declared the hook, so this is
+          the way to re-run it: after a failure, or after opening more children. */}
+      {(epic.hasFollowUps || followUpCount > 0) && (
+        <button
+          type="button"
+          onClick={() => postMessage({ type: 'syncFollowUps', epicId: epic.id })}
+          title="Run on_followups_opened again over every follow-up epic of this one (found by from_epic)."
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[11px] font-semibold',
+            (epic.followUpHookFailures?.length ?? 0) > 0
+              ? 'border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/20'
+              : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+          )}
+        >
+          <RefreshCw className="h-3 w-3" />
+          Sync follow-ups
         </button>
       )}
       {epic.statePath && (

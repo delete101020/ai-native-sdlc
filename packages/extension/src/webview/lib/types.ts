@@ -663,6 +663,17 @@ export interface EpicSummary {
   /** True when `followups.json` sits in the epic folder — a step handed work
    *  forward, and child epics can be opened from its items. */
   hasFollowUps?: boolean;
+  /** Follow-up hook runs (`on_followups_opened` / `on_followup_done`) that
+   *  failed and no Sync follow-ups has covered yet. Newest first. */
+  followUpHookFailures?: Array<{
+    hook: string;
+    event: string;
+    command: string;
+    exitCode: number | null;
+    stderr: string;
+    at: string;
+    children: string[];
+  }>;
   /** True when this folder has no state.json/pipeline and the summary was
    *  synthesized from the `.md` files in its artifacts/ folder. Steps are a
    *  straight lifecycle-ordered list with no run controls. */
