@@ -207,6 +207,13 @@ import {
   existingEpicIds as epicIdsOnDisk,
   SIGNAL_FILE,
   type Signal,
+  parseFollowUps,
+  readEpicFollowUps,
+  followUpsOf,
+  followUpChildId,
+  openManifestFollowUp,
+  FOLLOW_UPS_FILE,
+  type FollowUpItem,
   installAnnotationTools,
   epicOwningPipeline,
   setEpicMemoryHook,
@@ -279,34 +286,6 @@ const CLAUDE_TERMINAL_NAME = 'AIDLC · Claude';
  */
 const INCIDENT_RECIPE = 'native-incident';
 const FOLLOW_UP_RECIPE = 'native-fix';
-
-/**
- * Epics already opened from `incidentEpicId`, newest last.
- *
- * Matched on `from_epic` in inputs.json — the provenance `openFollowUpEpic`
- * writes — rather than on the `<incident>-FIX` id shape. The id is a naming
- * convenience the user is free to override at creation time; the input is the
- * actual edge, and it is what the UI draws the link from.
- */
-function followUpsOfIncident(
-  root: string,
-  doc: { state?: unknown } | null,
-  incidentEpicId: string,
-): string[] {
-  const dir = epicsRoot(root, doc);
-  const out: string[] = [];
-  for (const id of epicIdsOnDisk(root, doc)) {
-    const file = path.join(dir, id, 'inputs.json');
-    if (!fs.existsSync(file)) { continue; }
-    try {
-      const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { from_epic?: unknown };
-      if (String(parsed.from_epic ?? '') === incidentEpicId) { out.push(id); }
-    } catch {
-      // A hand-edited inputs.json is the user's business; it just cannot be a link.
-    }
-  }
-  return out;
-}
 
 /**
  * Open (or reuse) the Claude REPL terminal and run `slash` immediately.
@@ -517,6 +496,8 @@ interface EpicSummaryUi {
   strictMode: boolean;
   /** True when `signal.json` sits in the epic folder — an incident epic. */
   hasSignal: boolean;
+  /** True when `followups.json` sits in the epic folder — work handed forward. */
+  hasFollowUps: boolean;
   createdAt: string;
   /** True for folders with no state.json/pipeline, synthesized from artifacts. */
   artifactsOnly?: boolean;
@@ -1056,6 +1037,9 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     // Cheap and exact: the file core writes is the only marker of an incident
     // epic — the pipeline id is generated per epic and the recipe is not stored.
     hasSignal: fs.existsSync(path.join(epicDir, SIGNAL_FILE)),
+    // Existence only — the manifest is parsed when the button is pressed, where
+    // a malformed one can say what is wrong instead of hiding the button.
+    hasFollowUps: fs.existsSync(path.join(epicDir, FOLLOW_UPS_FILE)),
     createdAt: e.createdAt,
     strictMode: e.strictMode,
     artifactsOnly: e.artifactsOnly,
@@ -2383,6 +2367,12 @@ export class WorkspaceWebview {
         const epicId = String(msg.epicId ?? '').trim();
         if (!epicId) { return; }
         await this.openFollowUp(epicId);
+        return;
+      }
+      case 'openManifestFollowUps': {
+        const epicId = String(msg.epicId ?? '').trim();
+        if (!epicId) { return; }
+        await this.openManifestFollowUps(epicId);
         return;
       }
       case 'classifyBrief': {
@@ -4048,7 +4038,7 @@ export class WorkspaceWebview {
     // pieces of work. A second click on the same button two minutes later is not
     // that case, and the old dialog read identically in both. Name the epics
     // that already exist and make the user say "another".
-    const priors = followUpsOfIncident(root, doc0, incidentEpicId);
+    const priors = followUpsOf(root, doc0, incidentEpicId).map((f) => f.epicId);
     const epicId = followUpIdFor(incidentEpicId, epicIdsOnDisk(root, doc0));
 
     let recipeId = FOLLOW_UP_RECIPE;
@@ -4136,6 +4126,144 @@ export class WorkspaceWebview {
           void vscode.window.showTextDocument(vscode.Uri.file(result.intentPath));
         }
       });
+  }
+
+  /**
+   * True once `recipeId` is defined in workspace.yaml — materializing the
+   * built-in workflow that declares it when the workspace does not have it yet.
+   */
+  private ensureRecipeInWorkspace(root: string, recipeId: string): boolean {
+    const existing = readYaml(root) as { recipes?: Array<{ id?: unknown }> } | null;
+    if (Array.isArray(existing?.recipes) && existing.recipes.some((r) => String(r.id) === recipeId)) {
+      return true;
+    }
+    const wf = BUILTIN_WORKFLOWS.find((w) => (w.recipes ?? []).some((r) => r.id === recipeId));
+    if (!wf) { return false; }
+    this.ensureBuiltinInWorkspace(root, wf);
+    return true;
+  }
+
+  /**
+   * Open child epics from the work an epic handed forward in `followups.json`.
+   *
+   * The step that wrote the manifest already decided what the work is and wrote
+   * each intent; what is left for a person is *which* to start now. So the
+   * picker pre-selects everything that is neither blocked nor already opened,
+   * and asks once — not per item — before opening anything that is.
+   *
+   * Items are opened one at a time and a failure skips only that item: five
+   * epics opened and one refused is a better outcome than none, as long as the
+   * refusal is named.
+   */
+  private async openManifestFollowUps(parentEpicId: string): Promise<void> {
+    const root = this.getRootOrWarn();
+    if (!root) { return; }
+
+    const doc0 = readYaml(root);
+    const raw = readEpicFollowUps(root, doc0, parentEpicId);
+    if (!raw) {
+      void vscode.window.showWarningMessage(`AIDLC: "${parentEpicId}" has no ${FOLLOW_UPS_FILE}.`);
+      return;
+    }
+    let items: FollowUpItem[];
+    try {
+      items = parseFollowUps(raw).items;
+    } catch (err) {
+      void vscode.window.showWarningMessage(`AIDLC: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+
+    const opened = new Map<string, string[]>();
+    for (const f of followUpsOf(root, doc0, parentEpicId)) {
+      if (!f.key) { continue; }
+      const k = f.key.toUpperCase();
+      opened.set(k, [...(opened.get(k) ?? []), f.epicId]);
+    }
+    const openedAs = (item: FollowUpItem) => opened.get(item.key.toUpperCase()) ?? [];
+
+    type Row = vscode.QuickPickItem & { item: FollowUpItem };
+    const rows: Row[] = items.map((item) => {
+      const already = openedAs(item);
+      const tags = [
+        item.recipe ?? FOLLOW_UP_RECIPE,
+        already.length > 0 ? `opened as ${already.join(', ')}` : '',
+        item.dependsOn.length > 0 ? `after ${item.dependsOn.join(', ')}` : '',
+      ].filter(Boolean);
+      return {
+        label: `${already.length > 0 ? '$(check) ' : item.blockedBy ? '$(warning) ' : ''}${item.key} — ${item.title}`,
+        description: tags.join(' · '),
+        detail: item.blockedBy ? `Blocked: ${item.blockedBy}` : undefined,
+        picked: already.length === 0 && !item.blockedBy,
+        item,
+      };
+    });
+
+    const chosen = await vscode.window.showQuickPick(rows, {
+      canPickMany: true,
+      title: `Follow-up epics of ${parentEpicId}`,
+      placeHolder: 'Each picked item opens as an epic at stage 1, with its intent.md already written.',
+      matchOnDescription: true,
+      matchOnDetail: true,
+    });
+    if (!chosen || chosen.length === 0) { return; }
+
+    const risky = chosen.filter((r) => r.item.blockedBy || openedAs(r.item).length > 0);
+    if (risky.length > 0) {
+      const detail = risky.map((r) => {
+        const why = [
+          openedAs(r.item).length > 0 ? `already opened as ${openedAs(r.item).join(', ')}` : '',
+          r.item.blockedBy ? `blocked — ${r.item.blockedBy}` : '',
+        ].filter(Boolean).join('; ');
+        return `${r.item.key}: ${why}`;
+      }).join('\n');
+      const ok = await vscode.window.showWarningMessage(
+        `${risky.length} of the picked follow-ups ${risky.length === 1 ? 'is' : 'are'} blocked or already opened. Open anyway?`,
+        { modal: true, detail },
+        'Open anyway',
+      );
+      if (!ok) { return; }
+    }
+
+    const done: Array<{ epicId: string; intentPath: string }> = [];
+    const failed: string[] = [];
+    for (const { item } of chosen) {
+      const recipeId = item.recipe ?? FOLLOW_UP_RECIPE;
+      if (!this.ensureRecipeInWorkspace(root, recipeId)) {
+        failed.push(`${item.key}: recipe "${recipeId}" is not defined`);
+        continue;
+      }
+      const epicId = followUpChildId(parentEpicId, item.key, epicIdsOnDisk(root, readYaml(root)));
+      const pipelineId = this.assembleRecipeForEpic(root, recipeId, epicId);
+      const doc = pipelineId ? readYaml(root) : null;
+      const pipeline = (doc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
+      if (!doc || !pipeline) {
+        failed.push(`${item.key}: no pipeline could be assembled from "${recipeId}"`);
+        continue;
+      }
+      try {
+        const r = openManifestFollowUp({ workspaceRoot: root, doc, parentEpicId, item, pipeline, epicId });
+        done.push({ epicId: r.epicId, intentPath: r.intentPath });
+      } catch (err) {
+        failed.push(`${item.key}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    this.refresh();
+    if (failed.length > 0) {
+      void vscode.window.showWarningMessage(`AIDLC: ${failed.length} follow-up(s) not opened — ${failed.join('; ')}`);
+    }
+    if (done.length > 0) {
+      void vscode.window
+        .showInformationMessage(
+          `Opened ${done.map((d) => d.epicId).join(', ')} at stage 1 — review each intent before specifying anything from it.`,
+          'Open intent.md',
+        )
+        .then((choice) => {
+          if (choice === 'Open intent.md') {
+            void vscode.window.showTextDocument(vscode.Uri.file(done[0].intentPath));
+          }
+        });
+    }
   }
 
   /**

@@ -121,6 +121,27 @@ export type {
   RenderIntentOptions,
 } from './maintain/IncidentLoop';
 
+// ── Follow-up manifests: any finished epic handing work forward ─────
+export {
+  FollowUpItemSchema,
+  FollowUpManifestSchema,
+  FollowUpsParseError,
+  parseFollowUps,
+  readEpicFollowUps,
+  followUpsOf,
+  followUpChildId,
+  openManifestFollowUp,
+  FOLLOW_UPS_FILE,
+  FOLLOW_UP_INTENT,
+} from './epics/FollowUps';
+export type {
+  FollowUpItem,
+  FollowUpManifest,
+  OpenedFollowUp,
+  OpenManifestFollowUpArgs,
+  OpenManifestFollowUpResult,
+} from './epics/FollowUps';
+
 export { collectContext } from './epics/ContextCollector';
 export type { EpicContext } from './epics/ContextCollector';
 export { generatePlan, renderPlanMarkdown } from './epics/PlanGenerator';

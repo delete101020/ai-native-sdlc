@@ -112,7 +112,7 @@ interface Props {
   activity?: AgentActivity | null;
   /** The incident this epic was opened from (`from_epic` in inputs.json). */
   fromEpic?: string | null;
-  /** Epics opened from this one. Non-empty only on an incident epic. */
+  /** Epics opened from this one — an incident's fix, or a manifest's children. */
   followUps?: string[];
   /** Jump the list to another epic — expands it, scrolls to it, highlights it. */
   onNavigate?: (epicId: string) => void;
@@ -1692,6 +1692,19 @@ function EpicActions({
         >
           <GitBranchPlus className="h-3 w-3" />
           Open follow-up epic
+        </button>
+      )}
+      {/* Any step can hand work forward by writing followups.json. Shown on a
+          done epic too — that is where a closing step leaves it. */}
+      {epic.hasFollowUps && (
+        <button
+          type="button"
+          onClick={() => postMessage({ type: 'openManifestFollowUps', epicId: epic.id })}
+          title="Open epics from the work this epic handed forward (followups.json) — pick which; each starts at stage 1 with its intent already written."
+          className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-[11px] font-semibold text-primary hover:border-primary/60 hover:bg-primary/20"
+        >
+          <GitBranchPlus className="h-3 w-3" />
+          Open follow-up epics
         </button>
       )}
       {epic.statePath && (
