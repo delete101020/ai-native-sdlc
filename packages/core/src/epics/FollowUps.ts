@@ -27,9 +27,11 @@ import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { stepAgentId } from '../schema/WorkspaceSchema';
 import { scaffoldEpic, epicsRoot, EpicScaffoldError } from '../runs/EpicScaffold';
 import type { ScaffoldEpicResult } from '../runs/EpicScaffold';
+import { FOLLOW_UPS_FILE } from '../schema/FollowUpHookSchema';
 
-/** Where a step parks the manifest inside the parent epic. */
-export const FOLLOW_UPS_FILE = 'followups.json';
+// Defined beside the hook schema, which has to recognise the manifest's step
+// without importing this module (and, through it, the scaffold).
+export { FOLLOW_UPS_FILE };
 
 /** The artifact each child starts with — stage 1, reviewed by a human like any other intent. */
 export const FOLLOW_UP_INTENT = 'intent.md';

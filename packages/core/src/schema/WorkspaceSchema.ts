@@ -13,6 +13,8 @@
 
 import { z } from 'zod';
 
+import { collectFollowUpHookIssues } from './FollowUpHookSchema';
+
 // ── Skills ─────────────────────────────────────────────────────────
 
 const SkillSchema = z
@@ -169,6 +171,14 @@ const PipelineStepObjectSchema = z
     auto_review_timeout_ms: z.number().int().positive().optional(),
     /** When true, the runner pauses for human approval before advancing. */
     human_review: z.boolean().default(false),
+    /**
+     * Command run once after a batch of follow-up epics is opened from the
+     * `followups.json` this step produces. See `schema/FollowUpHookSchema.ts`,
+     * which also rejects misspelt `on_*` keys that Zod would otherwise strip.
+     */
+    on_followups_opened: z.string().optional(),
+    /** Command run when one follow-up epic of this step's manifest reaches done. */
+    on_followup_done: z.string().optional(),
     /**
      * Git behavior for branch-artifact steps (e.g., implement). Controls whether
      * the step creates a feature branch, pushes to origin, and opens a PR.
@@ -738,14 +748,22 @@ export class WorkspaceValidationError extends Error {
  */
 export function validateWorkspace(raw: unknown, path: string): WorkspaceConfig {
   const result = WorkspaceSchema.safeParse(raw);
-  if (!result.success) {
-    const summary = result.error.issues
+  // Against the raw document: the parsed one has already lost any unknown key.
+  const hookIssues: z.core.$ZodIssue[] = collectFollowUpHookIssues(raw).map((i) => ({
+    code: 'custom',
+    path: i.path.split('.'),
+    message: i.message,
+    input: undefined,
+  }));
+  if (!result.success || hookIssues.length > 0) {
+    const issues = [...(result.success ? [] : result.error.issues), ...hookIssues];
+    const summary = issues
       .slice(0, 5)
       .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
       .join('\n');
     throw new WorkspaceValidationError(
       `Invalid workspace.yaml:\n${summary}`,
-      result.error.issues,
+      issues,
       path,
     );
   }

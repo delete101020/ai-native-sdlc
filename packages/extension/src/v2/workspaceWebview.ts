@@ -214,6 +214,9 @@ import {
   openManifestFollowUp,
   FOLLOW_UPS_FILE,
   type FollowUpItem,
+  FOLLOW_UP_HOOKS_LEDGER,
+  followUpHookFailures as hookFailuresOf,
+  type FollowUpHookLedger,
   installAnnotationTools,
   epicOwningPipeline,
   setEpicMemoryHook,
@@ -271,6 +274,7 @@ import { missingBundleHtml } from './webviewBundleGuard';
 import { writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
 import { agentActivity, type AgentActivityMap } from './agentActivity';
 import { execRunToCompletion } from './execRun';
+import { runFollowUpsOpened, syncFollowUps, onDidRecordFollowUpHook } from './followUpHooks';
 
 // ── Shared helper: open/reuse the Claude terminal and send a slash command ───
 
@@ -498,6 +502,8 @@ interface EpicSummaryUi {
   hasSignal: boolean;
   /** True when `followups.json` sits in the epic folder — work handed forward. */
   hasFollowUps: boolean;
+  /** Follow-up hook runs that failed and no sync has covered yet. */
+  followUpHookFailures?: FollowUpHookFailureUi[];
   createdAt: string;
   /** True for folders with no state.json/pipeline, synthesized from artifacts. */
   artifactsOnly?: boolean;
@@ -972,6 +978,34 @@ async function mergeEpicTokenUsageInto(state: WorkspaceState): Promise<void> {
   }
 }
 
+interface FollowUpHookFailureUi {
+  hook: string;
+  event: string;
+  command: string;
+  exitCode: number | null;
+  stderr: string;
+  at: string;
+  children: string[];
+}
+
+/** Failed follow-up hook runs recorded beside a parent epic, or undefined. */
+function readHookFailures(epicDir: string): FollowUpHookFailureUi[] | undefined {
+  const file = path.join(epicDir, FOLLOW_UP_HOOKS_LEDGER);
+  if (!fs.existsSync(file)) { return undefined; }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<FollowUpHookLedger>;
+    const failures = hookFailuresOf({ version: 1, children: {}, ...parsed, done: parsed.done ?? {} });
+    return failures.length > 0
+      ? failures.map((f) => ({
+          hook: f.hook, event: f.event, command: f.command, exitCode: f.exitCode,
+          stderr: f.stderr, at: f.at, children: f.children ?? [],
+        }))
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
   const total = e.stepDetails.length || 1;
   const done = e.stepDetails.filter((s) => s.status === 'done').length;
@@ -1040,6 +1074,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     // Existence only — the manifest is parsed when the button is pressed, where
     // a malformed one can say what is wrong instead of hiding the button.
     hasFollowUps: fs.existsSync(path.join(epicDir, FOLLOW_UPS_FILE)),
+    followUpHookFailures: readHookFailures(epicDir),
     createdAt: e.createdAt,
     strictMode: e.strictMode,
     artifactsOnly: e.artifactsOnly,
@@ -1584,6 +1619,8 @@ export class WorkspaceWebview {
     // Not a file change, but the same kind of event as far as the panel is
     // concerned: something moved and the epic card is now out of date.
     this.disposables.push(agentActivity.onDidChange(() => this.refresh()));
+    // A hook result lands in the parent's ledger, which no file watcher covers.
+    this.disposables.push(onDidRecordFollowUpHook(() => this.refresh()));
 
     this.refresh();
   }
@@ -2373,6 +2410,13 @@ export class WorkspaceWebview {
         const epicId = String(msg.epicId ?? '').trim();
         if (!epicId) { return; }
         await this.openManifestFollowUps(epicId);
+        return;
+      }
+      case 'syncFollowUps': {
+        const epicId = String(msg.epicId ?? '').trim();
+        const root = epicId ? this.getRootOrWarn() : undefined;
+        if (!epicId || !root) { return; }
+        await syncFollowUps(root, epicId, FOLLOW_UP_RECIPE);
         return;
       }
       case 'classifyBrief': {
@@ -4224,7 +4268,7 @@ export class WorkspaceWebview {
       if (!ok) { return; }
     }
 
-    const done: Array<{ epicId: string; intentPath: string }> = [];
+    const done: Array<{ epicId: string; intentPath: string; key: string; recipe: string }> = [];
     const failed: string[] = [];
     for (const { item } of chosen) {
       const recipeId = item.recipe ?? FOLLOW_UP_RECIPE;
@@ -4242,13 +4286,23 @@ export class WorkspaceWebview {
       }
       try {
         const r = openManifestFollowUp({ workspaceRoot: root, doc, parentEpicId, item, pipeline, epicId });
-        done.push({ epicId: r.epicId, intentPath: r.intentPath });
+        done.push({ epicId: r.epicId, intentPath: r.intentPath, key: item.key, recipe: recipeId });
       } catch (err) {
         failed.push(`${item.key}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
     this.refresh();
+    // Once for the batch, never per child: children of one parent usually share
+    // whatever the hook writes. Its failure does not undo the epics just opened.
+    if (done.length > 0) {
+      void runFollowUpsOpened(
+        root,
+        parentEpicId,
+        done.map((d) => ({ follow_up_key: d.key, epic: d.epicId, recipe: d.recipe })),
+        'opened',
+      );
+    }
     if (failed.length > 0) {
       void vscode.window.showWarningMessage(`AIDLC: ${failed.length} follow-up(s) not opened — ${failed.join('; ')}`);
     }
