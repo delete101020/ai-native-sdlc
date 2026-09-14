@@ -617,6 +617,9 @@ function SectionHeader({
   );
 }
 
+/** Active runs shown before "Show N more"; matches Recent Epics' three. */
+const ACTIVE_RUNS_LIMIT = 3;
+
 /**
  * Pipeline runs with `status === 'running'`.
  *
@@ -640,6 +643,16 @@ function ActiveRunsSection({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const [showAll, setShowAll] = useState(false);
+  // Every running epic is an active run, so a busy workspace turned this into
+  // the whole sidebar. The host lists runs most recently updated first; runs
+  // with an agent on them still lead, since those are the ones to watch.
+  const ordered = [...runs].sort(
+    (a, b) => Number(!!activity[b.runId]) - Number(!!activity[a.runId]),
+  );
+  const shown = showAll ? ordered : ordered.slice(0, ACTIVE_RUNS_LIMIT);
+  const hidden = ordered.length - shown.length;
+
   return (
     <div>
       <SectionHeader
@@ -652,9 +665,18 @@ function ActiveRunsSection({
       />
       {!collapsed && (
         <div className="mt-1.5 space-y-1.5">
-          {runs.map((r) => (
+          {shown.map((r) => (
             <ActiveRunCard key={r.runId} run={r} activity={activity[r.runId] ?? null} />
           ))}
+          {ordered.length > ACTIVE_RUNS_LIMIT && (
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              className="w-full rounded-md py-1 text-center text-[10px] text-muted-foreground hover:bg-accent hover:text-primary"
+            >
+              {showAll ? 'Show less' : `Show ${hidden} more`}
+            </button>
+          )}
         </div>
       )}
     </div>
