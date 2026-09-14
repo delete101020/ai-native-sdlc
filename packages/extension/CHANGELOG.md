@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 3.13.0
+
+Opening follow-up epics no longer ends at scaffolding them. A workspace that
+keeps something in step with the handed-forward work, such as a shared handoff
+document or a tracker, can now let a command of its own do that when the
+children open and again as each one finishes.
 
 ### Added
 
