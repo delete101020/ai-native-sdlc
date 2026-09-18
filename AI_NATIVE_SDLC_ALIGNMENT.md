@@ -286,7 +286,7 @@ its source, and can be built against the schema above.
 > so others can use the build and nobody has to rebuild to update. That meets the
 > reopen condition recorded for W4.2 in §12, so W4.2 is done now, before the
 > first listing, while no installed base exists to break. Decisions: display name
-> **AIDLC Native** (the Marketplace rejects a second "AIDLC"); commands, settings
+> **AIDLC Native** (the Marketplace rejects a second "AIDLC"), and extension `name` `aidlc-native`, since Marketplace names are global too, so the id is `delete101020.aidlc-native`; commands, settings
 > and views move to `aidlcNative.*` with a one-time settings copy; the CLI ships
 > as `@delete101020/aidlc` (upstream owns `aidlc` on npm) with the command still
 > `aidlc`; Open VSX is in scope because Antigravity installs from it. Releases

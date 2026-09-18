@@ -2,7 +2,7 @@
 
 AIDLC Native is a fork of [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc) by
 hueanmy, extended with the AI-Native SDLC Playbook. It ships as the extension
-`delete101020.aidlc` (VS Code Marketplace and Open VSX) and the CLI
+`delete101020.aidlc-native` (VS Code Marketplace and Open VSX) and the CLI
 `@delete101020/aidlc` (npm).
 
 Read it end to end the first time. Steps 1–4 are setup and take about ten
@@ -25,7 +25,7 @@ VSCodium, Windsurf). A workspace **folder** — single-file mode is not supporte
 Search for **AIDLC Native** in the Extensions view and install it, or:
 
 ```sh
-code --install-extension delete101020.aidlc
+code --install-extension delete101020.aidlc-native
 ```
 
 Every command and setting is under `aidlcNative.*` (palette category **AIDLC
@@ -58,8 +58,8 @@ cd ai-native-sdlc
 pnpm install
 pnpm -r compile
 
-pnpm package:extension                                        # → packages/extension/aidlc-<version>.vsix
-code --install-extension packages/extension/aidlc-<version>.vsix --force
+pnpm package:extension                                        # → packages/extension/aidlc-native-<version>.vsix
+code --install-extension packages/extension/aidlc-native-<version>.vsix --force
 
 cd packages/cli && pnpm bundle && npm link
 aidlc --version

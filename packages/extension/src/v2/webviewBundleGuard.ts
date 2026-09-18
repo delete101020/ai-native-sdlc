@@ -41,8 +41,8 @@ export function missingBundleHtml(
 <p>The compiled bundle <code>out/webviews/${bundleName}</code> wasn't found, so the React UI can't mount.</p>
 <p>Rebuild it from the repo root with one of:</p>
 <ul>
-  <li><code>pnpm --filter aidlc bundle:webviews</code> — one-shot Vite build</li>
-  <li><code>pnpm --filter aidlc watch</code> — tsc + Vite watch in parallel (recommended for dev)</li>
+  <li><code>pnpm --filter aidlc-native bundle:webviews</code> — one-shot Vite build</li>
+  <li><code>pnpm --filter aidlc-native watch</code> — tsc + Vite watch in parallel (recommended for dev)</li>
 </ul>
 <p class="hint">This typically happens after <code>pnpm clean:out</code> or when only <code>tsc</code> ran. Reload the VS Code window once the rebuild finishes.</p>
 </body>

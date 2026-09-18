@@ -3,14 +3,14 @@
 **AI-Native SDLC pipeline runner. Drive Claude through the six-stage AI-Native SDLC Playbook — Plan → Design → Build → Test → Deploy → Maintain, with Maintain looping back to Plan. See what Claude is building, control every step, track every token.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](LICENSE)
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/delete101020.aidlc?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=delete101020.aidlc)
-[![Open VSX](https://img.shields.io/open-vsx/v/delete101020/aidlc?label=Open%20VSX)](https://open-vsx.org/extension/delete101020/aidlc)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/delete101020.aidlc-native?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=delete101020.aidlc-native)
+[![Open VSX](https://img.shields.io/open-vsx/v/delete101020/aidlc-native?label=Open%20VSX)](https://open-vsx.org/extension/delete101020/aidlc-native)
 [![npm](https://img.shields.io/npm/v/@delete101020/aidlc?label=npm)](https://www.npmjs.com/package/@delete101020/aidlc)
 
 > **This is a fork.** Upstream is [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc)
 > by [hueanmy](https://github.com/hueanmy), published on the Marketplace as
 > `hueanmy.aidlc`. This fork ships separately as **AIDLC Native** — extension
-> `delete101020.aidlc`, CLI `@delete101020/aidlc` ([Install](#install-this-build)) —
+> `delete101020.aidlc-native`, CLI `@delete101020/aidlc` ([Install](#install-this-build)) —
 > and is not affiliated with or endorsed by the upstream author.
 > What it adds on top of upstream is the **AI-Native SDLC Playbook** workflow; see
 > [`AI_NATIVE_SDLC_ALIGNMENT.md`](AI_NATIVE_SDLC_ALIGNMENT.md) for the full record of
@@ -109,7 +109,7 @@ The mirror image runs at the **start** of a phase: a **discovery gate**. When th
 
 | Package | Path | Purpose |
 |---|---|---|
-| [`aidlc`](packages/extension/) (extension) | `packages/extension/` | VS Code extension. Builder UI for `workspace.yaml`, sidebar for active runs, run-state commands, and the **AIDLC Monitor** (token usage + session insights + live agent observability). Published as `delete101020.aidlc` (see [Install this build](#install-this-build)). |
+| [`aidlc-native`](packages/extension/) (extension) | `packages/extension/` | VS Code extension. Builder UI for `workspace.yaml`, sidebar for active runs, run-state commands, and the **AIDLC Monitor** (token usage + session insights + live agent observability). Published as `delete101020.aidlc-native` (see [Install this build](#install-this-build)). |
 | [`@aidlc/core`](packages/core/) | `packages/core/` | Pure-TypeScript engine: Zod schema, workspace loader, runner registry (`DefaultRunner` shells out to `claude`), pipeline state machine. **No `import 'vscode'`** — runs identically in CLI / tests / cloud. |
 | [`aidlc`](packages/cli/) (CLI) | `packages/cli/` | Standalone terminal CLI. Manages `workspace.yaml`, drives runs end-to-end via Claude, no VS Code required. See [packages/cli/README.md](packages/cli/README.md). |
 
@@ -330,11 +330,11 @@ single-machine. The default file backend is unchanged; git is fully opt-in.
 **The extension** — search for **AIDLC Native** in the Extensions view, or:
 
 ```sh
-code --install-extension delete101020.aidlc
+code --install-extension delete101020.aidlc-native
 ```
 
 VS Code installs it from the Marketplace; Antigravity, Cursor and VSCodium from
-[Open VSX](https://open-vsx.org/extension/delete101020/aidlc). Every command and
+[Open VSX](https://open-vsx.org/extension/delete101020/aidlc-native). Every command and
 setting lives under `aidlcNative.*`, so it runs next to the upstream
 `hueanmy.aidlc` without either one taking over the other's commands.
 
@@ -353,8 +353,8 @@ To run unreleased changes. **The extension:**
 
 ```sh
 pnpm install
-pnpm package:extension                                  # → packages/extension/aidlc-4.0.0.vsix
-code --install-extension packages/extension/aidlc-4.0.0.vsix
+pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.0.vsix
+code --install-extension packages/extension/aidlc-native-4.0.0.vsix
 ```
 
 Reload the window afterwards. A `.vsix` installs over the Marketplace copy (same

@@ -59,10 +59,10 @@ user explicitly saying so.
 pnpm package:extension
 ```
 
-This produces `packages/extension/aidlc-<version>.vsix`. Then:
+This produces `packages/extension/aidlc-native-<version>.vsix`. Then:
 
 ```
-code --install-extension packages/extension/aidlc-<version>.vsix --force
+code --install-extension packages/extension/aidlc-native-<version>.vsix --force
 ```
 
 `--force` is what makes a re-install over the same version work; without it
@@ -74,7 +74,7 @@ Verify it landed:
 code --list-extensions --show-versions | grep -i aidlc
 ```
 
-Expect `delete101020.aidlc@<version>`. The upstream `hueanmy.aidlc` may also be
+Expect `delete101020.aidlc-native@<version>`. The upstream `hueanmy.aidlc` may also be
 listed; since 4.0.0 that is fine — this build's ids are all `aidlcNative.*`.
 
 Tell the user to reload the window (**Developer: Reload Window**); an installed

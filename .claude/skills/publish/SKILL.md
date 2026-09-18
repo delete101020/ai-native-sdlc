@@ -12,8 +12,8 @@ release tag — there is no release workflow, on purpose.
 
 | Channel | How it gets there | Listing |
 |---|---|---|
-| VS Code Marketplace | **The user** uploads the `.vsix` at marketplace.visualstudio.com/manage | https://marketplace.visualstudio.com/items?itemName=delete101020.aidlc |
-| Open VSX (Antigravity, Cursor, VSCodium) | `ovsx publish` with `$OVSX_PAT` | https://open-vsx.org/extension/delete101020/aidlc |
+| VS Code Marketplace | **The user** uploads the `.vsix` at marketplace.visualstudio.com/manage | https://marketplace.visualstudio.com/items?itemName=delete101020.aidlc-native |
+| Open VSX (Antigravity, Cursor, VSCodium) | `ovsx publish` with `$OVSX_PAT` | https://open-vsx.org/extension/delete101020/aidlc-native |
 | npm | `pnpm publish`, run by **the user** (2FA prompt) | https://www.npmjs.com/package/@delete101020/aidlc |
 
 Every step is mandatory; stop and report if any step fails — do NOT continue
@@ -67,7 +67,7 @@ Edit, by hand:
   `### Breaking` heading with what the user has to do. The Marketplace shows
   this file on the listing's Changelog tab.
 - `README.md` → the version in the source-build example
-  (`aidlc-<version>.vsix`, `aidlc --version  # <version>`).
+  (`aidlc-native-<version>.vsix`, `aidlc --version  # <version>`).
 
 ```
 git add packages/extension/package.json packages/cli/package.json packages/extension/CHANGELOG.md README.md
@@ -84,11 +84,11 @@ tagged commit:
 
 ```
 test "$(git rev-parse HEAD)" = "$(git rev-parse v<new-version>^{commit})"
-pnpm package:extension          # → packages/extension/aidlc-<new-version>.vsix
+pnpm package:extension          # → packages/extension/aidlc-native-<new-version>.vsix
 ```
 
 Check the `.vsix` exists, and that
-`unzip -p packages/extension/aidlc-<new-version>.vsix extension/package.json`
+`unzip -p packages/extension/aidlc-native-<new-version>.vsix extension/package.json`
 shows `"version": "<new-version>"` and `"displayName": "AIDLC Native"`.
 
 ## 6. Confirm, then push
@@ -104,7 +104,7 @@ git push origin main v<new-version>
 ## 7. Open VSX
 
 ```
-npx --yes ovsx@0.10 publish packages/extension/aidlc-<new-version>.vsix -p "$OVSX_PAT" --skip-duplicate
+npx --yes ovsx@0.10 publish packages/extension/aidlc-native-<new-version>.vsix -p "$OVSX_PAT" --skip-duplicate
 ```
 
 ## 8. npm — the user runs it
@@ -134,7 +134,7 @@ When they report back, confirm it is live:
 ```
 curl -s -X POST 'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery' \
   -H 'Content-Type: application/json' -H 'Accept: application/json;api-version=7.1-preview.1' \
-  -d '{"filters":[{"criteria":[{"filterType":7,"value":"delete101020.aidlc"}]}],"flags":1}'
+  -d '{"filters":[{"criteria":[{"filterType":7,"value":"delete101020.aidlc-native"}]}],"flags":1}'
 ```
 
 The first entry under `versions` should be `<new-version>`. If it is still

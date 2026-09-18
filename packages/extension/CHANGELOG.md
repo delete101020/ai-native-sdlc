@@ -9,6 +9,10 @@ extensions can be installed side by side.
 
 ### Breaking
 
+- The extension id is now `delete101020.aidlc-native`. Marketplace extension
+  names are global, and `aidlc` belongs to the upstream extension. If you
+  installed an earlier `delete101020.aidlc` from a `.vsix`, uninstall it. Your
+  settings live in `settings.json` and carry over.
 - Commands and settings moved from `aidlc.*` to `aidlcNative.*`, and the
   palette category is now **AIDLC Native**. On first activation your `aidlc.*`
   settings (user, workspace and folder) are copied to the new keys, and the

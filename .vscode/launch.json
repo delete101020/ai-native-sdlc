@@ -8,7 +8,7 @@
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}/packages/extension",
         "--disable-extension=hueanmy.aidlc",
-        "--disable-extension=delete101020.aidlc",
+        "--disable-extension=delete101020.aidlc-native",
         "${workspaceFolder}"
       ],
       "outFiles": [

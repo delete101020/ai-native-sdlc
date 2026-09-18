@@ -18,7 +18,7 @@ AIDLC is an AI-driven SDLC + agent workflow runner. It drives Claude through a
 pipeline you declare in \`.aidlc/workspace.yaml\`, tracking every run, step, and
 token. It has two surfaces that share the same files on disk (no daemon):
 
-- **VS Code extension** — **AIDLC Native** (\`delete101020.aidlc\`, on the VS Code
+- **VS Code extension** — **AIDLC Native** (\`delete101020.aidlc-native\`, on the VS Code
   Marketplace and Open VSX; commands and settings under \`aidlcNative.*\`) — a
   visual Builder for workspace.yaml,
   a sidebar launcher, epic/run tracking, and the **AIDLC Monitor** (token usage,
@@ -76,7 +76,7 @@ the other within ~200ms.
 
 ## VS Code extension setup & UI
 1. Install **AIDLC Native** from the Extensions view (Marketplace in VS Code, Open VSX
-   in Antigravity / Cursor / VSCodium), or \`code --install-extension delete101020.aidlc\`.
+   in Antigravity / Cursor / VSCodium), or \`code --install-extension delete101020.aidlc-native\`.
    CLI: \`npm install -g @delete101020/aidlc\` (the command is \`aidlc\`).
 2. Ensure \`claude\` is on PATH and authenticated (the sidebar surfaces MCP/claude state).
 3. Open a project folder. The **AIDLC** sidebar (activity bar) shows:

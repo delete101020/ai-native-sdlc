@@ -15,7 +15,7 @@
     "compile": "pnpm -r compile",
     "build": "pnpm -r build",
     "clean": "pnpm -r clean && rm -rf node_modules",
-    "package:extension": "pnpm --filter aidlc package",
+    "package:extension": "pnpm --filter aidlc-native package",
     "test": "pnpm --filter @aidlc/core test",
     "aidlc": "node packages/cli/dist/index.js"
   },
