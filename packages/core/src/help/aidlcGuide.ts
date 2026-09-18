@@ -97,8 +97,12 @@ the other within ~200ms.
      **Plan** (\`ata plan <target>\`) and **Run** (\`ata run <target>\`) buttons;
      **Validate all** runs \`ata validate\`. If no config exists, the tab prompts
      **Run ata config** to generate one.
-7. The extension auto-registers an **ast-graph** MCP server so Claude can read
-   structural code context cheaply (toggle via \`aidlc.astGraph.enabled\`).
+7. The extension auto-registers a code-graph MCP server so Claude can read
+   structural code context cheaply (toggle via \`aidlc.astGraph.enabled\`). The
+   engine is **ast-graph** by default; set \`aidlc.astGraph.engine\` to
+   \`codegraph\` for CodeGraph, which syncs changed files itself and suits large
+   repos better. ast-graph rescans on branch switch / pull, and on save only
+   with \`aidlc.astGraph.rescanOnSave\`.
 
 ## Answering guidance
 - Be concise and practical. Prefer the exact command or button name over prose.

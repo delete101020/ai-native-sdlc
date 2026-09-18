@@ -41,6 +41,37 @@ export function dbPathFor(folder: vscode.WorkspaceFolder): string {
   return path.join(folder.uri.fsPath, '.ast-graph', 'graph.db');
 }
 
+export async function dbExists(folder: vscode.WorkspaceFolder): Promise<boolean> {
+  return fs.promises
+    .stat(dbPathFor(folder))
+    .then((s) => s.isFile() && s.size > 0)
+    .catch(() => false);
+}
+
+/**
+ * The commit the working tree sits on, read straight from `.git` (no git
+ * spawn): a loose ref, then `packed-refs`, else the detached sha. Null when
+ * the folder isn't a plain git checkout (e.g. a worktree's `.git` file) —
+ * callers treat that as "unknown", not "changed".
+ */
+export async function readGitHead(folder: vscode.WorkspaceFolder): Promise<string | null> {
+  const gitDir = path.join(folder.uri.fsPath, '.git');
+  try {
+    const head = (await fs.promises.readFile(path.join(gitDir, 'HEAD'), 'utf8')).trim();
+    const ref = /^ref:\s*(.+)$/.exec(head)?.[1];
+    if (!ref) return head || null;
+    try {
+      return (await fs.promises.readFile(path.join(gitDir, ref), 'utf8')).trim() || null;
+    } catch {
+      const packed = await fs.promises.readFile(path.join(gitDir, 'packed-refs'), 'utf8');
+      const line = packed.split(/\r?\n/).find((l) => l.endsWith(` ${ref}`));
+      return line?.split(' ')[0] ?? null;
+    }
+  } catch {
+    return null;
+  }
+}
+
 export async function ensureGitignoreEntry(folder: vscode.WorkspaceFolder): Promise<void> {
   const gi = path.join(folder.uri.fsPath, '.gitignore');
   let body = '';

@@ -1,5 +1,5 @@
 /**
- * `aidlc mcp` — give a non-Claude harness the same ast-graph server Claude has.
+ * `aidlc mcp` — give a non-Claude harness the same code-graph server (ast-graph or codegraph) Claude has.
  *
  * This is gap G1 from MULTI_PROVIDER_ALIGNMENT.md §4c. Steps 2, 3, 6 and 7 ask
  * for `blast-radius`; under a CLI that never had the server registered they get
@@ -25,7 +25,8 @@ import {
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { info } from '../output';
 
-const SERVER_NAME = 'ast-graph';
+/** Graph servers the extension may register (`aidlc.astGraph.engine`), in preference order. */
+const GRAPH_SERVERS = ['ast-graph', 'codegraph'];
 const PROBE_TIMEOUT_MS = 20_000;
 
 /** Runner ids that name a CLI we know how to configure. */
@@ -45,11 +46,19 @@ function registrarOrExit(runner: string): McpRegistrar {
  * binary path is whatever the extension actually installed. Exits with an
  * actionable message rather than guessing a path.
  */
+function graphServer(root: string): StdioMcpServer | null {
+  for (const name of GRAPH_SERVERS) {
+    const server = readProjectMcpServer(root, name, claudeJsonPath());
+    if (server) { return server; }
+  }
+  return null;
+}
+
 function serverOrExit(root: string): StdioMcpServer {
-  const server = readProjectMcpServer(root, SERVER_NAME, claudeJsonPath());
+  const server = graphServer(root);
   if (!server) {
     console.error(chalk.red(
-      `No "${SERVER_NAME}" server registered for this workspace yet.`,
+      `No code-graph server (${GRAPH_SERVERS.join(' / ')}) registered for this workspace yet.`,
     ));
     console.error(
       'Run "AIDLC: Rescan AST Graph" in VS Code once — that downloads the binary and\n'
@@ -74,21 +83,22 @@ function probe(cmd: { bin: string; args: string[] }, cwd: string): string | null
 export function registerMcp(program: Command): void {
   const mcp = program
     .command('mcp')
-    .description('Register the ast-graph MCP server with a provider CLI (Codex, Claude)');
+    .description('Register the code-graph MCP server (ast-graph or codegraph) with a provider CLI (Codex, Claude)');
 
   mcp
     .command('status')
-    .description('Show which agentic CLIs can currently reach the ast-graph server')
+    .description('Show which agentic CLIs can currently reach the code-graph server')
     .action((_opts: unknown, cmd: Command) => {
       const root = resolveWorkspaceRoot(cmd);
-      const server = readProjectMcpServer(root, SERVER_NAME, claudeJsonPath());
+      const server = graphServer(root);
 
-      info(chalk.bold('\nast-graph MCP'));
+      info(chalk.bold('\ncode-graph MCP'));
       if (!server) {
         info(`  ${chalk.yellow('⚠')}  not registered for this workspace — run "AIDLC: Rescan AST Graph" in VS Code`);
         return;
       }
-      info(`  ${chalk.green('✔')}  db: ${server.args[server.args.indexOf('--db') + 1] ?? '(unknown)'}`);
+      const db = server.args.indexOf('--db');
+      info(`  ${chalk.green('✔')}  ${server.name}${db >= 0 ? `, db: ${server.args[db + 1]}` : ''}`);
 
       // One probe per distinct CLI the workspace actually uses. Shelling out is
       // acceptable here because the whole point of the command is to report
@@ -104,7 +114,7 @@ export function registerMcp(program: Command): void {
         const out = probe(registrar.list(), root);
         if (out === null) {
           info(`  ${chalk.yellow('⚠')}  ${registrar.bin}: could not run "${registrar.bin} mcp list" (not installed?)`);
-        } else if (registrar.isRegistered(out, SERVER_NAME)) {
+        } else if (registrar.isRegistered(out, server.name)) {
           info(`  ${chalk.green('✔')}  ${registrar.bin}: registered`);
         } else {
           info(`  ${chalk.yellow('⚠')}  ${registrar.bin}: not registered — run "aidlc mcp register --runner ${runner}"`);
@@ -115,7 +125,7 @@ export function registerMcp(program: Command): void {
 
   mcp
     .command('register')
-    .description('Copy this workspace\'s ast-graph registration into another CLI\'s config')
+    .description('Copy this workspace\'s code-graph registration into another CLI\'s config')
     .option('--runner <id>', 'Runner whose CLI to configure (codex, default)', 'codex')
     .option('--dry-run', 'Print the command that would run, and change nothing')
     .action((opts: { runner: string; dryRun?: boolean }, cmd: Command) => {
@@ -146,6 +156,6 @@ export function registerMcp(program: Command): void {
         console.error(err instanceof Error ? err.message : String(err));
         process.exit(1);
       }
-      info(chalk.green(`✔ ${SERVER_NAME} registered with ${registrar.bin}.`));
+      info(chalk.green(`✔ ${server.name} registered with ${registrar.bin}.`));
     });
 }

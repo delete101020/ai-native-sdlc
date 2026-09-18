@@ -45,6 +45,23 @@ describe('MCP registrars', () => {
     expect(claudeMcpRegistrar.isRegistered('No MCP servers configured. Try: ast-graph', 'ast-graph')).toBe(false);
   });
 
+  it('passes server env through each CLI\'s own flag, in a stable order', () => {
+    const withEnv = { ...server, env: { B: '2', A: '1' } };
+    expect(claudeMcpRegistrar.add(withEnv).args).toEqual([
+      'mcp', 'add', 'ast-graph', '--scope', 'local', '-e', 'A=1', '-e', 'B=2', '--',
+      '/opt/ast-graph', 'mcp', '--db', '/w/.ast-graph/graph.db',
+    ]);
+    expect(codexMcpRegistrar.add(withEnv).args).toEqual([
+      'mcp', 'add', 'ast-graph', '--env', 'A=1', '--env', 'B=2', '--',
+      '/opt/ast-graph', 'mcp', '--db', '/w/.ast-graph/graph.db',
+    ]);
+  });
+
+  it('removes from the same scope it adds to', () => {
+    expect(claudeMcpRegistrar.remove('codegraph').args).toEqual(['mcp', 'remove', 'codegraph', '--scope', 'local']);
+    expect(codexMcpRegistrar.remove('codegraph').args).toEqual(['mcp', 'remove', 'codegraph']);
+  });
+
   it('has no registrar for a runner whose CLI we do not configure', () => {
     expect(mcpRegistrarFor('gemini')).toBeUndefined();
     expect(mcpRegistrarFor('custom')).toBeUndefined();
@@ -66,6 +83,19 @@ describe('reading an existing registration', () => {
     expect(readProjectMcpServer('/w', 'ast-graph', file)).toEqual({
       name: 'ast-graph', command: '/opt/ast-graph', args: ['mcp', '--db', '/w/g.db'],
     });
+  });
+
+  it('finds a Windows project whatever the separator style or drive-letter case', () => {
+    // Claude writes `C:/x/y`; VS Code's fsPath is `c:\x\y`.
+    const dir = tmp();
+    const file = path.join(dir, '.claude.json');
+    fs.writeFileSync(file, JSON.stringify({
+      projects: { 'C:/Projects/app': { mcpServers: { codegraph: { command: 'node.exe', args: ['serve'], env: { CODEGRAPH_TELEMETRY: '0' } } } } },
+    }));
+    expect(readProjectMcpServer('c:\\Projects\\app', 'codegraph', file)).toEqual({
+      name: 'codegraph', command: 'node.exe', args: ['serve'], env: { CODEGRAPH_TELEMETRY: '0' },
+    });
+    expect(readProjectMcpServer('c:\\Projects\\other', 'codegraph', file)).toBeNull();
   });
 
   it('returns null for an unknown project, a missing file, or malformed JSON', () => {

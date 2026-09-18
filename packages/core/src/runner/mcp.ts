@@ -24,6 +24,8 @@ export interface StdioMcpServer {
   name: string;
   command: string;
   args: string[];
+  /** Environment the CLI should set when it spawns the server. */
+  env?: Record<string, string>;
 }
 
 /** A CLI invocation, ready to hand to execFile. */
@@ -44,6 +46,8 @@ export interface McpRegistrar {
   readonly configScope: 'project' | 'global';
   /** argv that registers (or overwrites) the server. */
   add(server: StdioMcpServer): McpCommand;
+  /** argv that removes the server (from the scope `add` writes to). */
+  remove(name: string): McpCommand;
   /** argv that lists the currently registered servers. */
   list(): McpCommand;
   /** Whether `list` output mentions this server. */
@@ -64,14 +68,20 @@ function mentionsServer(listOutput: string, name: string): boolean {
   });
 }
 
-/** `claude mcp add <name> --scope local -- <command> <args…>` */
+/** `KEY=VALUE` pairs behind a CLI's env flag, sorted so argv stays testable. */
+function envFlags(flag: string, env: Record<string, string> | undefined): string[] {
+  return Object.keys(env ?? {}).sort().flatMap((k) => [flag, `${k}=${env![k]}`]);
+}
+
+/** `claude mcp add <name> --scope local [-e K=V…] -- <command> <args…>` */
 export const claudeMcpRegistrar: McpRegistrar = {
   bin: 'claude',
   configScope: 'project',
   add: (s) => ({
     bin: 'claude',
-    args: ['mcp', 'add', s.name, '--scope', 'local', '--', s.command, ...s.args],
+    args: ['mcp', 'add', s.name, '--scope', 'local', ...envFlags('-e', s.env), '--', s.command, ...s.args],
   }),
+  remove: (name) => ({ bin: 'claude', args: ['mcp', 'remove', name, '--scope', 'local'] }),
   list: () => ({ bin: 'claude', args: ['mcp', 'list'] }),
   isRegistered: mentionsServer,
 };
@@ -91,8 +101,9 @@ export const codexMcpRegistrar: McpRegistrar = {
   configScope: 'global',
   add: (s) => ({
     bin: 'codex',
-    args: ['mcp', 'add', s.name, '--', s.command, ...s.args],
+    args: ['mcp', 'add', s.name, ...envFlags('--env', s.env), '--', s.command, ...s.args],
   }),
+  remove: (name) => ({ bin: 'codex', args: ['mcp', 'remove', name] }),
   list: () => ({ bin: 'codex', args: ['mcp', 'list'] }),
   isRegistered: mentionsServer,
 };
@@ -135,16 +146,38 @@ export function readProjectMcpServer(
   } catch {
     return null;
   }
-  const projects = (parsed as { projects?: Record<string, unknown> })?.projects;
-  const project = projects?.[workspaceRoot] as { mcpServers?: Record<string, unknown> } | undefined;
+  const projects = (parsed as { projects?: Record<string, unknown> })?.projects ?? {};
+  // Claude keys projects by its own spelling of the path — `C:/x/y` on Windows,
+  // where VS Code hands us `c:\x\y`. Fall back to a normalised match.
+  const key = workspaceRoot in projects
+    ? workspaceRoot
+    : Object.keys(projects).find((k) => sameProjectPath(k, workspaceRoot));
+  const project = (key ? projects[key] : undefined) as { mcpServers?: Record<string, unknown> } | undefined;
   const server = project?.mcpServers?.[name] as
-    | { command?: unknown; args?: unknown }
+    | { command?: unknown; args?: unknown; env?: unknown }
     | undefined;
   if (!server || typeof server.command !== 'string') { return null; }
   const args = Array.isArray(server.args)
     ? server.args.filter((a): a is string => typeof a === 'string')
     : [];
-  return { name, command: server.command, args };
+  const env = server.env && typeof server.env === 'object'
+    ? Object.fromEntries(
+      Object.entries(server.env as Record<string, unknown>)
+        .filter((e): e is [string, string] => typeof e[1] === 'string'),
+    )
+    : {};
+  return Object.keys(env).length
+    ? { name, command: server.command, args, env }
+    : { name, command: server.command, args };
+}
+
+/** Path equality ignoring separator style, a trailing slash, and drive-path case. */
+function sameProjectPath(a: string, b: string): boolean {
+  const norm = (p: string): string => {
+    const s = p.replace(/\\/g, '/').replace(/\/+$/, '');
+    return /^[a-zA-Z]:\//.test(s) ? s.toLowerCase() : s;
+  };
+  return norm(a) === norm(b);
 }
 
 /** Path to Codex's per-user config file (`~/.codex/config.toml`). */
