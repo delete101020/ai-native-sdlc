@@ -7,16 +7,14 @@ description: Release AIDLC Native from this machine — bump extension + CLI ver
 
 Releases are made locally. Nothing here needs Azure DevOps: the Marketplace
 takes the `.vsix` through its web upload, Open VSX takes a token created on
-open-vsx.org, and npm uses this machine's `npm login`. Pushing the tag also
-runs `.github/workflows/release.yml`, which only creates the GitHub Release
-(it publishes nothing).
+open-vsx.org, and npm uses this machine's `npm login`. No CI job runs on a
+release tag — there is no release workflow, on purpose.
 
 | Channel | How it gets there | Listing |
 |---|---|---|
 | VS Code Marketplace | **The user** uploads the `.vsix` at marketplace.visualstudio.com/manage | https://marketplace.visualstudio.com/items?itemName=delete101020.aidlc |
 | Open VSX (Antigravity, Cursor, VSCodium) | `ovsx publish` with `$OVSX_PAT` | https://open-vsx.org/extension/delete101020/aidlc |
 | npm | `pnpm publish`, run by **the user** (2FA prompt) | https://www.npmjs.com/package/@delete101020/aidlc |
-| GitHub Release | CI, on the tag push | https://github.com/delete101020/ai-native-sdlc/releases |
 
 Every step is mandatory; stop and report if any step fails — do NOT continue
 past a failure.
@@ -66,8 +64,8 @@ Edit, by hand:
   top: a short paragraph on what changed for the user, then `### Added` /
   `### Changed` / `### Fixed` as needed, written from `git log v<old>..HEAD`
   (drop merge and release commits). Breaking changes get their own
-  `### Breaking` heading with what the user has to do. The GitHub Release body
-  is cut from this section.
+  `### Breaking` heading with what the user has to do. The Marketplace shows
+  this file on the listing's Changelog tab.
 - `README.md` → the version in the source-build example
   (`aidlc-<version>.vsix`, `aidlc --version  # <version>`).
 
@@ -147,7 +145,6 @@ older, say it may still be verifying rather than calling it a failure.
 - New version, commit SHA, tag
 - Each channel: published / skipped (already there) / waiting on the user, with
   its listing link
-- The GitHub Release workflow run
 - Remind: VS Code picks up the update on its own (or **Extensions → Check for
   Updates**); `npm update -g @delete101020/aidlc` for the CLI
 
