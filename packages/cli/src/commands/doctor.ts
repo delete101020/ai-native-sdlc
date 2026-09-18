@@ -196,7 +196,7 @@ function parityChecks(
   // ast-graph. Registration is now checked against each CLI's own config, which
   // is a file read rather than a subprocess, so doctor stays offline and still
   // stops implying that a graph on disk means a harness can reach it (G1).
-  // The engine is a VS Code setting (aidlc.astGraph.engine) the CLI can't
+  // The engine is a VS Code setting (aidlcNative.astGraph.engine) the CLI can't
   // read, so infer it from which index is on disk — codegraph wins when both
   // exist, since it is only there if someone opted into it.
   const engine = fs.existsSync(path.join(root, '.codegraph', 'codegraph.db')) ? 'codegraph' : 'ast-graph';

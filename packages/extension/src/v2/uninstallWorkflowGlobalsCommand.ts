@@ -1,5 +1,5 @@
 /**
- * `aidlc.uninstallWorkflowGlobals` — multi-pick UI to remove built-in
+ * `aidlcNative.uninstallWorkflowGlobals` — multi-pick UI to remove built-in
  * workflows' agents + skills from `~/.claude/agents/` and `~/.claude/skills/`.
  *
  * Only files still carrying the AIDLC marker are removed — user-edited or

@@ -188,7 +188,7 @@ export class MonitorWebview {
 
   private async loadReport(): Promise<void> {
     if (this.loadPromise) return this.loadPromise;
-    const cfg = vscode.workspace.getConfiguration('aidlc.tokenMonitor');
+    const cfg = vscode.workspace.getConfiguration('aidlcNative.tokenMonitor');
     const windowDays = Math.max(1, cfg.get<number>('suggestionWindowDays', 30));
     this.tokenState = { ...this.tokenState, loading: true, error: null, windowDays };
     this.pushTokenState();
@@ -215,7 +215,7 @@ export class MonitorWebview {
   private startPolling(): void {
     const intervalSec = Math.max(
       5,
-      vscode.workspace.getConfiguration('aidlc.monitor').get<number>('pollIntervalSeconds', 10),
+      vscode.workspace.getConfiguration('aidlcNative.monitor').get<number>('pollIntervalSeconds', 10),
     );
     this.pollTimer = setInterval(() => { void this.pollAgents(); this.pushOtel(); }, intervalSec * 1000);
     this.disposables.push({ dispose: () => { if (this.pollTimer) clearInterval(this.pollTimer); } });

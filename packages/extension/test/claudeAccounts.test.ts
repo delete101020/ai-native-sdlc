@@ -27,16 +27,16 @@ const source = fs.readFileSync(
 
 describe('claude account switcher contributions', () => {
   it('contributes the switch command to the palette', () => {
-    const cmd = pkg.contributes.commands.find((c) => c.command === 'aidlc.switchClaudeAccount');
+    const cmd = pkg.contributes.commands.find((c) => c.command === 'aidlcNative.switchClaudeAccount');
     expect(cmd).toBeDefined();
-    expect(cmd?.category).toBe('AIDLC');
-    expect(source).toContain("'aidlc.switchClaudeAccount'");
+    expect(cmd?.category).toBe('AIDLC Native');
+    expect(source).toContain("'aidlcNative.switchClaudeAccount'");
   });
 
   it('contributes both settings, per-resource so windows can differ', () => {
     // `scope: resource` is what lets three windows hold three accounts at once;
     // demoting either to window/application scope silently breaks that.
-    for (const key of ['aidlc.claude.configDir', 'aidlc.claude.configDirs']) {
+    for (const key of ['aidlcNative.claude.configDir', 'aidlcNative.claude.configDirs']) {
       const prop = pkg.contributes.configuration.properties[key];
       expect(prop, key).toBeDefined();
       expect(prop.scope, key).toBe('resource');
@@ -63,7 +63,7 @@ describe('claude account switcher contributions', () => {
   });
 
   it('describes saved accounts as {label?, path}', () => {
-    const items = (pkg.contributes.configuration.properties['aidlc.claude.configDirs'] as {
+    const items = (pkg.contributes.configuration.properties['aidlcNative.claude.configDirs'] as {
       items?: { required?: string[]; properties?: Record<string, unknown> };
     }).items;
     expect(items?.required).toEqual(['path']);

@@ -1,7 +1,7 @@
-# aidlc
+# @delete101020/aidlc
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](https://github.com/delete101020/ai-native-sdlc/blob/main/LICENSE)
-[![Build: local](https://img.shields.io/badge/build-local%20link-6b7280)](https://github.com/delete101020/ai-native-sdlc)
+[![npm](https://img.shields.io/npm/v/@delete101020/aidlc)](https://www.npmjs.com/package/@delete101020/aidlc)
 
 Terminal CLI for AIDLC — drives Claude through pipelines you declare in
 `.aidlc/workspace.yaml`. Manages the workspace, executes runs end-to-end via
@@ -23,8 +23,19 @@ epic's memory whenever a prompt mentions it. See the [`globals`](#globals--built
 
 ## Install
 
-This build is a fork of [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc) and is **not published to
-npm**. Build it from the repo:
+The CLI of **AIDLC Native**, a fork of [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc)
+(not affiliated with the upstream author). The package is scoped because the
+upstream owns `aidlc` on npm; the command it installs is still `aidlc`:
+
+```sh
+npm install -g @delete101020/aidlc
+aidlc --version
+```
+
+If the upstream `aidlc` package is installed globally, `npm uninstall -g aidlc`
+first — both provide the `aidlc` command.
+
+To run unreleased changes, build it from the repo:
 
 ```sh
 pnpm install                                 # at repo root
@@ -126,7 +137,7 @@ automatically, project-scoped. Codex keeps MCP servers in `~/.codex/config.toml`
 which is per-user: registering there points every Codex session on the machine
 at this workspace's graph, so it stays an explicit command. `register` copies
 the binary and db path out of the registration Claude already has — run
-**AIDLC: Rescan AST Graph** in VS Code once first.
+**AIDLC Native: Rescan AST Graph** in VS Code once first.
 
 ### `validate` — schema + cross-reference check
 

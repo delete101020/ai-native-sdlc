@@ -105,7 +105,7 @@ jobs:
 
       - name: Install aidlc + claude
         run: |
-          npm install -g aidlc
+          npm install -g @delete101020/aidlc
           npm install -g @anthropic-ai/claude-code
 
       - name: Preflight

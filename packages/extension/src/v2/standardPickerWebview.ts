@@ -1,7 +1,7 @@
 /**
  * SDLC compliance-standard picker — a webview panel (GH-69 P3).
  *
- * Opened by `aidlc.selectStandard` (sidebar ⚖️ button / command palette). Shows
+ * Opened by `aidlcNative.selectStandard` (sidebar ⚖️ button / command palette). Shows
  * the built-in profiles as cards; clicking one writes the top-level `standard:`
  * key to `.aidlc/workspace.yaml`. The workspace.yaml watcher set up in
  * `activate()` refreshes the sidebar automatically.

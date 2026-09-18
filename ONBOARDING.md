@@ -1,10 +1,9 @@
-# Onboarding — running this fork on your machine
+# Onboarding — running AIDLC Native on your machine
 
-This is a fork of [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc) by hueanmy,
-extended with the AI-Native SDLC Playbook. **Nothing here is published** — not to
-the VS Code Marketplace, not to Open VSX, not to npm. Both the extension and the
-CLI are built from this repo and installed locally, so this page is the whole
-distribution channel.
+AIDLC Native is a fork of [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc) by
+hueanmy, extended with the AI-Native SDLC Playbook. It ships as the extension
+`delete101020.aidlc` (VS Code Marketplace and Open VSX) and the CLI
+`@delete101020/aidlc` (npm).
 
 Read it end to end the first time. Steps 1–4 are setup and take about ten
 minutes; step 5 onward is how the workflow actually runs day to day.
@@ -15,75 +14,67 @@ minutes; step 5 onward is how the workflow actually runs day to day.
 
 | Need | Check | If missing |
 |---|---|---|
-| Node.js 20+ | `node --version` | Install via [nvm](https://github.com/nvm-sh/nvm). This repo is developed on v24.12.0. |
-| pnpm | `npx --yes corepack pnpm --version` | Nothing to install — `corepack` ships with Node and reads the `packageManager` field. |
-| The `code` command | `code --version` | In VS Code: `Cmd+Shift+P` → **Shell Command: Install 'code' command in PATH**. |
+| Node.js 18+ | `node --version` | Install via [nvm](https://github.com/nvm-sh/nvm). Needed by the CLI. |
 | Claude CLI, logged in | `claude --version` | See [Claude Code](https://claude.com/claude-code). The default runner spawns this binary; without it, runs cannot execute. |
 
-VS Code 1.85.0+ (or VSCodium / Cursor / Windsurf). A workspace **folder** —
-single-file mode is not supported.
+VS Code 1.85.0+, or any editor that installs from Open VSX (Antigravity, Cursor,
+VSCodium, Windsurf). A workspace **folder** — single-file mode is not supported.
 
-## 2. Get the repo
+## 2. Install the extension
+
+Search for **AIDLC Native** in the Extensions view and install it, or:
+
+```sh
+code --install-extension delete101020.aidlc
+```
+
+Every command and setting is under `aidlcNative.*` (palette category **AIDLC
+Native**), so it can stay installed next to the upstream `hueanmy.aidlc`.
+Coming from a build before 4.0.0? Your `aidlc.*` settings are copied to
+`aidlcNative.*` on first activation — reload when it asks. Keybindings are
+yours to update: replace `aidlc.` with `aidlcNative.` in `keybindings.json`.
+
+## 3. Install the CLI
+
+```sh
+npm install -g @delete101020/aidlc
+aidlc --version
+```
+
+The package is scoped because the upstream owns `aidlc` on npm, but the command
+is still `aidlc`. If `npm` reports that `aidlc` already exists, the upstream CLI
+is installed globally — `npm uninstall -g aidlc` and retry. Updates:
+`npm update -g @delete101020/aidlc`; the extension updates itself.
+
+## 4. Building from source (optional)
+
+Only needed to run changes that are not released yet. You also need pnpm
+(`npx --yes corepack pnpm --version` — corepack ships with Node) and the `code`
+command (`Cmd+Shift+P` → **Shell Command: Install 'code' command in PATH**).
 
 ```sh
 git clone git@github.com:delete101020/ai-native-sdlc.git
 cd ai-native-sdlc
 pnpm install
 pnpm -r compile
-```
 
-Keep this checkout where it is. Step 4 links the CLI **into** this directory —
-moving or deleting it later breaks the `aidlc` command.
-
-## 3. Install the extension
-
-```sh
 pnpm package:extension                                        # → packages/extension/aidlc-<version>.vsix
-code --install-extension packages/extension/aidlc-3.5.1.vsix --force
-```
+code --install-extension packages/extension/aidlc-<version>.vsix --force
 
-`--force` is what lets you re-install over the same version number; without it
-`code` refuses when the version has not changed.
-
-Then **`Cmd+Shift+P` → Developer: Reload Window**. A newly installed `.vsix` has
-no effect in windows that are already open.
-
-Verify, and check for the clash:
-
-```sh
-code --list-extensions --show-versions | grep -i aidlc
-```
-
-You want `delete101020.aidlc@3.5.1`. **If `hueanmy.aidlc` also appears, disable
-one of them** (Extensions view → the extension → Disable). Both builds
-contribute the same `aidlc.*` command ids, and VS Code binds each command to
-whichever extension activated first — with both enabled, which one answers a
-command is not predictable.
-
-## 4. Install the CLI
-
-```sh
 cd packages/cli && pnpm bundle && npm link
-aidlc --version        # 3.5.1
-which aidlc
+aidlc --version
 ```
 
-`pnpm bundle` is required — a plain `tsc` build is not enough, because the
-package's `bin` entry points at `dist/bundle.js`, which esbuild produces along
-with the templates, tools and vendored assets copied beside it.
-
-Two things to know about the link:
-
-- It points at your **checkout**, so after `git pull` a `pnpm -r compile &&
-  pnpm --filter aidlc bundle` is enough to update the CLI. The extension is not
-  live-linked — it needs a fresh `.vsix` and a re-install (step 3).
-- It is installed under the Node version active when you ran it. Switch Node
-  versions with nvm and `aidlc` disappears from `PATH`; re-run `npm link` under
-  the new version.
-
-If `aidlc --version` prints something other than `3.5.1`, an older global
-install is shadowing the link — check `which aidlc` before assuming the build
-is wrong.
+- `--force` lets you re-install over the same version number. The `.vsix` has
+  the same id as the published extension, so it replaces it until the next
+  Marketplace update. Reload the window afterwards.
+- `pnpm bundle` is required — the package's `bin` points at `dist/bundle.js`,
+  which esbuild produces along with the templates, tools and vendored assets.
+- `npm link` points at your **checkout**: after `git pull`, `pnpm -r compile &&
+  pnpm --filter @delete101020/aidlc bundle` updates the CLI. It is installed under
+  the Node version active when you ran it; switch versions with nvm and re-run
+  `npm link`. If `aidlc --version` shows a different number, check `which aidlc`
+  — another global install is shadowing the link.
 
 ## 5. Turn on the approval gate
 
@@ -431,9 +422,8 @@ never opened.
 
 | Symptom | Cause |
 |---|---|
-| `aidlc: command not found` after switching Node versions | The link is per-Node-version. Re-run `npm link` in `packages/cli`. |
+| `aidlc: command not found` after switching Node versions | Global npm packages are per-Node-version. Re-run `npm install -g @delete101020/aidlc` (or `npm link` in `packages/cli` for a source build). |
 | `aidlc --version` prints an old number | An older global install shadows the link. Check `which aidlc`. |
-| Extension commands behave inconsistently | Both `delete101020.aidlc` and `hueanmy.aidlc` are enabled. Disable one. |
 | Changes to the extension do nothing | You reloaded but did not rebuild: `pnpm package:extension` then re-install with `--force`. |
 | `doctor` says the native skills are missing | `aidlc globals install ai-native-pipeline` has not been run on this machine — check `aidlc globals status`. |
 | A step fails immediately with a missing skill | `aidlc globals install ai-native-pipeline` was skipped. |

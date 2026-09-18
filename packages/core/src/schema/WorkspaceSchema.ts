@@ -557,7 +557,7 @@ export type PersistenceConfig = z.infer<typeof PersistenceSchema>;
 
 /**
  * Per-project sidebar layout. Workspaces declare which view types appear
- * in the `aidlcSidebar` panel. If omitted, sidebar shows defaults
+ * in the `aidlcNativeSidebar` panel. If omitted, sidebar shows defaults
  * (agents-list + run-history).
  *
  * View types are enumerated here to keep the contract closed — a new view

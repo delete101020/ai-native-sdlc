@@ -1,7 +1,7 @@
 {
   "name": "aidlc",
-  "displayName": "AIDLC",
-  "description": "AI-driven SDLC pipeline runner for VS Code. Declare a pipeline once, then drive Claude through it step by step — or run an epic to completion unattended. Recipes right-size the workflow to the task; each epic owns its pipeline, depth and review gates. Human-in-the-loop + headless auto-review gates, artifact annotation, requirements traceability, an incident loop that opens the follow-up epic, and an AIDLC Monitor with token usage & live observability. Supports the AI-Native SDLC Playbook and Spec Kit.",
+  "displayName": "AIDLC Native",
+  "description": "AI-Native SDLC fork of AIDLC: an AI-driven SDLC pipeline runner for VS Code. Declare a pipeline once, then drive Claude through it step by step — or run an epic to completion unattended. Recipes right-size the workflow to the task; each epic owns its pipeline, depth and review gates. Human-in-the-loop + headless auto-review gates, artifact annotation, requirements traceability, an incident loop that opens the follow-up epic, and an AIDLC Monitor with token usage & live observability. Supports the AI-Native SDLC Playbook and Spec Kit.",
   "version": "3.14.0",
   "publisher": "delete101020",
   "license": "MIT",
@@ -41,16 +41,16 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "aidlc",
-          "title": "AIDLC",
+          "id": "aidlcNative",
+          "title": "AIDLC Native",
           "icon": "media/pipeline-icon.svg"
         }
       ]
     },
     "views": {
-      "aidlc": [
+      "aidlcNative": [
         {
-          "id": "aidlcSidebar",
+          "id": "aidlcNativeSidebar",
           "name": "Workspace",
           "icon": "media/pipeline-icon.svg",
           "type": "webview"
@@ -59,234 +59,234 @@
     },
     "commands": [
       {
-        "command": "aidlc.openBuilder",
+        "command": "aidlcNative.openBuilder",
         "title": "Open Workspace Builder",
         "icon": "$(layout-panel)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.showWorkspaceConfig",
+        "command": "aidlcNative.showWorkspaceConfig",
         "title": "Show Workspace Config",
         "icon": "$(file-code)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.initWorkspace",
+        "command": "aidlcNative.initWorkspace",
         "title": "Init Sample Workspace",
         "icon": "$(rocket)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.openGettingStarted",
+        "command": "aidlcNative.openGettingStarted",
         "title": "Open Getting Started Guide",
         "icon": "$(book)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.ask",
+        "command": "aidlcNative.ask",
         "title": "Ask AIDLC (what it does / how to set up)",
         "icon": "$(question)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.addSkill",
+        "command": "aidlcNative.addSkill",
         "title": "Add Skill (template / paste / upload / blank)",
         "icon": "$(file-code)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.addAgent",
+        "command": "aidlcNative.addAgent",
         "title": "Add Agent",
         "icon": "$(person)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.addPipeline",
+        "command": "aidlcNative.addPipeline",
         "title": "Add Pipeline (chain agents)",
         "icon": "$(list-ordered)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.generateFromRecipe",
+        "command": "aidlcNative.generateFromRecipe",
         "title": "Generate Pipeline from Recipe (by task type)",
         "icon": "$(zap)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.openClaudeTerminal",
+        "command": "aidlcNative.openClaudeTerminal",
         "title": "Open Claude CLI Terminal",
         "icon": "$(terminal)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.switchClaudeAccount",
+        "command": "aidlcNative.switchClaudeAccount",
         "title": "Switch Claude Account",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.savePreset",
+        "command": "aidlcNative.savePreset",
         "title": "Save Workspace as Template",
         "icon": "$(save)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.applyPreset",
+        "command": "aidlcNative.applyPreset",
         "title": "Load Template",
         "icon": "$(symbol-snippet)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.deletePreset",
+        "command": "aidlcNative.deletePreset",
         "title": "Delete Saved Template",
         "icon": "$(trash)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.installWorkflowGlobals",
+        "command": "aidlcNative.installWorkflowGlobals",
         "title": "Install Workflow Globals (~/.claude/agents + skills)",
         "icon": "$(cloud-download)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.uninstallWorkflowGlobals",
+        "command": "aidlcNative.uninstallWorkflowGlobals",
         "title": "Uninstall Workflow Globals (run before removing extension)",
         "icon": "$(trash)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.migrateEpics",
+        "command": "aidlcNative.migrateEpics",
         "title": "Migrate Epic State Files",
         "icon": "$(sync)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.startEpic",
+        "command": "aidlcNative.startEpic",
         "title": "Start Epic",
         "icon": "$(rocket)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.analyzeRequirements",
+        "command": "aidlcNative.analyzeRequirements",
         "title": "Analyze Requirements → Create Tasks",
         "icon": "$(list-tree)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.openEpicsList",
+        "command": "aidlcNative.openEpicsList",
         "title": "Open Epics List",
         "icon": "$(checklist)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.reportSignal",
+        "command": "aidlcNative.reportSignal",
         "title": "Report a Signal (open incident epic)",
         "icon": "$(radio-tower)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.insertDemoEpic",
+        "command": "aidlcNative.insertDemoEpic",
         "title": "Insert Demo Epic (EPIC-100)",
         "icon": "$(beaker)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.loadDemoProject",
+        "command": "aidlcNative.loadDemoProject",
         "title": "Load Demo Project (full pipeline + 6 epics)",
         "icon": "$(beaker)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.showTokenUsage",
+        "command": "aidlcNative.showTokenUsage",
         "title": "Show Claude Token Usage",
         "icon": "$(graph)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.refreshTokenUsage",
+        "command": "aidlcNative.refreshTokenUsage",
         "title": "Refresh Claude Token Usage",
         "icon": "$(refresh)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.openMonitor",
+        "command": "aidlcNative.openMonitor",
         "title": "Open AIDLC Monitor (Token Usage + Insights + Agents)",
         "icon": "$(pulse)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.astGraph.openReport",
+        "command": "aidlcNative.astGraph.openReport",
         "title": "Open AST Graph Report",
         "icon": "$(type-hierarchy)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.astGraph.rescan",
+        "command": "aidlcNative.astGraph.rescan",
         "title": "Rescan AST Graph (clean)",
         "icon": "$(refresh)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.astGraph.reregisterMcp",
+        "command": "aidlcNative.astGraph.reregisterMcp",
         "title": "Re-register AST Graph MCP Server",
         "icon": "$(plug)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.selectStandard",
+        "command": "aidlcNative.selectStandard",
         "title": "Select SDLC Standard",
         "icon": "$(law)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       },
       {
-        "command": "aidlc.refreshSidebar",
+        "command": "aidlcNative.refreshSidebar",
         "title": "Refresh Skills & Agents Catalog",
         "icon": "$(refresh)",
-        "category": "AIDLC"
+        "category": "AIDLC Native"
       }
     ],
     "configuration": {
-      "title": "AIDLC",
+      "title": "AIDLC Native",
       "properties": {
-        "aidlc.autopilot.enabled": {
+        "aidlcNative.autopilot.enabled": {
           "type": "boolean",
           "default": false,
           "markdownDescription": "🚧 **Coming soon (experimental).** When enabled, starting an epic runs aidlc-autopilot: it collects epic context and generates a recommended plan (`context.json` + `autopilot-plan.md`) before the pipeline runs. Off by default while the feature is being tested."
         },
-        "aidlc.tokenMonitor.enabled": {
+        "aidlcNative.tokenMonitor.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Show a status bar item with today/this-month Claude token spend, parsed from ~/.claude/projects logs."
         },
-        "aidlc.tokenMonitor.refreshSeconds": {
+        "aidlcNative.tokenMonitor.refreshSeconds": {
           "type": "number",
           "default": 60,
           "minimum": 15,
           "description": "How often to re-scan ~/.claude/projects for new usage records (seconds, minimum 15)."
         },
-        "aidlc.tokenMonitor.suggestionWindowDays": {
+        "aidlcNative.tokenMonitor.suggestionWindowDays": {
           "type": "number",
           "default": 30,
           "minimum": 1,
           "description": "Window the cost-suggestion engine scans (in days). Older logs are skipped — they don't reflect current habits."
         },
-        "aidlc.monitor.enabled": {
+        "aidlcNative.monitor.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Show a status bar item that polls the agents-observe server and opens the unified Monitor panel (Token Usage + Agents). Has no effect when agents-observe isn't running."
         },
-        "aidlc.monitor.pollIntervalSeconds": {
+        "aidlcNative.monitor.pollIntervalSeconds": {
           "type": "number",
           "default": 10,
           "minimum": 5,
           "maximum": 300,
           "description": "How often to poll the agents-observe server (GET /api/status) for the status bar and Monitor panel (seconds). Polling pauses while the window is unfocused."
         },
-        "aidlc.astGraph.enabled": {
+        "aidlcNative.astGraph.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Build a code graph of the workspace in the background and register it as a Claude MCP server so Claude can read structural code context cheaply. The engine is chosen by `aidlc.astGraph.engine`."
+          "description": "Build a code graph of the workspace in the background and register it as a Claude MCP server so Claude can read structural code context cheaply. The engine is chosen by `aidlcNative.astGraph.engine`."
         },
-        "aidlc.astGraph.engine": {
+        "aidlcNative.astGraph.engine": {
           "type": "string",
           "enum": [
             "ast-graph",
@@ -299,44 +299,44 @@
           "default": "ast-graph",
           "markdownDescription": "Which code-graph engine backs the MCP server. Switching needs a window reload; the extension removes the other engine's MCP registration and CLAUDE.md block."
         },
-        "aidlc.astGraph.rescanOnSave": {
+        "aidlcNative.astGraph.rescanOnSave": {
           "type": "boolean",
           "default": false,
           "description": "ast-graph only: rescan after source files change. Off by default — every ast-graph scan rewrites the whole graph, so on a large repo it keeps a core busy after each save. Branch switch / merge / pull always trigger a rescan. (CodeGraph syncs on save by itself.)"
         },
-        "aidlc.astGraph.autoRescanDebounceSeconds": {
+        "aidlcNative.astGraph.autoRescanDebounceSeconds": {
           "type": "number",
           "default": 5,
           "minimum": 1,
-          "description": "Debounce window for rescans after git ref changes, and after source file saves when `aidlc.astGraph.rescanOnSave` is on (seconds)."
+          "description": "Debounce window for rescans after git ref changes, and after source file saves when `aidlcNative.astGraph.rescanOnSave` is on (seconds)."
         },
-        "aidlc.astGraph.codegraphTelemetry": {
+        "aidlcNative.astGraph.codegraphTelemetry": {
           "type": "boolean",
           "default": false,
           "description": "CodeGraph only: allow CodeGraph's anonymous usage telemetry for the processes this extension starts. Off by default (sets CODEGRAPH_TELEMETRY=0)."
         },
-        "aidlc.mcp.listTimeoutSeconds": {
+        "aidlcNative.mcp.listTimeoutSeconds": {
           "type": "number",
           "default": 90,
           "minimum": 5,
           "description": "Timeout (seconds) for `claude mcp list` in the MCP Servers panel. Claude health-checks every configured server, so raise this if you have many remote/unauthenticated servers and see a timeout."
         },
-        "aidlc.workspace.epicsDirectory": {
+        "aidlcNative.workspace.epicsDirectory": {
           "type": "string",
           "default": "docs/epics",
           "description": "Relative path (from the project root) where epics are stored. Changing this updates `state.root` in workspace.yaml. The epic list and Start Epic wizard use this directory immediately.",
           "scope": "resource"
         },
-        "aidlc.claude.configDir": {
+        "aidlcNative.claude.configDir": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Claude Code config directory this window uses — the account behind `~/.claude`. Leave empty to use `$CLAUDE_CONFIG_DIR` if set, else `~/.claude`. Set it (e.g. `~/.claude-work`) when you keep several Claude accounts and want this workspace pinned to one: workflow agents/skills, the annotation tools, the epic-memory hook, MCP registration, the token monitor and every `claude` terminal AIDLC opens all follow it. Reload the window after changing. Easier than editing this by hand: run **AIDLC: Switch Claude Account** (also on the status bar), which picks from `#aidlc.claude.configDirs#`.",
+          "markdownDescription": "Claude Code config directory this window uses — the account behind `~/.claude`. Leave empty to use `$CLAUDE_CONFIG_DIR` if set, else `~/.claude`. Set it (e.g. `~/.claude-work`) when you keep several Claude accounts and want this workspace pinned to one: workflow agents/skills, the annotation tools, the epic-memory hook, MCP registration, the token monitor and every `claude` terminal AIDLC opens all follow it. Reload the window after changing. Easier than editing this by hand: run **AIDLC: Switch Claude Account** (also on the status bar), which picks from `#aidlcNative.claude.configDirs#`.",
           "scope": "resource"
         },
-        "aidlc.claude.configDirs": {
+        "aidlcNative.claude.configDirs": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Saved Claude accounts offered by **AIDLC: Switch Claude Account**. This list only names the accounts — the one actually in use is `#aidlc.claude.configDir#`, which is per-workspace, so several windows can hold different accounts at the same time. Example: `[{ \"label\": \"Work\", \"path\": \"~/.claude-work\" }]`.",
+          "markdownDescription": "Saved Claude accounts offered by **AIDLC: Switch Claude Account**. This list only names the accounts — the one actually in use is `#aidlcNative.claude.configDir#`, which is per-workspace, so several windows can hold different accounts at the same time. Example: `[{ \"label\": \"Work\", \"path\": \"~/.claude-work\" }]`.",
           "scope": "resource",
           "items": {
             "type": "object",
@@ -361,43 +361,43 @@
     "menus": {
       "view/title": [
         {
-          "command": "aidlc.openBuilder",
-          "when": "view == aidlcSidebar",
+          "command": "aidlcNative.openBuilder",
+          "when": "view == aidlcNativeSidebar",
           "group": "navigation@0"
         },
         {
-          "command": "aidlc.ask",
-          "when": "view == aidlcSidebar",
+          "command": "aidlcNative.ask",
+          "when": "view == aidlcNativeSidebar",
           "group": "navigation@5"
         },
         {
-          "command": "aidlc.openEpicsList",
-          "when": "view == aidlcSidebar",
+          "command": "aidlcNative.openEpicsList",
+          "when": "view == aidlcNativeSidebar",
           "group": "navigation@1"
         },
         {
-          "command": "aidlc.openClaudeTerminal",
-          "when": "view == aidlcSidebar",
+          "command": "aidlcNative.openClaudeTerminal",
+          "when": "view == aidlcNativeSidebar",
           "group": "navigation@2"
         },
         {
-          "command": "aidlc.astGraph.openReport",
-          "when": "view == aidlcSidebar",
+          "command": "aidlcNative.astGraph.openReport",
+          "when": "view == aidlcNativeSidebar",
           "group": "navigation@3"
         },
         {
-          "command": "aidlc.openMonitor",
-          "when": "view == aidlcSidebar",
+          "command": "aidlcNative.openMonitor",
+          "when": "view == aidlcNativeSidebar",
           "group": "navigation@4"
         },
         {
-          "command": "aidlc.selectStandard",
-          "when": "view == aidlcSidebar",
+          "command": "aidlcNative.selectStandard",
+          "when": "view == aidlcNativeSidebar",
           "group": "navigation@6"
         },
         {
-          "command": "aidlc.refreshSidebar",
-          "when": "view == aidlcSidebar",
+          "command": "aidlcNative.refreshSidebar",
+          "when": "view == aidlcNativeSidebar",
           "group": "navigation@7"
         }
       ]
@@ -419,58 +419,58 @@
           {
             "id": "aidlc.loadDemo",
             "title": "Load the demo project",
-            "description": "One click scaffolds a full pipeline plus 6 sample epics into your current folder — no YAML to write.\n[Load Demo Project](command:aidlc.loadDemoProject)",
+            "description": "One click scaffolds a full pipeline plus 6 sample epics into your current folder — no YAML to write.\n[Load Demo Project](command:aidlcNative.loadDemoProject)",
             "media": {
               "markdown": "media/walkthrough/demo.md"
             },
             "completionEvents": [
-              "onCommand:aidlc.loadDemoProject"
+              "onCommand:aidlcNative.loadDemoProject"
             ]
           },
           {
             "id": "aidlc.builder",
             "title": "Open the Workspace Builder",
-            "description": "Visual editor for your agents, skills, and pipelines. Add an agent, swap its model, edit a skill inline.\n[Open Workspace Builder](command:aidlc.openBuilder)",
+            "description": "Visual editor for your agents, skills, and pipelines. Add an agent, swap its model, edit a skill inline.\n[Open Workspace Builder](command:aidlcNative.openBuilder)",
             "media": {
               "markdown": "media/walkthrough/builder.md"
             },
             "completionEvents": [
-              "onCommand:aidlc.openBuilder"
+              "onCommand:aidlcNative.openBuilder"
             ]
           },
           {
             "id": "aidlc.runEpic",
             "title": "Run your first epic",
-            "description": "Pick a sample epic and watch Claude work through the pipeline. Approve, reject, or rerun any step.\n[Open Epics List](command:aidlc.openEpicsList) · [Start Epic](command:aidlc.startEpic)",
+            "description": "Pick a sample epic and watch Claude work through the pipeline. Approve, reject, or rerun any step.\n[Open Epics List](command:aidlcNative.openEpicsList) · [Start Epic](command:aidlcNative.startEpic)",
             "media": {
               "markdown": "media/walkthrough/epics.md"
             },
             "completionEvents": [
-              "onCommand:aidlc.openEpicsList",
-              "onCommand:aidlc.startEpic"
+              "onCommand:aidlcNative.openEpicsList",
+              "onCommand:aidlcNative.startEpic"
             ]
           },
           {
             "id": "aidlc.terminal",
             "title": "Drive runs from the terminal",
-            "description": "One-click zsh terminal in the bottom panel with the Claude CLI auto-launched. Use slash commands or run `aidlc` directly.\n[Open Claude CLI Terminal](command:aidlc.openClaudeTerminal)",
+            "description": "One-click zsh terminal in the bottom panel with the Claude CLI auto-launched. Use slash commands or run `aidlc` directly.\n[Open Claude CLI Terminal](command:aidlcNative.openClaudeTerminal)",
             "media": {
               "markdown": "media/walkthrough/terminal.md"
             },
             "completionEvents": [
-              "onCommand:aidlc.openClaudeTerminal"
+              "onCommand:aidlcNative.openClaudeTerminal"
             ]
           },
           {
             "id": "aidlc.buildYourOwn",
             "title": "Build your own workspace",
-            "description": "Scaffold a fresh `.aidlc/workspace.yaml`, add custom skills/agents/pipelines, save the result as a reusable template.\n[Init Sample Workspace](command:aidlc.initWorkspace) · [Add Skill](command:aidlc.addSkill) · [Add Agent](command:aidlc.addAgent) · [Save as Template](command:aidlc.savePreset)",
+            "description": "Scaffold a fresh `.aidlc/workspace.yaml`, add custom skills/agents/pipelines, save the result as a reusable template.\n[Init Sample Workspace](command:aidlcNative.initWorkspace) · [Add Skill](command:aidlcNative.addSkill) · [Add Agent](command:aidlcNative.addAgent) · [Save as Template](command:aidlcNative.savePreset)",
             "media": {
               "markdown": "media/walkthrough/build.md"
             },
             "completionEvents": [
-              "onCommand:aidlc.initWorkspace",
-              "onCommand:aidlc.savePreset"
+              "onCommand:aidlcNative.initWorkspace",
+              "onCommand:aidlcNative.savePreset"
             ]
           }
         ]

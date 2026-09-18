@@ -1,6 +1,6 @@
 /**
  * Code-graph integration orchestrator. Picks the engine from
- * `aidlc.astGraph.engine` and wires it up from a single
+ * `aidlcNative.astGraph.engine` and wires it up from a single
  * `registerAstGraph(context, output)` call invoked from `extension.ts`:
  *
  *   - `ast-graph` (default) — this file.
@@ -17,7 +17,7 @@
  *   3. Register MCP server with Claude CLI (config-file check first, so no
  *      spawn when it is already registered)
  *   4. Watch git refs → clean rescan on branch switch / merge / pull; watch
- *      source saves only when `aidlc.astGraph.rescanOnSave` is on.
+ *      source saves only when `aidlcNative.astGraph.rescanOnSave` is on.
  *
  * Failures are surfaced via the status-bar pill rather than blocking
  * notifications — the user can click into the report to see what went
@@ -42,10 +42,10 @@ import { ensureClaudeMdHint } from './claudeMdHint';
 import { AstGraphReportWebview } from './reportWebview';
 import { registerCodeGraph, CODEGRAPH_MCP_NAME } from './codegraph';
 
-const SETTING_NAMESPACE = 'aidlc.astGraph';
-const OPEN_REPORT_CMD = 'aidlc.astGraph.openReport';
-const RESCAN_CMD = 'aidlc.astGraph.rescan';
-const REREGISTER_CMD = 'aidlc.astGraph.reregisterMcp';
+const SETTING_NAMESPACE = 'aidlcNative.astGraph';
+const OPEN_REPORT_CMD = 'aidlcNative.astGraph.openReport';
+const RESCAN_CMD = 'aidlcNative.astGraph.rescan';
+const REREGISTER_CMD = 'aidlcNative.astGraph.reregisterMcp';
 const MCP_NAME = 'ast-graph';
 /** workspaceState key: last good scan per folder, so activation can skip scanning. */
 const CACHE_KEY = 'aidlc.astGraph.scanCache';
@@ -74,7 +74,7 @@ export function registerAstGraph(
 ): void {
   const cfg = () => vscode.workspace.getConfiguration(SETTING_NAMESPACE);
   if (!cfg().get<boolean>('enabled', true)) {
-    output.appendLine('AST graph: disabled via aidlc.astGraph.enabled.');
+    output.appendLine('AST graph: disabled via aidlcNative.astGraph.enabled.');
     return;
   }
 
@@ -181,7 +181,7 @@ export function registerAstGraph(
       item.tooltip = md;
     } else {
       item.text = '$(type-hierarchy) AST';
-      item.tooltip = 'AST graph: no scan summary yet. Click to open, or run "AIDLC: Rescan AST Graph".';
+      item.tooltip = 'AST graph: no scan summary yet. Click to open, or run "AIDLC Native: Rescan AST Graph".';
     }
     AstGraphReportWebview.notifyUpdate();
   };

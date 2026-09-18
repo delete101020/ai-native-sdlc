@@ -8,12 +8,12 @@
  * lands in the wrong account by accident.
  *
  * Three pieces, all thin:
- *   - `aidlc.claude.configDirs` — the address book (labels + paths). Purely a
+ *   - `aidlcNative.claude.configDirs` — the address book (labels + paths). Purely a
  *     convenience list; it never changes what is active.
- *   - `aidlc.claude.configDir`  — the one that *is* active for this window.
+ *   - `aidlcNative.claude.configDir`  — the one that *is* active for this window.
  *     `scope: resource`, so different windows can hold different accounts at
  *     the same time; that is how three accounts run in parallel.
- *   - `AIDLC: Switch Claude Account` + a status bar item that opens it.
+ *   - `AIDLC Native: Switch Claude Account` + a status bar item that opens it.
  *
  * Everything AIDLC writes under the global Claude folder resolves through
  * `claudeConfigDir()` in core, so switching here moves agents/skills, the
@@ -38,9 +38,9 @@ import {
   setClaudeConfigDir,
 } from '@aidlc/core';
 
-export const CONFIG_DIR_KEY = 'aidlc.claude.configDir';
-export const CONFIG_DIRS_KEY = 'aidlc.claude.configDirs';
-export const SWITCH_ACCOUNT_CMD = 'aidlc.switchClaudeAccount';
+export const CONFIG_DIR_KEY = 'aidlcNative.claude.configDir';
+export const CONFIG_DIRS_KEY = 'aidlcNative.claude.configDirs';
+export const SWITCH_ACCOUNT_CMD = 'aidlcNative.switchClaudeAccount';
 
 /** One entry of the user's saved account list. */
 interface SavedAccount {
@@ -168,7 +168,7 @@ const execFileAsync = promisify(execFile);
 /**
  * Would a workspace-scoped write end up in version control?
  *
- * `aidlc.claude.configDir` is per-machine, but it lands in
+ * `aidlcNative.claude.configDir` is per-machine, but it lands in
  * `.vscode/settings.json`, which many repos commit — and the damage is silent:
  * the teammate who pulls it gets a config dir that does not exist on their
  * machine, so their Agents panel is empty with nothing to explain why.

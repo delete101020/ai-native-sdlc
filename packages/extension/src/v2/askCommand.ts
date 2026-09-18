@@ -1,5 +1,5 @@
 /**
- * `aidlc.ask` — the extension's "Ask AIDLC" affordance, as a chat webview.
+ * `aidlcNative.ask` — the extension's "Ask AIDLC" affordance, as a chat webview.
  *
  * Opens a single-instance chat panel where the user can ask what AIDLC does and
  * how to set it up. Each turn shells out to the local `claude` (grounded in the
@@ -113,7 +113,7 @@ export function registerAskCommand(
   context: vscode.ExtensionContext,
 ): vscode.Disposable {
   return vscode.commands.registerCommand(
-    'aidlc.ask',
+    'aidlcNative.ask',
     (presetQuestion?: unknown) =>
       AskWebview.show(context.extensionUri, typeof presetQuestion === 'string' ? presetQuestion : undefined),
   );

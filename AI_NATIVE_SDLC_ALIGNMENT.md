@@ -282,6 +282,17 @@ its source, and can be built against the schema above.
 
 ### W4 — Rebrand and install locally ✅ **Done** *(scope changed: no marketplace)*
 
+> **Reopened 2026-09-18 — publish as AIDLC Native.** The user decided to publish
+> so others can use the build and nobody has to rebuild to update. That meets the
+> reopen condition recorded for W4.2 in §12, so W4.2 is done now, before the
+> first listing, while no installed base exists to break. Decisions: display name
+> **AIDLC Native** (the Marketplace rejects a second "AIDLC"); commands, settings
+> and views move to `aidlcNative.*` with a one-time settings copy; the CLI ships
+> as `@delete101020/aidlc` (upstream owns `aidlc` on npm) with the command still
+> `aidlc`; Open VSX is in scope because Antigravity installs from it. CI
+> publishes on a `v*` tag (`.github/workflows/release.yml`); `/publish` was
+> rewritten to prepare that tag, and `/install-local` stays for unreleased builds.
+
 > **Scope decision, 2026-08-31.** The user chose to run this build **locally
 > first**, so W4 keeps the rebrand and drops the release. W4.6 and W4.7 are
 > replaced by a local-install flow rather than deleted: the work they describe
@@ -289,7 +300,7 @@ its source, and can be built against the schema above.
 > just ends at this machine instead of a registry.
 
 - [x] W4.1 Change `publisher` in `packages/extension/package.json` → `delete101020`; the upstream `sponsor` block removed from package metadata and kept as a credit line in the READMEs
-- [ ] ~~W4.2 Change the `aidlc.*` command namespace (29 commands)~~ — **declined**, see below
+- [x] W4.2 Change the `aidlc.*` command namespace — **done 2026-09-18** as `aidlcNative.*` (commands, settings, view container, sidebar view), after being declined on 2026-08-31; see the reopen note above
 - [x] W4.3 Fix `repository.url` — root, extension and CLI `package.json` now point at `delete101020/ai-native-sdlc`; `homepage`/`bugs` too, and `@aidlc/core` gained the field it lacked
 - [x] W4.4 LICENSE: MIT text and the original copyright line **kept**, ours added beneath (root + `packages/extension/LICENSE`, kept identical)
 - [x] W4.5 README and CHANGELOG for our build — all three READMEs say plainly that this is a fork installed from a local `.vsix` / `npm link`; `3.5.0` entry in `packages/extension/CHANGELOG.md` covering W1–W3.8
@@ -396,6 +407,7 @@ anywhere. See §11.
 | 2026-08-31 | Q5 locked: keep both surfaces, core + CLI is the contract; Q5's original "would invert the whole plan" impact re-scoped — W1–W3 contain no VS Code code. Added W4.7 (publish the CLI too) and recorded the missing `aidlc maintain --signal` entry point | §W4 decisions. No code |
 | 2026-08-31 | W3.8: stage 6's front door — `aidlc maintain --signal` / `aidlc maintain follow-up`, with `openIncidentEpic` / `readEpicSignal` / `followUpIdFor` added to core. Closes the gap the Q5 lock recorded | `cli/src/commands/maintain.ts`, `core/src/maintain/IncidentLoop.ts`, `+6` tests (275/275) |
 | 2026-08-31 | W4 (local scope): publisher/repository/LICENSE/README/CHANGELOG rebranded to this fork, version 3.5.0, `/install-local` skill replacing `/publish`. Marketplace, Open VSX and npm all declined — this build is installed from a local `.vsix` and `npm link` | 9 files + 1 new skill; W4.2 (command rename) declined with the condition to reopen it recorded in §12 |
+| 2026-09-18 | W4 reopened: publish as **AIDLC Native** to the Marketplace, Open VSX and npm (`@delete101020/aidlc`). W4.2 done — every command, setting and view id moved to `aidlcNative.*`, with a one-time copy of `aidlc.*` settings. Tag-triggered release workflow; `/publish` rewritten for it | `release.yml`, `settingsMigration.ts`, rename across ~40 files; registry accounts and secrets are the user's to create |
 
 ---
 

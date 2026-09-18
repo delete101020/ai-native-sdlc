@@ -14,14 +14,14 @@ import * as vscode from 'vscode';
 import { MonitorWebview } from './monitorWebview';
 import { fetchObserveStatus, offlineStatus, type ObserveStatus } from './observeClient';
 
-const OPEN_COMMAND = 'aidlc.openMonitor';
+const OPEN_COMMAND = 'aidlcNative.openMonitor';
 
 export function registerAidlcMonitor(
   context: vscode.ExtensionContext,
   output: vscode.OutputChannel,
   extensionUri: vscode.Uri,
 ): void {
-  const cfg = () => vscode.workspace.getConfiguration('aidlc.monitor');
+  const cfg = () => vscode.workspace.getConfiguration('aidlcNative.monitor');
 
   // The command is always registered (so the palette / status-bar button work
   // even when the polling surface is disabled).
@@ -32,7 +32,7 @@ export function registerAidlcMonitor(
   );
 
   if (!cfg().get<boolean>('enabled', true)) {
-    output.appendLine('AIDLC Monitor status bar disabled by setting (aidlc.monitor.enabled).');
+    output.appendLine('AIDLC Monitor status bar disabled by setting (aidlcNative.monitor.enabled).');
     return;
   }
 
@@ -93,7 +93,7 @@ export function registerAidlcMonitor(
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (!e.affectsConfiguration('aidlc.monitor')) return;
+      if (!e.affectsConfiguration('aidlcNative.monitor')) return;
       void vscode.window
         .showInformationMessage('AIDLC Monitor settings changed. Reload window to apply.', 'Reload Window')
         .then((pick) => {

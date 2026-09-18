@@ -473,7 +473,7 @@ function listTemplates(
 }
 
 export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'aidlcSidebar';
+  public static readonly viewType = 'aidlcNativeSidebar';
   private view: vscode.WebviewView | undefined;
 
   // MCP list is loaded lazily via `claude mcp list`; the CLI runs a health
@@ -527,7 +527,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     this.mcpLoadPromise = (async () => {
       try {
         const timeoutSeconds = vscode.workspace
-          .getConfiguration('aidlc.mcp')
+          .getConfiguration('aidlcNative.mcp')
           .get<number>('listTimeoutSeconds', 90);
         const result = await loadMcpServers(undefined, Math.max(5, timeoutSeconds) * 1000);
         this.mcp = { servers: result.servers, loading: false, error: result.error };
@@ -558,7 +558,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         return;
       }
       case 'openBuilder':
-        await vscode.commands.executeCommand('aidlc.openBuilder');
+        await vscode.commands.executeCommand('aidlcNative.openBuilder');
         return;
       case 'openBuilderTab': {
         const tab = String(msg.tab ?? '');
@@ -566,11 +566,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         return;
       }
       case 'openClaude':
-        await vscode.commands.executeCommand('aidlc.openClaudeTerminal');
+        await vscode.commands.executeCommand('aidlcNative.openClaudeTerminal');
         return;
       case 'askAidlc': {
         const question = typeof msg.question === 'string' ? msg.question : undefined;
-        await vscode.commands.executeCommand('aidlc.ask', question);
+        await vscode.commands.executeCommand('aidlcNative.ask', question);
         return;
       }
       case 'openProject': {
@@ -596,7 +596,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand('workbench.action.closeFolder');
         return;
       case 'init':
-        await vscode.commands.executeCommand('aidlc.initWorkspace');
+        await vscode.commands.executeCommand('aidlcNative.initWorkspace');
         return;
       case 'loadDemoProject': {
         // mode is set by the React modal so the host skips the VS Code
@@ -604,14 +604,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const mode = msg.mode === 'reseed' || msg.mode === 'open-as-is'
           ? msg.mode
           : undefined;
-        await vscode.commands.executeCommand('aidlc.loadDemoProject', mode);
+        await vscode.commands.executeCommand('aidlcNative.loadDemoProject', mode);
         return;
       }
       case 'startEpic':
-        await vscode.commands.executeCommand('aidlc.startEpic');
+        await vscode.commands.executeCommand('aidlcNative.startEpic');
         return;
       case 'analyzeRequirements':
-        await vscode.commands.executeCommand('aidlc.analyzeRequirements');
+        await vscode.commands.executeCommand('aidlcNative.analyzeRequirements');
         return;
       case 'startAnalyzeRequirements':
         // Form now lives in the workspace panel — this case is a fallback for
@@ -625,7 +625,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         WorkspaceWebview.triggerStartEpic(this.extensionUri);
         return;
       case 'openEpicsList':
-        await vscode.commands.executeCommand('aidlc.openEpicsList');
+        await vscode.commands.executeCommand('aidlcNative.openEpicsList');
         return;
       case 'openEpic': {
         // Recent Epics is a deep link into the run, not a file browser — the
@@ -714,7 +714,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const id = String(msg.id ?? '');
         if (!id) { return; }
         await vscode.commands.executeCommand(
-          'aidlc.applyPreset',
+          'aidlcNative.applyPreset',
           id,
           msg.skipConfirm === true,
         );
@@ -723,7 +723,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'savePresetInline': {
         const draft = msg.draft;
         if (!draft || typeof draft !== 'object') { return; }
-        await vscode.commands.executeCommand('aidlc.savePresetInline', draft);
+        await vscode.commands.executeCommand('aidlcNative.savePresetInline', draft);
         return;
       }
       case 'rerunStepInline': {
@@ -740,7 +740,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const feedback = String(msg.feedback ?? '');
         if (!slash || !runId) { return; }
         await vscode.commands.executeCommand(
-          'aidlc.runStepWithFeedback',
+          'aidlcNative.runStepWithFeedback',
           slash,
           runId,
           feedback,
@@ -757,7 +757,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         return;
       }
       case 'startPipelineRun':
-        await vscode.commands.executeCommand('aidlc.startPipelineRun');
+        await vscode.commands.executeCommand('aidlcNative.startPipelineRun');
         return;
       case 'clearAgentActivity': {
         // The user's override: they can see the agent is finished even though
@@ -790,7 +790,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'deleteRun': {
         const runId = String(msg.runId ?? '');
         await vscode.commands.executeCommand(
-          'aidlc.deleteRun',
+          'aidlcNative.deleteRun',
           runId || undefined,
           msg.confirmed === true,
         );
@@ -801,7 +801,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         if (!epicId) { return; }
         const runId = typeof msg.runId === 'string' && msg.runId ? msg.runId : undefined;
         await vscode.commands.executeCommand(
-          'aidlc.deleteEpic',
+          'aidlcNative.deleteEpic',
           epicId,
           runId,
           msg.deleteFolder === true,

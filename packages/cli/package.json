@@ -1,7 +1,7 @@
 {
-  "name": "aidlc",
+  "name": "@delete101020/aidlc",
   "version": "3.14.0",
-  "description": "AIDLC terminal CLI — AI-driven SDLC pipeline runner. Plan → Prototype → Design ∥ Test → Implement → Release with discovery gates, prototype phase, requirements traceability, and Spec Kit support.",
+  "description": "AIDLC Native CLI (AI-Native SDLC fork of AIDLC) — AI-driven SDLC pipeline runner. Plan → Prototype → Design ∥ Test → Implement → Release with discovery gates, prototype phase, requirements traceability, and Spec Kit support.",
   "license": "MIT",
   "repository": {
     "type": "git",

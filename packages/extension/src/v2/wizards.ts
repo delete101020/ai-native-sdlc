@@ -4,9 +4,9 @@
  * Three commands, all gated on a workspace folder being open. They share
  * yamlIO for reads/writes and `getWorkspaceRoot` for the root resolution.
  *
- *   aidlc.addSkill   — wizard: id → source picker → write .md + append to skills[]
- *   aidlc.addAgent   — wizard: id+name → skill picker → model picker → append to agents[]
- *   aidlc.addPipeline — wizard: id → multi-pick agents (ordered) → on_failure → append to pipelines[]
+ *   aidlcNative.addSkill   — wizard: id → source picker → write .md + append to skills[]
+ *   aidlcNative.addAgent   — wizard: id+name → skill picker → model picker → append to agents[]
+ *   aidlcNative.addPipeline — wizard: id → multi-pick agents (ordered) → on_failure → append to pipelines[]
  *
  * Out of scope here: the visual drag-drop pipeline builder (M3 / Phase B).
  * The wizards write a workspace.yaml that the M3 webview will then read +
@@ -63,7 +63,7 @@ async function loadOrInit(): Promise<{ root: string; doc: YamlDocument } | undef
       'Init Sample Workspace',
     );
     if (choice === 'Init Sample Workspace') {
-      void vscode.commands.executeCommand('aidlc.initWorkspace');
+      void vscode.commands.executeCommand('aidlcNative.initWorkspace');
     }
     return undefined;
   }
@@ -352,7 +352,7 @@ export async function addAgentCommand(): Promise<void> {
       'Add Skill',
     );
     if (choice === 'Add Skill') {
-      void vscode.commands.executeCommand('aidlc.addSkill');
+      void vscode.commands.executeCommand('aidlcNative.addSkill');
     }
     return;
   }
@@ -809,7 +809,7 @@ export async function addPipelineCommand(): Promise<void> {
       'Add Agent',
     );
     if (choice === 'Add Agent') {
-      void vscode.commands.executeCommand('aidlc.addAgent');
+      void vscode.commands.executeCommand('aidlcNative.addAgent');
     }
     return;
   }
@@ -882,7 +882,7 @@ export async function addPipelineCommand(): Promise<void> {
 }
 
 /**
- * aidlc.generateFromRecipe — pick a task-type recipe, assemble a right-sized
+ * aidlcNative.generateFromRecipe — pick a task-type recipe, assemble a right-sized
  * pipeline from the workspace's source pipeline, and append it to
  * workspace.yaml.
  *

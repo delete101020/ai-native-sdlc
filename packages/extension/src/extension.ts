@@ -27,6 +27,7 @@ import { registerAstGraph } from './v2/astGraph';
 import { registerFollowUpDoneHooks } from './v2/followUpHooks';
 import { installAnnotationTools } from './v2/annotationToolsInstaller';
 import { registerClaudeAccounts } from './v2/claudeAccounts';
+import { migrateLegacySettings } from './v2/settingsMigration';
 import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './v2/epicsDirSync';
 import {
   WORKSPACE_DIR,
@@ -47,15 +48,19 @@ function selectRunStateBackend(): void {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel('AIDLC');
+  const output = vscode.window.createOutputChannel('AIDLC Native');
   context.subscriptions.push(output);
 
   output.appendLine('Activating AIDLC Flow extension');
 
+  // Settings moved from aidlc.* to aidlcNative.* in 4.0.0; copy what the user
+  // had and offer a reload, since this activation already read the old state.
+  void migrateLegacySettings(context, output);
+
   // No auto-install of workflow agents/skills into ~/.claude/ anymore —
-  // users opt in via `aidlc.installWorkflowGlobals` or via the apply-preset
+  // users opt in via `aidlcNative.installWorkflowGlobals` or via the apply-preset
   // prompt. Keeps the global Claude folder clean by default. To remove
-  // previously-installed files, run `aidlc.uninstallWorkflowGlobals` before
+  // previously-installed files, run `aidlcNative.uninstallWorkflowGlobals` before
   // uninstalling the extension (VS Code has no reliable on-uninstall hook).
 
   // Which Claude account this window talks to. Everything AIDLC writes under
@@ -86,7 +91,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Epics-directory setting: sync VS Code setting ↔ workspace.yaml state.root.
   // On activation, read YAML → update setting. On setting change, write YAML.
-  const EPICS_DIR_KEY = 'aidlc.workspace.epicsDirectory';
+  const EPICS_DIR_KEY = 'aidlcNative.workspace.epicsDirectory';
   let _epicsDirSyncing = false;
   const syncYamlToSetting = () => {
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -113,7 +118,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // Commands (Show Workspace Config, Init, Add Skill/Agent/Pipeline, Open
-  // Builder, Open Claude CLI). All under `aidlc.*` namespace.
+  // Builder, Open Claude CLI). All under the `aidlcNative.*` namespace.
   const { disposables, presetStore } = registerV2WorkspaceCommands(context, output);
   context.subscriptions.push(...disposables);
 
@@ -131,7 +136,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // from command palette if file watcher detection is delayed (e.g., global
   // ~/.claude/skills changes or CI generates new files).
   context.subscriptions.push(
-    vscode.commands.registerCommand('aidlc.refreshSidebar', () => {
+    vscode.commands.registerCommand('aidlcNative.refreshSidebar', () => {
       sidebar.refresh();
       vscode.window.showInformationMessage('AIDLC sidebar refreshed');
     }),
@@ -214,7 +219,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   status.text = '$(rocket) AIDLC';
   status.tooltip = 'Open AIDLC Builder';
-  status.command = 'aidlc.openBuilder';
+  status.command = 'aidlcNative.openBuilder';
   status.show();
   context.subscriptions.push(status);
 
@@ -278,9 +283,9 @@ function checkCliInstalled(
       void context.globalState.update(SEEN_KEY, true);
       if (pick !== 'Install via npm') { return; }
       const terminal = vscode.window.createTerminal({ name: 'AIDLC CLI Setup' });
-      terminal.sendText('npm install -g aidlc');
+      terminal.sendText('npm install -g @delete101020/aidlc');
       terminal.show();
-      output.appendLine('Opened terminal to run: npm install -g aidlc');
+      output.appendLine('Opened terminal to run: npm install -g @delete101020/aidlc');
     });
   });
 }

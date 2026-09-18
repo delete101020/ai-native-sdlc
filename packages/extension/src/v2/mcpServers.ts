@@ -39,7 +39,7 @@ export interface McpListResult {
  * server, so the wall time scales with how many servers are configured and how
  * many are remote / unauthenticated / failing. A busy setup can take 40s+, so
  * the old 20s budget routinely expired and surfaced a misleading error
- * (issue #61). Overridable via the `aidlc.mcp.listTimeoutSeconds` setting.
+ * (issue #61). Overridable via the `aidlcNative.mcp.listTimeoutSeconds` setting.
  */
 export const DEFAULT_LIST_TIMEOUT_MS = 90_000;
 
@@ -106,7 +106,7 @@ export function describeSpawnError(
         `\`${claudeBin} mcp list\` timed out after ${seconds}s. ` +
         'Claude health-checks every configured MCP server; this can be slow with ' +
         'many remote or unauthenticated servers. Increase ' +
-        '`aidlc.mcp.listTimeoutSeconds` or remove unused servers.',
+        '`aidlcNative.mcp.listTimeoutSeconds` or remove unused servers.',
     };
   }
   return {

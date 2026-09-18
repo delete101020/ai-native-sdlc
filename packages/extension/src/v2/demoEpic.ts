@@ -1,5 +1,5 @@
 /**
- * `aidlc.insertDemoEpic` — drops a fake EPIC-100 into the project so the
+ * `aidlcNative.insertDemoEpic` — drops a fake EPIC-100 into the project so the
  * user can see what the Epics panel renders before any real run is wired.
  *
  * Picks the first pipeline (or first single agent) declared in
@@ -115,7 +115,7 @@ export async function insertDemoEpicCommand(): Promise<void> {
     )
     .then((c) => {
       if (c === 'Open Epics Panel') {
-        void vscode.commands.executeCommand('aidlc.openEpicsList');
+        void vscode.commands.executeCommand('aidlcNative.openEpicsList');
       }
     });
 }

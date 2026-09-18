@@ -1,5 +1,5 @@
 /**
- * Analyze Requirements wizard — `aidlc.analyzeRequirements`.
+ * Analyze Requirements wizard — `aidlcNative.analyzeRequirements`.
  *
  * Two entry points share a common `scaffoldRequirementAnalysis` core:
  *   - `analyzeRequirementsCommand`  — VS Code QuickPick flow (command palette)

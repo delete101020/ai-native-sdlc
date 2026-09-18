@@ -1,6 +1,6 @@
 /**
  * Opt-in code-graph engine: CodeGraph (github.com/colbymchenry/codegraph),
- * selected with `aidlc.astGraph.engine: "codegraph"`.
+ * selected with `aidlcNative.astGraph.engine: "codegraph"`.
  *
  * Why it is cheaper than ast-graph at startup: CodeGraph's MCP server
  * (`codegraph serve --mcp`) watches the project itself and syncs only what
@@ -70,7 +70,7 @@ export function registerCodeGraph(
   output: vscode.OutputChannel,
   opts: CodeGraphOptions,
 ): void {
-  const cfg = () => vscode.workspace.getConfiguration('aidlc.astGraph');
+  const cfg = () => vscode.workspace.getConfiguration('aidlcNative.astGraph');
   // CodeGraph's anonymous usage telemetry is on by default upstream; the
   // extension spawns it on the user's behalf, so it stays off unless asked.
   const env = (): Record<string, string> =>

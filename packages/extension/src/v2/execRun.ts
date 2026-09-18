@@ -18,7 +18,7 @@ import { agentActivity } from './agentActivity';
 
 let channel: vscode.OutputChannel | undefined;
 function log(line: string): void {
-  if (!channel) { channel = vscode.window.createOutputChannel('AIDLC Autopilot'); }
+  if (!channel) { channel = vscode.window.createOutputChannel('AIDLC Native Autopilot'); }
   channel.appendLine(line);
 }
 
@@ -87,7 +87,7 @@ export async function execRunToCompletion(
   });
   onChange();
 
-  if (!channel) { channel = vscode.window.createOutputChannel('AIDLC Autopilot'); }
+  if (!channel) { channel = vscode.window.createOutputChannel('AIDLC Native Autopilot'); }
   channel.show(true);
   log(`\n─── ${new Date().toLocaleTimeString()}  ${runId}  (${label}) ───`);
 

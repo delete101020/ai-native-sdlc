@@ -45,7 +45,7 @@ interface InstallReport {
 /**
  * Default workflow ids installed on activation. Only the stack-neutral SDLC
  * pipeline ships globally by default — additional workflows are opt-in via
- * `aidlc.installWorkflowGlobals` (multi-pick) or auto-installed when the
+ * `aidlcNative.installWorkflowGlobals` (multi-pick) or auto-installed when the
  * user applies the matching preset.
  *
  * Rationale: installing all 8 workflows globally on every activation
@@ -70,7 +70,7 @@ export function installGlobalDefaults(
 
 /**
  * Install a specific set of built-in workflows by id. Skips unknown ids
- * silently. Used by `aidlc.installWorkflowGlobals` and by the apply-preset
+ * silently. Used by `aidlcNative.installWorkflowGlobals` and by the apply-preset
  * confirmation flow that asks the user before dropping a workflow's files
  * into global.
  *
