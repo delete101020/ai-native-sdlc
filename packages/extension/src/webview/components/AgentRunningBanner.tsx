@@ -72,7 +72,7 @@ export function AgentRunningBanner({
  * alive, and it is also the thing the user actually wants to know when they
  * are deciding whether to wait or intervene.
  */
-function useElapsed(startedAt: number): string {
+export function useElapsed(startedAt: number): string {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);

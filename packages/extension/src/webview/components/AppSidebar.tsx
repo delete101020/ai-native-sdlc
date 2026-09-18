@@ -21,9 +21,6 @@ import {
   Github,
   Languages,
   Fingerprint,
-  Check,
-  Clipboard,
-  ScanEye,
   AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -41,8 +38,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { SavePresetModal } from './SavePresetModal';
 import { LoadDemoModal } from './LoadDemoModal';
 import { ThemeToggle } from './ThemeToggle';
-import { AgentRunningBanner } from './AgentRunningBanner';
-import { ClampedNote } from './ClampedNote';
+import { useElapsed } from './AgentRunningBanner';
 import { postMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
 
 interface CollapseState {
@@ -57,7 +53,7 @@ interface PersistedUi {
 }
 
 const DEFAULT_COLLAPSED: CollapseState = {
-  // The one section that is asking the user to do something — never starts shut.
+  // The one section about work in flight — never starts shut.
   activeRuns: false,
   recentEpics: false,
   workflows: false,
@@ -628,9 +624,10 @@ const ACTIVE_RUNS_LIMIT = 3;
  * faded, and the toast's own "click Mark step done in the sidebar" pointed at a
  * section that did not exist. This is that section.
  *
- * Runs that belong to an epic get a link into the Epics view rather than a
- * second, thinner copy of the epic UI; the step controls stay here either way
- * because acting on the current step is the whole reason to look at this list.
+ * The sidebar reports status and nothing more. Clicking a run opens its epic,
+ * and every step action (mark done, approve, reject, rerun, copy command,
+ * clear agent activity) happens there, with the epic's full context in view
+ * rather than a thinner copy of it here.
  */
 function ActiveRunsSection({
   runs,
@@ -703,43 +700,36 @@ function ActiveRunCard({
     label: run.currentStepStatus || 'unknown',
     cls: 'border-border bg-secondary text-muted-foreground',
   };
-  // The commands below resolve the current step themselves when handed only a
-  // runId, so the sidebar never has to reason about step indices.
-  const act = (type: string) => () => postMessage({ type, runId: run.runId });
   const missingRequires = run.requires.filter((r) => !r.exists);
-  // Same rule as the epic card: while an agent we launched is still on this
-  // run, there is nothing yet to mark done, approve or reject.
-  const busy = !!activity;
-  const busyTitle = 'An agent is still working on this run — wait for it, or dismiss the banner above';
+  const written = run.produces.filter((p) => p.exists).length;
+  const note = run.rejectReason || run.feedback;
+  // The whole card is the one control: it opens the epic, where the step can be
+  // acted on with its full context. A run started outside an epic has no such
+  // view, so its run JSON is the closest thing to "open it".
+  const open = () =>
+    run.epicId
+      ? postMessage({ type: 'openEpic', id: run.epicId })
+      : postMessage({ type: 'openRunState', runId: run.runId });
 
   return (
-    <div className="rounded-md border border-border bg-card/50 px-2.5 py-2 text-[11px]">
+    <div
+      role="button"
+      tabIndex={0}
+      title={run.epicId ? `Open ${run.epicId} in the Epics view` : 'Open the run JSON'}
+      onClick={open}
+      onKeyDown={(ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          open();
+        }
+      }}
+      className="cursor-pointer rounded-md border border-border bg-card/50 px-2.5 py-2 text-[11px] transition-colors hover:bg-accent"
+    >
       <div className="flex items-center gap-1.5">
-        {run.epicId ? (
-          <button
-            type="button"
-            onClick={() => postMessage({ type: 'openEpic', id: run.epicId })}
-            title={`Open ${run.epicId} in the Epics view`}
-            className="truncate font-mono text-[10px] font-bold text-primary hover:underline"
-          >
-            {run.runId}
-          </button>
-        ) : (
-          <span className="truncate font-mono text-[10px] font-bold text-primary">
-            {run.runId}
-          </span>
-        )}
-        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+        <span className="truncate font-mono text-[10px] font-bold text-primary">{run.runId}</span>
+        <span className="ml-auto shrink-0 tabular-nums text-[10px] text-muted-foreground">
           {run.currentStepIdx + 1}/{run.totalSteps}
         </span>
-        <button
-          type="button"
-          onClick={act('openRunState')}
-          title="Open the run JSON"
-          className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <FileCode2 className="h-3 w-3" />
-        </button>
       </div>
 
       <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -757,120 +747,47 @@ function ActiveRunCard({
         )}
       </div>
 
-      {run.currentSlashCommand && run.currentStepStatus === 'awaiting_work' && (
-        <button
-          type="button"
-          onClick={() =>
-            postMessage({
-              type: 'copyCommand',
-              command: `${run.currentSlashCommand} ${run.runId}`,
-            })
-          }
-          title="Copy this command to the clipboard"
-          className="mt-1.5 flex w-full items-center gap-1.5 rounded border border-border bg-surface/60 px-1.5 py-1 font-mono text-[10px] text-foreground hover:bg-accent"
-        >
-          <Clipboard className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
-          <span className="truncate">
-            {run.currentSlashCommand} {run.runId}
-          </span>
-        </button>
-      )}
+      {activity && <AgentActivityLine activity={activity} />}
 
-      {activity && <AgentRunningBanner activity={activity} className="mt-1.5" />}
-
-      {(run.rejectReason || run.feedback) && (
-        <ClampedNote
-          text={run.rejectReason || run.feedback || ''}
-          className="mt-1.5 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[10px] leading-snug text-muted-foreground"
-        />
-      )}
-
-      {missingRequires.length > 0 && (
-        <div className="mt-1.5 text-[10px] leading-snug text-warning">
-          Missing input{missingRequires.length === 1 ? '' : 's'}:{' '}
-          <span className="font-mono">{missingRequires.map((r) => r.path).join(', ')}</span>
+      {note && (
+        <div className="mt-1.5 line-clamp-2 break-words rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[10px] leading-snug text-muted-foreground">
+          {note}
         </div>
       )}
 
-      {run.produces.length > 0 && (
-        <div className="mt-1.5 space-y-0.5">
-          {run.produces.map((p) => (
-            <button
-              key={p.path}
-              type="button"
-              onClick={() => postMessage({ type: 'openArtifact', path: p.path })}
-              title={p.exists ? `Open ${p.path}` : `${p.path} — not written yet`}
-              className="flex w-full items-center gap-1.5 text-left font-mono text-[10px] text-muted-foreground hover:text-foreground"
+      {(missingRequires.length > 0 || run.produces.length > 0) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground">
+          {missingRequires.length > 0 && (
+            <span
+              className="text-warning"
+              title={missingRequires.map((r) => r.path).join('\n')}
             >
-              <span
-                className={cn(
-                  'h-1.5 w-1.5 shrink-0 rounded-full',
-                  p.exists ? 'bg-success' : 'border border-muted-foreground/50',
-                )}
-              />
-              <span className="truncate">{p.path}</span>
-            </button>
-          ))}
+              {missingRequires.length} missing input{missingRequires.length === 1 ? '' : 's'}
+            </span>
+          )}
+          {run.produces.length > 0 && (
+            <span title={run.produces.map((p) => `${p.exists ? '✓' : '·'} ${p.path}`).join('\n')}>
+              {written}/{run.produces.length} artifact{run.produces.length === 1 ? '' : 's'} written
+            </span>
+          )}
         </div>
       )}
-
-      <div className="mt-1.5 flex flex-wrap gap-1">
-        {run.currentStepStatus === 'awaiting_work' && (
-          <RunAction icon={<Check className="h-2.5 w-2.5" />} label="Mark step done" onClick={act('markStepDone')} primary disabled={busy} title={busy ? busyTitle : undefined} />
-        )}
-        {run.currentStepStatus === 'awaiting_auto_review' && (
-          <RunAction icon={<ScanEye className="h-2.5 w-2.5" />} label="Run auto-review" onClick={act('runAutoReview')} primary disabled={busy} title={busy ? busyTitle : undefined} />
-        )}
-        {run.currentStepStatus === 'awaiting_review' && (
-          <>
-            <RunAction icon={<Check className="h-2.5 w-2.5" />} label="Approve" onClick={act('approveStep')} primary disabled={busy} title={busy ? busyTitle : undefined} />
-            <RunAction icon={<X className="h-2.5 w-2.5" />} label="Reject" onClick={act('rejectStep')} disabled={busy} title={busy ? busyTitle : undefined} />
-          </>
-        )}
-        {run.currentStepStatus === 'rejected' && (
-          <RunAction icon={<RefreshCw className="h-2.5 w-2.5" />} label="Rerun" onClick={act('rerunStep')} primary disabled={busy} title={busy ? busyTitle : undefined} />
-        )}
-      </div>
     </div>
   );
 }
 
-function RunAction({
-  icon,
-  label,
-  onClick,
-  primary,
-  disabled,
-  title,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-  primary?: boolean;
-  disabled?: boolean;
-  title?: string;
-}) {
+/**
+ * The sidebar's read-only form of `AgentRunningBanner`: same wording and timer,
+ * without the dismiss button, which belongs with the step controls in the epic.
+ */
+function AgentActivityLine({ activity }: { activity: AgentActivity }) {
+  const elapsed = useElapsed(activity.startedAt);
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={cn(
-        'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium transition-colors',
-        primary
-          ? 'border-primary/40 bg-primary/15 text-primary'
-          : 'border-border bg-card text-muted-foreground',
-        disabled
-          ? 'cursor-not-allowed opacity-40'
-          : primary
-          ? 'hover:bg-primary/25'
-          : 'hover:bg-accent hover:text-foreground',
-      )}
-    >
-      {icon}
-      {label}
-    </button>
+    <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-primary" title={activity.command}>
+      <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+      <span className="font-semibold">{activity.tracked ? 'Agent running' : 'Agent started'}</span>
+      <span className="tabular-nums text-primary/70">{elapsed}</span>
+    </div>
   );
 }
 

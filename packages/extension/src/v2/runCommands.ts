@@ -164,8 +164,8 @@ function slashCommandForAgent(root: string, agent: string): string | null {
 function howToWorkStep(root: string, agent: string, runId: string): string {
   const cmd = slashCommandForAgent(root, agent);
   return cmd
-    ? `Run ${cmd} ${runId} in Claude, then "Mark step done" on the run in the AIDLC sidebar.`
-    : `No slash command targets "${agent}" — invoke that agent yourself, then "Mark step done" on the run in the AIDLC sidebar.`;
+    ? `Run ${cmd} ${runId} in Claude, then open the epic and click "Mark step done".`
+    : `No slash command targets "${agent}" — invoke that agent yourself, then open the epic and click "Mark step done".`;
 }
 
 /**
@@ -405,8 +405,8 @@ export async function runAutoReviewCommand(runIdArg?: string, stepIdxArg?: numbe
         const followUp = next.steps[next.currentStepIdx];
         const action =
           next.status === 'completed'        ? 'Pipeline completed.' :
-          followUp.status === 'awaiting_review' ? 'Awaiting your review in the sidebar.' :
-          followUp.status === 'rejected'     ? 'Step rejected — see Rerun button.' :
+          followUp.status === 'awaiting_review' ? 'Awaiting your review — open the epic to approve or reject.' :
+          followUp.status === 'rejected'     ? 'Step rejected — open the epic to rerun it.' :
           followUp.status === 'awaiting_work' ? `Advanced to "${followUp.agent}".` :
           'Run state updated.';
         void vscode.window.showInformationMessage(
@@ -497,7 +497,7 @@ export async function rejectStepCommand(runIdArg?: string, stepIdxArg?: number):
     saveRun(root, next, state);
     if (targetIdx === idx) {
       void vscode.window.showInformationMessage(
-        `Rejected step "${currentStep.agent}". Click "Rerun" in the sidebar when ready.`,
+        `Rejected step "${currentStep.agent}". Open the epic and click "Rerun" when ready.`,
       );
     } else {
       const target = state.steps[targetIdx];
@@ -543,7 +543,7 @@ export async function rejectStepInlineCommand(
     saveRun(root, next, state);
     if (targetIdx === idx) {
       void vscode.window.showInformationMessage(
-        `Rejected step "${currentStep.agent}". Click "Rerun" in the sidebar when ready.`,
+        `Rejected step "${currentStep.agent}". Open the epic and click "Rerun" when ready.`,
       );
     } else {
       const target = state.steps[targetIdx];
@@ -907,7 +907,7 @@ function notifyStepTransition(root: string, next: RunState, prevIdx: number): vo
   if (next.currentStepIdx === prevIdx) {
     // Same step — must be awaiting_review
     void vscode.window.showInformationMessage(
-      `Step "${step.agent}" produced its artifacts. Awaiting your review under Active Runs in the AIDLC sidebar.`,
+      `Step "${step.agent}" produced its artifacts. Awaiting your review — open the epic to approve or reject.`,
     );
     return;
   }

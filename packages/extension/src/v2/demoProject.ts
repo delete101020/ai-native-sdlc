@@ -697,7 +697,8 @@ The user invoked you with epic id \`$ARGUMENTS\`.
    marks the step done.
 
 4. When finished, summarize what you produced and tell the user to
-   click "Mark step done" in the AIDLC sidebar to advance the pipeline.
+   open the epic in the AIDLC Epics view and click "Mark step done" to
+   advance the pipeline.
 `;
 }
 
