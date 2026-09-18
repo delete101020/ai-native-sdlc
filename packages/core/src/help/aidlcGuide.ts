@@ -18,11 +18,13 @@ AIDLC is an AI-driven SDLC + agent workflow runner. It drives Claude through a
 pipeline you declare in \`.aidlc/workspace.yaml\`, tracking every run, step, and
 token. It has two surfaces that share the same files on disk (no daemon):
 
-- **VS Code extension** (\`delete101020.aidlc\`, installed from a local \`.vsix\`) — a
+- **VS Code extension** — **AIDLC Native** (\`delete101020.aidlc\`, on the VS Code
+  Marketplace and Open VSX; commands and settings under \`aidlcNative.*\`) — a
   visual Builder for workspace.yaml,
   a sidebar launcher, epic/run tracking, and the **AIDLC Monitor** (token usage,
   session insights, live agent observability).
-- **CLI** (\`aidlc\`) — the same engine from any terminal, no editor required.
+- **CLI** (\`aidlc\`, npm package \`@delete101020/aidlc\`) — the same engine from any
+  terminal, no editor required.
 
 **Execution model:** AIDLC shells out to the \`claude\` CLI
 (\`claude --print --append-system-prompt <skill>\`). Claude-only — no Anthropic
@@ -54,7 +56,7 @@ the other within ~200ms.
 - Several Claude accounts (personal / work)? They are separated by *config dir*,
   not by project: \`~/.claude\` holds one account's agents, skills, settings and
   session logs. AIDLC follows \`CLAUDE_CONFIG_DIR\`, and the extension adds the
-  \`aidlc.claude.configDir\` setting (workspace scope, so one window = one
+  \`aidlcNative.claude.configDir\` setting (workspace scope, so one window = one
   account) — it pins global installs, the epic-memory hook, MCP registration,
   the token monitor and every \`claude\` terminal AIDLC opens. \`aidlc doctor\`
   prints the dir in use. The workspace's own \`.claude/\` is project data and
@@ -73,17 +75,17 @@ the other within ~200ms.
 - Global flag: \`-w, --workspace <path>\` (defaults to cwd; also reads AIDLC_WORKSPACE).
 
 ## VS Code extension setup & UI
-1. Install **AIDLC** from a locally built \`.vsix\`: \`pnpm package:extension\` in the
-   repo, then \`code --install-extension packages/extension/aidlc-<version>.vsix\`.
-   This build is not on the Marketplace or Open VSX.
+1. Install **AIDLC Native** from the Extensions view (Marketplace in VS Code, Open VSX
+   in Antigravity / Cursor / VSCodium), or \`code --install-extension delete101020.aidlc\`.
+   CLI: \`npm install -g @delete101020/aidlc\` (the command is \`aidlc\`).
 2. Ensure \`claude\` is on PATH and authenticated (the sidebar surfaces MCP/claude state).
 3. Open a project folder. The **AIDLC** sidebar (activity bar) shows:
    - the project + workspace.yaml status and counts (Agents / Skills / Flows / Epics),
    - **Start Epic**, recent epics, workflow templates, and connected MCP servers.
-4. First-time setup options: **Init Sample Workspace** (\`aidlc.initWorkspace\`),
+4. First-time setup options: **Init Sample Workspace** (\`aidlcNative.initWorkspace\`),
    apply a built-in **Workflow** template, or **Load Demo Project** (a full pipeline
    + 6 epics) to explore without committing to your own repo.
-5. Title-bar buttons / commands (all under the "AIDLC" category in the command palette):
+5. Title-bar buttons / commands (all under the "AIDLC Native" category in the command palette):
    - **Open Workspace Builder** — the visual workspace.yaml editor.
    - **Open Claude CLI Terminal** — a terminal pre-launched into \`claude\`.
    - **Open AIDLC Monitor** — token usage + session insights + live agents.
@@ -98,11 +100,11 @@ the other within ~200ms.
      **Validate all** runs \`ata validate\`. If no config exists, the tab prompts
      **Run ata config** to generate one.
 7. The extension auto-registers a code-graph MCP server so Claude can read
-   structural code context cheaply (toggle via \`aidlc.astGraph.enabled\`). The
-   engine is **ast-graph** by default; set \`aidlc.astGraph.engine\` to
+   structural code context cheaply (toggle via \`aidlcNative.astGraph.enabled\`). The
+   engine is **ast-graph** by default; set \`aidlcNative.astGraph.engine\` to
    \`codegraph\` for CodeGraph, which syncs changed files itself and suits large
    repos better. ast-graph rescans on branch switch / pull, and on save only
-   with \`aidlc.astGraph.rescanOnSave\`.
+   with \`aidlcNative.astGraph.rescanOnSave\`.
 
 ## Answering guidance
 - Be concise and practical. Prefer the exact command or button name over prose.

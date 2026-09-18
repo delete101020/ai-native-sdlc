@@ -1,13 +1,15 @@
-# AIDLC
+# AIDLC Native
 
 **See what AI is building. Drive Claude through any pipeline you declare — and track every run, step, and token.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](https://github.com/delete101020/ai-native-sdlc/blob/main/LICENSE)
-[![Build: local](https://img.shields.io/badge/build-local%20%2Evsix-6b7280)](https://github.com/delete101020/ai-native-sdlc)
+[![npm CLI](https://img.shields.io/npm/v/@delete101020/aidlc?label=CLI)](https://www.npmjs.com/package/@delete101020/aidlc)
 
-> **A local build.** This is a fork of [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc)
-> (published as `hueanmy.aidlc`), installed from a `.vsix` built out of
-> [`delete101020/ai-native-sdlc`](https://github.com/delete101020/ai-native-sdlc) — not from the Marketplace. It adds the
+> **A fork.** AIDLC Native is built from
+> [`delete101020/ai-native-sdlc`](https://github.com/delete101020/ai-native-sdlc), a fork of
+> [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc) by hueanmy (`hueanmy.aidlc`); it is not
+> affiliated with or endorsed by the upstream author. Its commands and settings live under
+> `aidlcNative.*`, so the two extensions can be installed side by side. It adds the
 > six-stage **AI-Native SDLC Playbook** workflow (`aidlc preset apply ai-native`),
 > a tooling-enforced approval gate, and a stage-6 incident loop that opens the
 > follow-up epic for you.
@@ -18,7 +20,7 @@ Drive Claude through any pipeline you declare in a single `workspace.yaml` — v
 
 ### New in 3.10 — run an epic to completion from the panel
 
-- ▶️ **`Run to completion`** — one button on an epic card executes every remaining step back to back: spawning each agent, checking its `produces` artifacts, running `auto_review` headlessly, advancing. It is the same engine the CLI's `aidlc run exec` drives, so both front ends stop and resume in exactly the same places. A modal asks the only two questions that change where it stops — whether `human_review` gates pause it (naming the agents it would approve unread) and whether to halt after a step you pick. Output goes to **Output → AIDLC Autopilot**, progress to a cancellable notification.
+- ▶️ **`Run to completion`** — one button on an epic card executes every remaining step back to back: spawning each agent, checking its `produces` artifacts, running `auto_review` headlessly, advancing. It is the same engine the CLI's `aidlc run exec` drives, so both front ends stop and resume in exactly the same places. A modal asks the only two questions that change where it stops — whether `human_review` gates pause it (naming the agents it would approve unread) and whether to halt after a step you pick. Output goes to **Output → AIDLC Native Autopilot**, progress to a cancellable notification.
 - ⏹️ **Cancelling takes effect at the next step boundary**, not mid-step: a half-written artifact left by a killed agent would satisfy the `produces` check on the next attempt, and the gate cannot tell a finished file from an abandoned one. The CLI reports the new `cancelled` outcome as exit 2.
 - 🛟 **`Start pipeline run` no longer resets a finished epic.** `.aidlc/runs/` is gitignored while the epic's `state.json` is tracked, so an epic whose run file had been cleaned up read as "never started" — and starting it mirrored a blank all-pending run over its approvals, revisions and history. A `done` epic is offered no start button; one with completed steps behind a missing run file gets a modal that counts what would be discarded.
 
@@ -50,7 +52,7 @@ Drive Claude through any pipeline you declare in a single `workspace.yaml` — v
 
 ### New in 3.6 — multi-account Claude, living model defaults
 
-- 👥 **One window, one Claude account** — every global path AIDLC touches (globals install, annotation tools, asset discovery, MCP registration, the token monitor) now follows the active Claude config dir instead of a hardcoded `~/.claude`. Pin one per workspace with `aidlc.claude.configDir`, or switch with **AIDLC: Switch Claude Account**, which lists each saved account by the email signed in to it and offers a status bar shortcut.
+- 👥 **One window, one Claude account** — every global path AIDLC touches (globals install, annotation tools, asset discovery, MCP registration, the token monitor) now follows the active Claude config dir instead of a hardcoded `~/.claude`. Pin one per workspace with `aidlcNative.claude.configDir`, or switch with **AIDLC Native: Switch Claude Account**, which lists each saved account by the email signed in to it and offers a status bar shortcut.
 - 🧠 **Model defaults that don't age out** — presets, agent templates and all three model pickers offer Claude Code's aliases (`opus` · `sonnet` · `haiku`) first, so a workspace created today survives the next model release.
 - 🔢 **Sidebar counts match the Builder** — `AGENTS` / `SKILLS` count distinct ids across the aidlc, project and global scopes instead of summing an asset that is deliberately present in two of them.
 
@@ -62,7 +64,7 @@ Drive Claude through any pipeline you declare in a single `workspace.yaml` — v
 
 ### New in 2.5
 
-- 🧭 **Selectable SDLC standard** — pick a compliance **profile** (`none` · `agile-lite` · `hybrid` · `iso-ieee`) that governs, in a single selector, the enforced artifact sections, the requirements-**traceability** validator (FR → AC → test case → result, plus RTM checks), and the per-phase persona/skill. Choose it from a card-based **webview picker** (sidebar ⚖️ button or **“AIDLC: Select SDLC Standard”**), from a dropdown when you **Start Epic**, or by hand in `workspace.yaml`. Default is `none` — nothing enforced, fully backward-compatible. The traceability validator is phase-progressive (a rule only fires once the artifact it checks exists) and wires into the existing auto-review gate. Custom profiles live in `.aidlc/profiles/<name>.yaml`.
+- 🧭 **Selectable SDLC standard** — pick a compliance **profile** (`none` · `agile-lite` · `hybrid` · `iso-ieee`) that governs, in a single selector, the enforced artifact sections, the requirements-**traceability** validator (FR → AC → test case → result, plus RTM checks), and the per-phase persona/skill. Choose it from a card-based **webview picker** (sidebar ⚖️ button or **“AIDLC Native: Select SDLC Standard”**), from a dropdown when you **Start Epic**, or by hand in `workspace.yaml`. Default is `none` — nothing enforced, fully backward-compatible. The traceability validator is phase-progressive (a rule only fires once the artifact it checks exists) and wires into the existing auto-review gate. Custom profiles live in `.aidlc/profiles/<name>.yaml`.
 - ⌨️ **Two-layer command model** — alongside the per-pipeline commands, AIDLC now generates a fixed set of shortcut phase commands (`/plan`, `/design`, `/implement`, `/unit-test`, `/benchmark`, `/test-plan`, `/generate-test-cases`, `/execute-test`) plus a single **`/aidlc <epic> [phase]`** dispatcher. Composition is resolved at runtime from the epic’s bound pipeline (so two pipelines that reuse a phase name never collide), and `/aidlc <epic>` with no phase runs the **next eligible** step.
 
 ### New in 2.4
@@ -107,7 +109,7 @@ Drive Claude through any pipeline you declare in a single `workspace.yaml` — v
 
 ## How It Works
 
-The extension reads `.aidlc/workspace.yaml` from the open folder and uses [`@aidlc/core`](../core) to validate the schema (Zod), resolve env variables, load skills and agents, and execute pipelines through the Claude CLI runner.
+The extension reads `.aidlc/workspace.yaml` from the open folder and uses [`@aidlc/core`](https://github.com/delete101020/ai-native-sdlc/tree/main/packages/core) to validate the schema (Zod), resolve env variables, load skills and agents, and execute pipelines through the Claude CLI runner.
 
 ```
 .aidlc/
@@ -119,16 +121,27 @@ The extension reads `.aidlc/workspace.yaml` from the open folder and uses [`@aid
 
 Both the extension and the `aidlc` CLI read and write the same files atomically — switch between them mid-run without losing state.
 
+## Network and privacy
+
+AIDLC Native sends no telemetry of its own. Two things reach the network:
+
+- **Claude** — every agent run shells out to your installed `claude` CLI, under your account.
+- **The code-graph binary** — on first use the extension downloads the [ast-graph](https://github.com/emtyty/ast-graph)
+  or [CodeGraph](https://github.com/colbymchenry/codegraph) release for your platform from GitHub, checks it
+  against a pinned SHA-256, and keeps it in the extension's storage. CodeGraph's own telemetry is turned
+  off unless you enable `aidlcNative.astGraph.codegraphTelemetry`. Set `aidlcNative.astGraph.enabled` to
+  `false` to skip the download altogether.
+
 ## Getting Started
 
-1. Install **AIDLC** from a locally built `.vsix` — this fork is published nowhere. Run `pnpm install && pnpm package:extension` in the repo, then `code --install-extension packages/extension/aidlc-<version>.vsix --force` and reload the window. Full walkthrough: [`ONBOARDING.md`](../../ONBOARDING.md).
+1. Install **AIDLC Native** from the Extensions view (VS Code: Marketplace; Antigravity, Cursor, VSCodium: Open VSX). For the terminal side, `npm install -g @delete101020/aidlc`. Full walkthrough: [`ONBOARDING.md`](https://github.com/delete101020/ai-native-sdlc/blob/main/ONBOARDING.md).
 2. Open a workspace folder.
 3. The Welcome page auto-opens the **Get started with AIDLC** walkthrough — follow it for a guided tour, or skip ahead with the steps below.
-4. Run **AIDLC: Load Demo Project** — scaffolds a full pipeline plus 6 sample epics under `.aidlc/`.
+4. Run **AIDLC Native: Load Demo Project** — scaffolds a full pipeline plus 6 sample epics under `.aidlc/`.
 5. Click the **AIDLC** icon in the activity bar to open the sidebar; pick an epic to run.
-6. Use **AIDLC: Open Claude CLI Terminal** to drive runs (or run pipelines unattended) from the CLI.
+6. Use **AIDLC Native: Open Claude CLI Terminal** to drive runs (or run pipelines unattended) from the CLI.
 
-Prefer to start from scratch? Use **AIDLC: Init Sample Workspace** instead — it scaffolds an empty `.aidlc/workspace.yaml` plus a `hello-skill.md`.
+Prefer to start from scratch? Use **AIDLC Native: Init Sample Workspace** instead — it scaffolds an empty `.aidlc/workspace.yaml` plus a `hello-skill.md`.
 
 ## Commands
 
@@ -136,21 +149,21 @@ All commands are available via `Cmd+Shift+P` (or `Ctrl+Shift+P`):
 
 | Command | Description |
 |---------|-------------|
-| `AIDLC: Load Demo Project (full pipeline + 6 epics)` | Drop a complete demo workspace into the open folder |
-| `AIDLC: Open Workspace Builder` | Visual builder for agents, skills, and pipelines |
-| `AIDLC: Open AIDLC Monitor (Token Usage + Insights + Agents)` | Token usage, native session insights, and live agent observability |
-| `AIDLC: Init Sample Workspace` | Scaffold an empty `.aidlc/workspace.yaml` + sample skill |
-| `AIDLC: Show Workspace Config` | Dump parsed workspace.yaml to the AIDLC output channel |
-| `AIDLC: Add Skill (template / paste / upload / blank)` | Add a new skill from one of four sources |
-| `AIDLC: Add Agent` | Wizard to add a new agent (skill + model) |
-| `AIDLC: Add Pipeline (chain agents)` | Wizard to chain agents into a pipeline |
-| `AIDLC: Save Workspace as Template` | Save the current workspace as a reusable preset |
-| `AIDLC: Load Template` | Apply a saved preset to the open workspace |
-| `AIDLC: Delete Saved Template` | Remove a saved preset |
-| `AIDLC: Open Claude CLI Terminal` | Open a zsh terminal with `claude` auto-launched |
-| `AIDLC: Start Epic` | Begin a new epic from the sidebar |
-| `AIDLC: Open Epics List` | Browse epics in the open workspace |
-| `AIDLC: Insert Demo Epic (EPIC-100)` | Drop a single demo epic for quick exploration |
+| `AIDLC Native: Load Demo Project (full pipeline + 6 epics)` | Drop a complete demo workspace into the open folder |
+| `AIDLC Native: Open Workspace Builder` | Visual builder for agents, skills, and pipelines |
+| `AIDLC Native: Open AIDLC Monitor (Token Usage + Insights + Agents)` | Token usage, native session insights, and live agent observability |
+| `AIDLC Native: Init Sample Workspace` | Scaffold an empty `.aidlc/workspace.yaml` + sample skill |
+| `AIDLC Native: Show Workspace Config` | Dump parsed workspace.yaml to the AIDLC output channel |
+| `AIDLC Native: Add Skill (template / paste / upload / blank)` | Add a new skill from one of four sources |
+| `AIDLC Native: Add Agent` | Wizard to add a new agent (skill + model) |
+| `AIDLC Native: Add Pipeline (chain agents)` | Wizard to chain agents into a pipeline |
+| `AIDLC Native: Save Workspace as Template` | Save the current workspace as a reusable preset |
+| `AIDLC Native: Load Template` | Apply a saved preset to the open workspace |
+| `AIDLC Native: Delete Saved Template` | Remove a saved preset |
+| `AIDLC Native: Open Claude CLI Terminal` | Open a zsh terminal with `claude` auto-launched |
+| `AIDLC Native: Start Epic` | Begin a new epic from the sidebar |
+| `AIDLC Native: Open Epics List` | Browse epics in the open workspace |
+| `AIDLC Native: Insert Demo Epic (EPIC-100)` | Drop a single demo epic for quick exploration |
 | `AIDLC: Analyze Requirements` | Open the Analyze tab to import requirements from Jira, GitHub Issues, Linear, Redmine, or a local file into `requirements.md` |
 | `AIDLC: Open Tests` | Open the Tests tab to manage and run AI-powered E2E tests via `aidlc-testagent` |
 

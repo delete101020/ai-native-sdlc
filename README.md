@@ -3,12 +3,15 @@
 **AI-driven SDLC pipeline runner. Plan → Prototype → Design ∥ Test → Implement → Release, plus the six-stage AI-Native SDLC Playbook. See what Claude is building, control every step, track every token.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](LICENSE)
-[![Build: local](https://img.shields.io/badge/build-local%20%2Evsix-6b7280)](#install-this-build)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/delete101020.aidlc?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=delete101020.aidlc)
+[![Open VSX](https://img.shields.io/open-vsx/v/delete101020/aidlc?label=Open%20VSX)](https://open-vsx.org/extension/delete101020/aidlc)
+[![npm](https://img.shields.io/npm/v/@delete101020/aidlc?label=npm)](https://www.npmjs.com/package/@delete101020/aidlc)
 
 > **This is a fork.** Upstream is [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc)
 > by [hueanmy](https://github.com/hueanmy), published on the Marketplace as
-> `hueanmy.aidlc`. **This build is not published anywhere** — it is installed from
-> a locally built `.vsix` and a locally linked CLI ([Install this build](#install-this-build)).
+> `hueanmy.aidlc`. This fork ships separately as **AIDLC Native** — extension
+> `delete101020.aidlc`, CLI `@delete101020/aidlc` ([Install](#install-this-build)) —
+> and is not affiliated with or endorsed by the upstream author.
 > What it adds on top of upstream is the **AI-Native SDLC Playbook** workflow; see
 > [`AI_NATIVE_SDLC_ALIGNMENT.md`](AI_NATIVE_SDLC_ALIGNMENT.md) for the full record of
 > what was built and why.
@@ -26,7 +29,7 @@ Code transcript.
 
 ## ✨ What's New in v3.6 — multi-account Claude, living model defaults (this fork)
 
-- **👥 One window, one Claude account** — on a machine with a personal and a work account, the two are separated by *config dir*, and AIDLC used to hardcode `~/.claude` in ~18 places: `aidlc globals install` wrote files the running session could not see, and the token monitor read an empty `projects/`, both without an error. Every global path now resolves through one function. Pin an account per workspace with `aidlc.claude.configDir`, switch it from **AIDLC: Switch Claude Account** (a quick pick that shows each account's signed-in email) or the status bar item, and `aidlc doctor` prints the config dir in use.
+- **👥 One window, one Claude account** — on a machine with a personal and a work account, the two are separated by *config dir*, and AIDLC used to hardcode `~/.claude` in ~18 places: `aidlc globals install` wrote files the running session could not see, and the token monitor read an empty `projects/`, both without an error. Every global path now resolves through one function. Pin an account per workspace with `aidlcNative.claude.configDir`, switch it from **AIDLC Native: Switch Claude Account** (a quick pick that shows each account's signed-in email) or the status bar item, and `aidlc doctor` prints the config dir in use.
 - **🧠 Model defaults stop aging out** — built-in phases and agent templates now ask for Claude Code's aliases (`opus` · `sonnet` · `haiku`) instead of pinned ids, and the three defaults live in one module (`@aidlc/core` → `PLANNING_MODEL` / `CODING_MODEL` / `FAST_MODEL`). A workspace created today needs no editing after the next model release; tests fail if a pinned `claude-*` id reappears in a preset.
 - **🔢 Sidebar counts match the Builder** — a preset installs each asset twice by design (a `workspace.yaml` declaration *and* a `.md` file under `~/.claude/`), and the sidebar added the two lists instead of merging them, advertising 12 agents for 6. Both surfaces now count distinct ids across all three scopes.
 
@@ -55,14 +58,14 @@ Code transcript.
 - **🖼️ Feedback & Preview render the Markdown natively** — the Feedback button and the new **Preview** action open the artifact in annotron itself (diagrams included); revision history is still logged per round.
 - **✍️ Inline text edit** — in Annotate mode, selecting plain text offers **Edit** beside Comment to retype/delete it straight into the `.md` (only when it maps to an exact spot in the source).
 - **🩹 Sturdier annotron server** — starts reliably from VS Code terminals and stays up after Done.
-- **🧭 Autopilot core (experimental)** — unattended run engine + LLM pipeline adapter land in `@aidlc/core`, dormant behind `aidlc.autopilot.enabled`.
+- **🧭 Autopilot core (experimental)** — unattended run engine + LLM pipeline adapter land in `@aidlc/core`, dormant behind `aidlcNative.autopilot.enabled`.
 
 ---
 
 ## ✨ What's New in v3.3
 
 - **🛠️ Custom pipelines now runnable end-to-end** — Building a pipeline in the Builder now wires each named step as a real Claude Code slash command (`.claude/commands/<pipeline>-<step>.md` + a `slash_commands` entry). "Run step" no longer fails with *command not found* on custom pipelines. (Re-save an older custom pipeline once to backfill its commands.)
-- **🧭 aidlc-autopilot** — *Experimental, coming soon.* Opt-in scaffolding that collects epic context and drafts a recommended plan (`autopilot-plan.md`) at epic start. Off by default; enable with the `aidlc.autopilot.enabled` setting once you're ready to try it.
+- **🧭 aidlc-autopilot** — *Experimental, coming soon.* Opt-in scaffolding that collects epic context and drafts a recommended plan (`autopilot-plan.md`) at epic start. Off by default; enable with the `aidlcNative.autopilot.enabled` setting once you're ready to try it.
 - **🔤 Workflow rename** — The default pipeline is now `aidlc-workflow` / `aidlc-workflow-full` (formerly `sdlc-parallel-pipeline` / `sdlc-parallel-full`), aligning naming with the AIDLC brand.
 
 ---
@@ -106,7 +109,7 @@ The mirror image runs at the **start** of a phase: a **discovery gate**. When th
 
 | Package | Path | Purpose |
 |---|---|---|
-| [`aidlc`](packages/extension/) (extension) | `packages/extension/` | VS Code extension. Builder UI for `workspace.yaml`, sidebar for active runs, run-state commands, and the **AIDLC Monitor** (token usage + session insights + live agent observability). Installed locally as `delete101020.aidlc` (see [Install this build](#install-this-build)). |
+| [`aidlc`](packages/extension/) (extension) | `packages/extension/` | VS Code extension. Builder UI for `workspace.yaml`, sidebar for active runs, run-state commands, and the **AIDLC Monitor** (token usage + session insights + live agent observability). Published as `delete101020.aidlc` (see [Install this build](#install-this-build)). |
 | [`@aidlc/core`](packages/core/) | `packages/core/` | Pure-TypeScript engine: Zod schema, workspace loader, runner registry (`DefaultRunner` shells out to `claude`), pipeline state machine. **No `import 'vscode'`** — runs identically in CLI / tests / cloud. |
 | [`aidlc`](packages/cli/) (CLI) | `packages/cli/` | Standalone terminal CLI. Manages `workspace.yaml`, drives runs end-to-end via Claude, no VS Code required. See [packages/cli/README.md](packages/cli/README.md). |
 
@@ -324,10 +327,29 @@ single-machine. The default file backend is unchanged; git is fully opt-in.
 > get automatically), and how the seven-phase workflow is actually run from
 > the extension and the CLI.
 
-Nothing here is published — no Marketplace listing, no Open VSX entry, no npm
-package. Both artifacts are built from this repo and installed locally.
+**The extension** — search for **AIDLC Native** in the Extensions view, or:
 
-**The extension:**
+```sh
+code --install-extension delete101020.aidlc
+```
+
+VS Code installs it from the Marketplace; Antigravity, Cursor and VSCodium from
+[Open VSX](https://open-vsx.org/extension/delete101020/aidlc). Every command and
+setting lives under `aidlcNative.*`, so it runs next to the upstream
+`hueanmy.aidlc` without either one taking over the other's commands.
+
+**The CLI:**
+
+```sh
+npm install -g @delete101020/aidlc      # the command is still `aidlc`
+```
+
+If the upstream `aidlc` package is installed globally, remove it first
+(`npm uninstall -g aidlc`) — both put an `aidlc` command on your PATH.
+
+### Build from source
+
+To run unreleased changes. **The extension:**
 
 ```sh
 pnpm install
@@ -335,9 +357,8 @@ pnpm package:extension                                  # → packages/extension
 code --install-extension packages/extension/aidlc-3.14.0.vsix
 ```
 
-Reload the window afterwards. The extension installs as `delete101020.aidlc`;
-if you also have the upstream `hueanmy.aidlc` installed, disable one of them —
-they contribute the same `aidlc.*` command ids.
+Reload the window afterwards. A `.vsix` installs over the Marketplace copy (same
+id), and the next Marketplace update replaces it again.
 
 **The CLI:**
 
