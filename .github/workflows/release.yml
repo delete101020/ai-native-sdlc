@@ -1,30 +1,19 @@
-name: Release
+name: GitHub Release
 
-# Pushing a `vX.Y.Z` tag publishes that commit everywhere AIDLC Native ships:
-# the VS Code Marketplace, Open VSX (Antigravity, Cursor, VSCodium), npm, and a
-# GitHub Release carrying the .vsix. Nothing here bumps versions — the
-# `chore(release)` commit the tag points at already did.
-#
-# Secrets: VSCE_PAT (Azure DevOps, Marketplace → Manage), OVSX_PAT (open-vsx.org
-# token for the delete101020 namespace), NPM_TOKEN (npm automation token with
-# publish rights on @delete101020/aidlc).
+# A `vX.Y.Z` tag gets a GitHub Release carrying the .vsix and its CHANGELOG
+# section. Publishing to the Marketplace, Open VSX and npm is done from the
+# releaser's machine by /publish; this workflow needs no registry token.
 
 on:
   push:
     tags: ['v*.*.*']
 
 permissions:
-  contents: write   # create the GitHub Release
-  id-token: write   # npm provenance
-
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+  contents: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    environment: release
     steps:
       - uses: actions/checkout@v4
 
@@ -36,7 +25,6 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
 
@@ -57,44 +45,13 @@ jobs:
       - name: Package extension
         run: pnpm package:extension
 
-      - name: Locate the .vsix
-        id: vsix
-        run: echo "path=packages/extension/aidlc-${GITHUB_REF_NAME#v}.vsix" >> "$GITHUB_OUTPUT"
-
-      # --skip-duplicate on every registry: a re-run after a partial failure
-      # finishes the job instead of failing on the listings that already landed.
-      - name: Publish to VS Code Marketplace
-        working-directory: packages/extension
-        run: pnpm exec vsce publish --packagePath "$GITHUB_WORKSPACE/${{ steps.vsix.outputs.path }}" --skip-duplicate
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-
-      - name: Publish to Open VSX
-        run: npx --yes ovsx@0.10 publish "${{ steps.vsix.outputs.path }}" --skip-duplicate
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
-
-      - name: Publish CLI to npm
-        working-directory: packages/cli
-        run: |
-          name=$(node -p "require('./package.json').name")
-          version=$(node -p "require('./package.json').version")
-          if npm view "$name@$version" version >/dev/null 2>&1; then
-            echo "$name@$version is already on npm — skipping"
-          else
-            pnpm publish --access public --no-git-checks
-          fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: 'true'
-
       - name: GitHub Release
         run: |
           version="${GITHUB_REF_NAME#v}"
           # This version's CHANGELOG section, up to the next `## ` heading.
           awk -v v="## $version" '$0==v{on=1;next} /^## /{if(on)exit} on' packages/extension/CHANGELOG.md > notes.md
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" "${{ steps.vsix.outputs.path }}" \
+            || gh release create "$GITHUB_REF_NAME" "packages/extension/aidlc-$version.vsix" \
                  --title "AIDLC Native $GITHUB_REF_NAME" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}

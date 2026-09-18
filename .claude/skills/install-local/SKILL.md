@@ -125,7 +125,7 @@ One concise block:
 ## Safety rules
 
 - Never publish. No `vsce publish`, no `ovsx publish`, no `npm publish` —
-  releases go through `/publish`, which tags, and CI publishes the tag.
+  releases go through `/publish`, which builds from the release tag.
 - Never commit the `.vsix` (it is gitignored — `*.vsix`).
 - Never uninstall an existing extension without being asked; report the clash
   and let the user decide.

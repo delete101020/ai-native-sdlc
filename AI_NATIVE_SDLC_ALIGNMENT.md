@@ -289,9 +289,12 @@ its source, and can be built against the schema above.
 > **AIDLC Native** (the Marketplace rejects a second "AIDLC"); commands, settings
 > and views move to `aidlcNative.*` with a one-time settings copy; the CLI ships
 > as `@delete101020/aidlc` (upstream owns `aidlc` on npm) with the command still
-> `aidlc`; Open VSX is in scope because Antigravity installs from it. CI
-> publishes on a `v*` tag (`.github/workflows/release.yml`); `/publish` was
-> rewritten to prepare that tag, and `/install-local` stays for unreleased builds.
+> `aidlc`; Open VSX is in scope because Antigravity installs from it. Releases
+> are made from the user's machine by a rewritten `/publish`: it tags, builds the
+> `.vsix` from the tag, publishes Open VSX itself, and hands npm (2FA) and the
+> Marketplace (web upload — no Azure DevOps organization or PAT needed, which
+> also sidesteps the 2026-12-01 retirement of global PATs) to the user. The tag
+> push only creates a GitHub Release. `/install-local` stays for unreleased builds.
 
 > **Scope decision, 2026-08-31.** The user chose to run this build **locally
 > first**, so W4 keeps the rebrand and drops the release. W4.6 and W4.7 are
@@ -407,7 +410,7 @@ anywhere. See §11.
 | 2026-08-31 | Q5 locked: keep both surfaces, core + CLI is the contract; Q5's original "would invert the whole plan" impact re-scoped — W1–W3 contain no VS Code code. Added W4.7 (publish the CLI too) and recorded the missing `aidlc maintain --signal` entry point | §W4 decisions. No code |
 | 2026-08-31 | W3.8: stage 6's front door — `aidlc maintain --signal` / `aidlc maintain follow-up`, with `openIncidentEpic` / `readEpicSignal` / `followUpIdFor` added to core. Closes the gap the Q5 lock recorded | `cli/src/commands/maintain.ts`, `core/src/maintain/IncidentLoop.ts`, `+6` tests (275/275) |
 | 2026-08-31 | W4 (local scope): publisher/repository/LICENSE/README/CHANGELOG rebranded to this fork, version 3.5.0, `/install-local` skill replacing `/publish`. Marketplace, Open VSX and npm all declined — this build is installed from a local `.vsix` and `npm link` | 9 files + 1 new skill; W4.2 (command rename) declined with the condition to reopen it recorded in §12 |
-| 2026-09-18 | W4 reopened: publish as **AIDLC Native** to the Marketplace, Open VSX and npm (`@delete101020/aidlc`). W4.2 done — every command, setting and view id moved to `aidlcNative.*`, with a one-time copy of `aidlc.*` settings. Tag-triggered release workflow; `/publish` rewritten for it | `release.yml`, `settingsMigration.ts`, rename across ~40 files; registry accounts and secrets are the user's to create |
+| 2026-09-18 | W4 reopened: publish as **AIDLC Native** to the Marketplace, Open VSX and npm (`@delete101020/aidlc`). W4.2 done — every command, setting and view id moved to `aidlcNative.*`, with a one-time copy of `aidlc.*` settings. Releases made locally by a rewritten `/publish` (Marketplace by web upload, so no Azure DevOps); the tag push only creates a GitHub Release | `release.yml`, `settingsMigration.ts`, rename across ~40 files; registry accounts are the user's to create |
 
 ---
 

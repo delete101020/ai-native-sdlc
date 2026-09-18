@@ -1,22 +1,22 @@
 ---
 name: publish
-description: Release AIDLC Native — bump extension + CLI versions, write the CHANGELOG section, commit, tag and push; the tag push makes CI publish to the VS Code Marketplace, Open VSX, npm and a GitHub Release. Invoke via /publish [patch|minor|major] — default patch.
+description: Release AIDLC Native from this machine — bump extension + CLI versions, write the CHANGELOG section, commit, tag and push, build the .vsix from the tag, publish to Open VSX and npm, and hand the .vsix over for the manual Marketplace upload. Invoke via /publish [patch|minor|major] — default patch.
 ---
 
-# /publish — release AIDLC Native
+# /publish — release AIDLC Native from this machine
 
-Publishing itself happens in CI (`.github/workflows/release.yml`), triggered by
-pushing a `vX.Y.Z` tag. This skill prepares that tag the way every release in
-this repo has been made, and then watches it land. **No registry token is ever
-used from this machine** — they live in the repo's `release` environment
-secrets (`VSCE_PAT`, `OVSX_PAT`, `NPM_TOKEN`).
+Releases are made locally. Nothing here needs Azure DevOps: the Marketplace
+takes the `.vsix` through its web upload, Open VSX takes a token created on
+open-vsx.org, and npm uses this machine's `npm login`. Pushing the tag also
+runs `.github/workflows/release.yml`, which only creates the GitHub Release
+(it publishes nothing).
 
-| Channel | Listing |
-|---|---|
-| VS Code Marketplace | https://marketplace.visualstudio.com/items?itemName=delete101020.aidlc |
-| Open VSX (Antigravity, Cursor, VSCodium) | https://open-vsx.org/extension/delete101020/aidlc |
-| npm | https://www.npmjs.com/package/@delete101020/aidlc |
-| GitHub Release (.vsix attached) | https://github.com/delete101020/ai-native-sdlc/releases |
+| Channel | How it gets there | Listing |
+|---|---|---|
+| VS Code Marketplace | **The user** uploads the `.vsix` at marketplace.visualstudio.com/manage | https://marketplace.visualstudio.com/items?itemName=delete101020.aidlc |
+| Open VSX (Antigravity, Cursor, VSCodium) | `ovsx publish` with `$OVSX_PAT` | https://open-vsx.org/extension/delete101020/aidlc |
+| npm | `pnpm publish`, run by **the user** (2FA prompt) | https://www.npmjs.com/package/@delete101020/aidlc |
+| GitHub Release | CI, on the tag push | https://github.com/delete101020/ai-native-sdlc/releases |
 
 Every step is mandatory; stop and report if any step fails — do NOT continue
 past a failure.
@@ -27,12 +27,21 @@ past a failure.
 
 ## 1. Preflight
 
-- Branch must be `main`, tree clean (`git status --porcelain` empty). If dirty,
-  list the files and stop — do not stash or commit them.
-- `git fetch origin && git status -sb` — `main` must not be behind `origin/main`.
-- Current version from `packages/extension/package.json`; it must equal
-  `packages/cli/package.json`'s. The repo-root `package.json` has no version.
-- The last tag (`git describe --tags --abbrev=0`) must be `v<current version>`.
+Run these and stop on any failure:
+
+- Branch is `main`, tree clean (`git status --porcelain` empty). If dirty, list
+  the files and stop — do not stash or commit them.
+- `git fetch origin` — `main` must not be behind `origin/main` (ahead is fine;
+  step 6 pushes it).
+- `packages/extension/package.json` and `packages/cli/package.json` have the
+  same `version`, and the last tag (`git describe --tags --abbrev=0`) is
+  `v<that version>`. The repo-root `package.json` has no version.
+- `printenv OVSX_PAT | head -c 4` is non-empty. If not, stop with:
+  > `OVSX_PAT` not set. Create a token at https://open-vsx.org/user-settings/tokens
+  > (sign in with GitHub, sign the Publisher Agreement first), then set it in
+  > this shell and retry. First release only: `npx ovsx create-namespace delete101020 -p <token>`.
+- `npm whoami` prints the account that owns `@delete101020`. If not, stop and
+  ask the user to run `! npm login`.
 
 ## 2. Compute the new version
 
@@ -44,23 +53,21 @@ Semver bump from the arg. State `old → new` in one line.
 pnpm install --frozen-lockfile
 pnpm -r compile
 pnpm -r test
-pnpm package:extension          # sanity: the .vsix builds (CI builds its own)
 ```
 
-All green, or stop. The CI job repeats all of this; catching it here saves a
-broken tag.
+All green, or stop.
 
-## 4. Release commit
+## 4. Release commit and tag
 
 Edit, by hand:
 
 - `packages/extension/package.json` and `packages/cli/package.json` → `version`.
-  The release workflow refuses a tag that does not match both.
 - `packages/extension/CHANGELOG.md` → a new `## <new-version>` section at the
   top: a short paragraph on what changed for the user, then `### Added` /
   `### Changed` / `### Fixed` as needed, written from `git log v<old>..HEAD`
-  (drop merge and release commits). The GitHub Release body is cut from this
-  section, up to the next `## ` heading.
+  (drop merge and release commits). Breaking changes get their own
+  `### Breaking` heading with what the user has to do. The GitHub Release body
+  is cut from this section.
 - `README.md` → the version in the source-build example
   (`aidlc-<version>.vsix`, `aidlc --version  # <version>`).
 
@@ -72,41 +79,87 @@ git tag v<new-version>          # lightweight, like every earlier tag
 
 Do NOT amend. Do NOT use `--no-verify`.
 
-## 5. Confirm, then push
+## 5. Build the artifacts from the tag
 
-Pushing the tag publishes to three public registries, and a published version
-number can never be reused. Show the user the version, the CHANGELOG section,
-and the commit, and **ask before pushing**. Then:
+The tree is clean and `HEAD` is the tag, so what gets published is exactly the
+tagged commit:
+
+```
+test "$(git rev-parse HEAD)" = "$(git rev-parse v<new-version>^{commit})"
+pnpm package:extension          # → packages/extension/aidlc-<new-version>.vsix
+```
+
+Check the `.vsix` exists, and that
+`unzip -p packages/extension/aidlc-<new-version>.vsix extension/package.json`
+shows `"version": "<new-version>"` and `"displayName": "AIDLC Native"`.
+
+## 6. Confirm, then push
+
+Publishing is public, and a published version number can never be reused on
+any of the three registries. Show the user the version, the CHANGELOG section,
+the commit and the `.vsix` path, and **ask before going further**. Then:
 
 ```
 git push origin main v<new-version>
 ```
 
-## 6. Watch the release
+## 7. Open VSX
 
-The `Release` workflow runs on the tag. Report its URL
-(`https://github.com/delete101020/ai-native-sdlc/actions/workflows/release.yml`)
-and, if `gh` is available, `gh run watch` it.
+```
+npx --yes ovsx@0.10 publish packages/extension/aidlc-<new-version>.vsix -p "$OVSX_PAT" --skip-duplicate
+```
 
-If a publish step fails, **do not delete or move the tag**. Every publish step
-skips what is already there (`--skip-duplicate`, and an `npm view` check), so the
-fix is to correct the cause (usually an expired token in the `release`
-environment) and re-run the failed job from the Actions page.
+## 8. npm — the user runs it
 
-## 7. Final report
+npm asks for a 2FA code on publish, which this session cannot answer. Check
+the version is not already there (`npm view @delete101020/aidlc@<new-version> version`
+must fail), then ask the user to run:
+
+```
+! cd packages/cli && pnpm publish --access public
+```
+
+`prepublishOnly` bundles the CLI. When they report back, confirm with
+`npm view @delete101020/aidlc version`.
+
+## 9. Marketplace — the user uploads it
+
+Give the user the absolute path of the `.vsix` and these steps:
+
+- https://marketplace.visualstudio.com/manage/publishers/delete101020
+- First release: **+ New extension → Visual Studio Code**, drop the `.vsix`.
+- Later releases: **⋯** next to AIDLC Native → **Update**, drop the `.vsix`.
+- The Marketplace scans it for a few minutes before it goes live.
+
+When they report back, confirm it is live:
+
+```
+curl -s -X POST 'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery' \
+  -H 'Content-Type: application/json' -H 'Accept: application/json;api-version=7.1-preview.1' \
+  -d '{"filters":[{"criteria":[{"filterType":7,"value":"delete101020.aidlc"}]}],"flags":1}'
+```
+
+The first entry under `versions` should be `<new-version>`. If it is still
+older, say it may still be verifying rather than calling it a failure.
+
+## 10. Final report
 
 - New version, commit SHA, tag
-- Workflow run URL and result
-- The four listing links above
+- Each channel: published / skipped (already there) / waiting on the user, with
+  its listing link
+- The GitHub Release workflow run
 - Remind: VS Code picks up the update on its own (or **Extensions → Check for
   Updates**); `npm update -g @delete101020/aidlc` for the CLI
 
 ## Safety rules
 
-- Never publish from this machine (`vsce publish`, `ovsx publish`,
-  `npm publish`, `pnpm publish`). CI is the only publisher, so every release is
-  a tagged, tested commit.
-- Never push without the user's go-ahead in step 5.
-- Never `git push --force`, `git reset --hard`, or delete or move a tag without
-  explicit instruction.
+- Publish only from a clean tree whose `HEAD` is the release tag (step 5) —
+  never from a working tree with uncommitted changes.
+- Never push or publish without the user's go-ahead in step 6.
+- Never print a token, and never write one to a file in the repo.
+- If a publish fails after the push, **do not delete or move the tag**. Fix the
+  cause and re-run only the step that failed; each one skips a version that is
+  already there.
+- Never `git push --force`, `git reset --hard`, or delete a tag without explicit
+  instruction.
 - Never commit the `.vsix` (gitignored — `*.vsix`).
