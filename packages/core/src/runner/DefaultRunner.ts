@@ -14,6 +14,7 @@ import type { AidlcRunner, HarnessCapabilities, RunnerContext, RunnerResult } fr
 import { buildClaudeSpawnEnv } from './claudeEnv';
 import { claudeMcpRegistrar } from './mcp';
 import { createJsonSink } from './ndjson';
+import { resolveCommand } from '../util/resolveCommand';
 
 export interface DefaultRunnerOptions {
   /**
@@ -71,7 +72,8 @@ export class DefaultRunner implements AidlcRunner {
       userMessage,
     ];
 
-    const proc = spawn(bin, args, {
+    const cmd = resolveCommand(bin);
+    const proc = spawn(cmd.command, [...cmd.args, ...args], {
       cwd: ctx.workspaceRoot,
       // Strip the ephemeral ANTHROPIC_* key Claude Code injects when AIDLC runs
       // inside a Claude Code session — a fresh `claude` rejects it as invalid.

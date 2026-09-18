@@ -59,7 +59,8 @@ function runClaude(
     delete env.CLAUDE_CODE_EXECPATH;
     // …and pin the configured Claude account, if the user runs more than one.
     Object.assign(env, claudeConfigEnv());
-    const proc = spawn('claude', args, { cwd: opts.cwd, stdio: ['ignore', 'pipe', 'pipe'], env });
+    const exe = resolveCommand('claude');
+    const proc = spawn(exe.command, [...exe.args, ...args], { cwd: opts.cwd, stdio: ['ignore', 'pipe', 'pipe'], env });
     let out = '';
     let err = '';
     const timer = setTimeout(() => {
@@ -241,7 +242,7 @@ import {
 import { resolveTechStackForRoot } from './techStackResolver';
 import { artifactLookupKeys } from './techStackDetector';
 import { uninstallWorkflowGlobalsByIds, installWorkflowGlobalsByIds } from './globalDefaultsInstaller';
-import { provisionDeclaredWorkflows, relativeEpicRoot } from '@aidlc/core';
+import { provisionDeclaredWorkflows, relativeEpicRoot, resolveCommand } from '@aidlc/core';
 import { PresetStore } from './presetStore';
 import type {
   PipelineStepConfig,

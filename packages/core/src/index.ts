@@ -517,6 +517,10 @@ export {
 } from './util/claudeHome';
 export type { ClaudeHomeOptions } from './util/claudeHome';
 
+// Spawnable form of a CLI name — resolves Windows npm .cmd shims.
+export { resolveCommand, clearResolveCommandCache } from './util/resolveCommand';
+export type { ResolvedCommand } from './util/resolveCommand';
+
 // Shared help/knowledge content for `ask` + `guide` (CLI + extension).
 export { AIDLC_KNOWLEDGE, AIDLC_CLI_GUIDE_TEXT } from './help/aidlcGuide';
 
