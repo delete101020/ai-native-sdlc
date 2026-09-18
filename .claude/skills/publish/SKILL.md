@@ -38,8 +38,8 @@ Run these and stop on any failure:
   > `OVSX_PAT` not set. Create a token at https://open-vsx.org/user-settings/tokens
   > (sign in with GitHub, sign the Publisher Agreement first), then set it in
   > this shell and retry. First release only: `npx ovsx create-namespace delete101020 -p <token>`.
-- `npm whoami` prints the account that owns `@delete101020`. If not, stop and
-  ask the user to run `! npm login`.
+- `npm whoami` prints `delete101020`. If not, stop and ask the user to run
+  `! npm login`.
 
 ## 2. Compute the new version
 
@@ -109,16 +109,30 @@ npx --yes ovsx@0.10 publish packages/extension/aidlc-native-<new-version>.vsix -
 
 ## 8. npm — the user runs it
 
-npm asks for a 2FA code on publish, which this session cannot answer. Check
-the version is not already there (`npm view @delete101020/aidlc@<new-version> version`
-must fail), then ask the user to run:
+The account's 2FA is a passkey, which npm can only ask for through a browser
+(`--auth-type=web`), and only from a real terminal: the `!` prefix has no TTY,
+so there npm fails with `EOTP` instead of offering the link. Build the tarball
+here, and hand the user only the publish.
+
+Check the version is not already there (`npm view @delete101020/aidlc@<new-version> version`
+must fail), then:
 
 ```
-! cd packages/cli && pnpm publish --access public
+cd packages/cli && pnpm bundle && pnpm pack --pack-destination "$TEMP"
 ```
 
-`prepublishOnly` bundles the CLI. When they report back, confirm with
-`npm view @delete101020/aidlc version`.
+`pnpm pack`, not `npm pack`: it rewrites `workspace:*` in `package.json`. Give
+the user the tarball path and ask them to run, in a VS Code or PowerShell
+terminal:
+
+```powershell
+npm publish "$env:TEMPdelete101020-aidlc-<new-version>.tgz" --access public --auth-type=web
+```
+
+npm prints `Authenticate your account at: …`; Enter opens it, the passkey
+confirms, and the publish finishes. Confirm with
+`npm view @delete101020/aidlc version` — a brand-new version can take a few
+minutes to become readable. Delete the tarball only after that.
 
 ## 9. Marketplace — the user uploads it
 
