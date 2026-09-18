@@ -1,16 +1,16 @@
 /**
  * Pipeline run commands — phase 1 of the v2 orchestrator.
  *
- *   aidlc.startPipelineRun  — pick a pipeline, prompt for a run id, scaffold
+ *   aidlcNative.startPipelineRun  — pick a pipeline, prompt for a run id, scaffold
  *                             the run JSON, and open step 0 in awaiting_work.
- *   aidlc.markStepDone      — validate the current step's `produces` exist,
+ *   aidlcNative.markStepDone      — validate the current step's `produces` exist,
  *                             then transition to awaiting_review (or auto-
  *                             approve when human_review=false).
- *   aidlc.approveStep       — human approves the awaiting_review step.
- *   aidlc.rejectStep        — human rejects with optional reason.
- *   aidlc.rerunStep         — retry a rejected step (revision++).
- *   aidlc.openRunState      — open the run JSON in the editor.
- *   aidlc.deleteRun         — remove the run file (confirms first).
+ *   aidlcNative.approveStep       — human approves the awaiting_review step.
+ *   aidlcNative.rejectStep        — human rejects with optional reason.
+ *   aidlcNative.rerunStep         — retry a rejected step (revision++).
+ *   aidlcNative.openRunState      — open the run JSON in the editor.
+ *   aidlcNative.deleteRun         — remove the run file (confirms first).
  *
  * All run-mutating commands resolve the active runId via:
  *   1. explicit argument from the sidebar click

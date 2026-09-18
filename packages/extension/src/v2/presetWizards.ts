@@ -1,5 +1,5 @@
 /**
- * `aidlc.savePreset` and `aidlc.applyPreset` wizards.
+ * `aidlcNative.savePreset` and `aidlcNative.applyPreset` wizards.
  *
  *   savePreset  — capture the current project's workspace.yaml + skill .md
  *                 into a globalStorage preset. Prompts for name/description.
@@ -163,7 +163,7 @@ export async function applyPresetCommand(
       'Init Sample Workspace',
     );
     if (choice === 'Init Sample Workspace') {
-      void vscode.commands.executeCommand('aidlc.initWorkspace');
+      void vscode.commands.executeCommand('aidlcNative.initWorkspace');
     }
     return;
   }
@@ -277,7 +277,7 @@ export async function applyPresetCommand(
     )
     .then((choice) => {
       if (choice === 'Open Builder') {
-        void vscode.commands.executeCommand('aidlc.openBuilder');
+        void vscode.commands.executeCommand('aidlcNative.openBuilder');
       }
     });
 }

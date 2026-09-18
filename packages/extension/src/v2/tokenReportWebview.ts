@@ -66,7 +66,7 @@ export class TokenReportWebview {
 
   private async loadReport(): Promise<void> {
     if (this.loadPromise) { return this.loadPromise; }
-    const cfg = vscode.workspace.getConfiguration('aidlc.tokenMonitor');
+    const cfg = vscode.workspace.getConfiguration('aidlcNative.tokenMonitor');
     const windowDays = Math.max(1, cfg.get<number>('suggestionWindowDays', 30));
     this.state = { ...this.state, loading: true, error: null, windowDays };
     this.refresh();

@@ -163,7 +163,7 @@ export interface ScaffoldEpicArgs {
    * context and generate a recommended plan (`context.json` +
    * `autopilot-plan.{json,md}`) at scaffold time. Defaults to **false** so the
    * feature stays dark until it's been tested — callers flip it on via the
-   * `aidlc.autopilot.enabled` setting.
+   * `aidlcNative.autopilot.enabled` setting.
    */
   enableAutopilot?: boolean;
   /**

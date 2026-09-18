@@ -20,7 +20,7 @@ import { remapClaudePath } from './claudeHome';
  *
  * `~/.claude/...` is special-cased onto the *active Claude config dir*, which
  * is `<home>/.claude` unless the user separates accounts with
- * `CLAUDE_CONFIG_DIR` / `aidlc.claude.configDir`. Declared paths stay portable
+ * `CLAUDE_CONFIG_DIR` / `aidlcNative.claude.configDir`. Declared paths stay portable
  * in the YAML and still land in the account actually in use.
  */
 export function expandHome(p: string, homeDir: string = os.homedir()): string {

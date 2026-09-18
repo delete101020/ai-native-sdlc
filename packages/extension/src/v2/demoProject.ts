@@ -1,5 +1,5 @@
 /**
- * `aidlc.loadDemoProject` — scaffolds a self-contained demo workspace at a
+ * `aidlcNative.loadDemoProject` — scaffolds a self-contained demo workspace at a
  * known path (`~/aidlc-demo-project`) and opens it in a new VS Code window.
  *
  * Seeds:

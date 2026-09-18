@@ -41,7 +41,7 @@ export const onDidRecordFollowUpHook = recorded.event;
 
 let channel: vscode.OutputChannel | undefined;
 function output(): vscode.OutputChannel {
-  channel ??= vscode.window.createOutputChannel('AIDLC · Follow-up hooks');
+  channel ??= vscode.window.createOutputChannel('AIDLC Native · Follow-up hooks');
   return channel;
 }
 

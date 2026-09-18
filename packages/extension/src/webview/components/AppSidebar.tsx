@@ -379,7 +379,7 @@ function EpicIdPrefixRow({ value, source, suggestion, needsSetup }: {
 function AskButton() {
   // Always visible — the whole point is helping users understand the
   // extension and how to set it up, which matters most *before* a workspace
-  // exists. Routes to the host `aidlc.ask` command (prompts → claude → preview).
+  // exists. Routes to the host `aidlcNative.ask` command (prompts → claude → preview).
   return (
     <button
       type="button"

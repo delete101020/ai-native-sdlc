@@ -1,5 +1,5 @@
 /**
- * `aidlc.installWorkflowGlobals` — multi-pick UI to install one or more
+ * `aidlcNative.installWorkflowGlobals` — multi-pick UI to install one or more
  * built-in workflows' agents + skills into `~/.claude/agents/` and
  * `~/.claude/skills/`.
  *

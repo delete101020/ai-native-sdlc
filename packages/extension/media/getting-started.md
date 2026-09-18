@@ -176,12 +176,12 @@ From the epic detail panel:
 - **Workflow lost its DAG?** Open `workspace.yaml` and check the
   `depends_on` field on each step. The Settings modal preserves edges; the
   + parallel button on a step inflates a linear chain into a DAG.
-- **Want to share a pipeline?** Run **AIDLC: Save Workspace as Template**
+- **Want to share a pipeline?** Run **AIDLC Native: Save Workspace as Template**
   in the command palette — it captures `workspace.yaml` + every referenced
   skill into a single JSON in `.aidlc/templates/<id>.json`. Commit it and
   teammates get the same flow via **Load Template**.
 
-You can re-open this guide any time via **AIDLC: Open Getting Started Guide**
+You can re-open this guide any time via **AIDLC Native: Open Getting Started Guide**
 in the command palette.
 
 ---

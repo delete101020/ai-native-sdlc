@@ -221,7 +221,7 @@ into working code on a feature branch.
  * Built-in workflow descriptor. One entry per domain-specialized pipeline.
  *
  * - `id`            : preset id stored on disk (e.g. `sdlc-pipeline`,
- *                     `ios-native-pipeline`). Used by `aidlc.applyPreset`.
+ *                     `ios-native-pipeline`). Used by `aidlcNative.applyPreset`.
  * - `pipelineId`    : pipeline.id written into workspace.yaml (e.g.
  *                     `sdlc-full`, `ios-native-full`). Used by the runner.
  * - `name`          : human label shown in pickers / panel.

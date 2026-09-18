@@ -118,7 +118,7 @@ export interface EpicSummary {
   tokenUsage?: EpicUsage;
   /**
    * runId of the matching run state, if any. Convention: runId === epic.id.
-   * When set, the panel can dispatch `aidlc.markStepDone` etc. with this id.
+   * When set, the panel can dispatch `aidlcNative.markStepDone` etc. with this id.
    */
   runId: string | null;
   /** Resolved inputs (capability id → user-supplied value). Keys may be empty. */

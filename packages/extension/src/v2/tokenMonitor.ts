@@ -214,17 +214,17 @@ function buildTooltip(snap: Snapshot): vscode.MarkdownString {
   return md;
 }
 
-const SHOW_DETAILS_COMMAND = 'aidlc.showTokenUsage';
-const REFRESH_COMMAND = 'aidlc.refreshTokenUsage';
+const SHOW_DETAILS_COMMAND = 'aidlcNative.showTokenUsage';
+const REFRESH_COMMAND = 'aidlcNative.refreshTokenUsage';
 
 export function registerTokenMonitor(
   context: vscode.ExtensionContext,
   output: vscode.OutputChannel,
   extensionUri: vscode.Uri,
 ): void {
-  const cfg = () => vscode.workspace.getConfiguration('aidlc.tokenMonitor');
+  const cfg = () => vscode.workspace.getConfiguration('aidlcNative.tokenMonitor');
   if (!cfg().get<boolean>('enabled', true)) {
-    output.appendLine('Token monitor disabled by setting (aidlc.tokenMonitor.enabled).');
+    output.appendLine('Token monitor disabled by setting (aidlcNative.tokenMonitor.enabled).');
     return;
   }
 
@@ -261,7 +261,7 @@ export function registerTokenMonitor(
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (!e.affectsConfiguration('aidlc.tokenMonitor')) return;
+      if (!e.affectsConfiguration('aidlcNative.tokenMonitor')) return;
       // Easiest: prompt the user to reload — interval / enabled changes are rare.
       void vscode.window.showInformationMessage(
         'AIDLC token monitor settings changed. Reload window to apply.',

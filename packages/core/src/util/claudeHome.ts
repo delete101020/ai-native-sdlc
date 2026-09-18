@@ -17,7 +17,7 @@
  * The active dir is resolved from, in order:
  *   1. an explicit `configDir` argument,
  *   2. the process-wide override set by `setClaudeConfigDir` (the extension
- *      installs the `aidlc.claude.configDir` setting there at activation),
+ *      installs the `aidlcNative.claude.configDir` setting there at activation),
  *   3. `$CLAUDE_CONFIG_DIR` (what the CLI itself reads — a user who already
  *      exports it per shell gets the right answer with no configuration),
  *   4. `<home>/.claude`.

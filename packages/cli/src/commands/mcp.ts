@@ -25,7 +25,7 @@ import {
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { info } from '../output';
 
-/** Graph servers the extension may register (`aidlc.astGraph.engine`), in preference order. */
+/** Graph servers the extension may register (`aidlcNative.astGraph.engine`), in preference order. */
 const GRAPH_SERVERS = ['ast-graph', 'codegraph'];
 const PROBE_TIMEOUT_MS = 20_000;
 

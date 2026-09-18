@@ -1,5 +1,5 @@
 /**
- * Start Epic wizard — `aidlc.startEpic`.
+ * Start Epic wizard — `aidlcNative.startEpic`.
  *
  * An "epic" is a *run instance* of a pipeline (or single agent) bound to
  * concrete project-specific values:
@@ -114,9 +114,9 @@ export async function startEpicCommand(): Promise<void> {
       'Load Template', 'Init Sample',
     );
     if (choice === 'Load Template') {
-      await vscode.commands.executeCommand('aidlc.applyPreset');
+      await vscode.commands.executeCommand('aidlcNative.applyPreset');
     } else if (choice === 'Init Sample') {
-      await vscode.commands.executeCommand('aidlc.initWorkspace');
+      await vscode.commands.executeCommand('aidlcNative.initWorkspace');
     }
     return;
   }
@@ -245,7 +245,7 @@ export async function startEpicCommand(): Promise<void> {
     'Open Claude CLI', 'Open state.json',
   );
   if (choice === 'Open Claude CLI') {
-    await vscode.commands.executeCommand('aidlc.openClaudeTerminal');
+    await vscode.commands.executeCommand('aidlcNative.openClaudeTerminal');
   } else if (choice === 'Open state.json') {
     const docOpen = await vscode.workspace.openTextDocument(path.join(epicDir, 'state.json'));
     await vscode.window.showTextDocument(docOpen, { preview: false });

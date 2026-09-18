@@ -2,7 +2,7 @@
  * Unified Workspace webview — replaces the previous Builder + Epics panels
  * with a single React-rendered surface. The user navigates between Builder
  * and Epics views via the in-panel pill nav; the host treats both VS Code
- * commands (`aidlc.openBuilder`, `aidlc.openEpicsList`) as `show()` calls
+ * commands (`aidlcNative.openBuilder`, `aidlcNative.openEpicsList`) as `show()` calls
  * with different `initialView` arguments.
  *
  * Visual rendering lives in `src/webview/workspace/main.tsx` (compiled to
@@ -1716,7 +1716,7 @@ export class WorkspaceWebview {
     terminal.show(false);
 
     // Prefer shell integration; fall back to sendText for shells without it.
-    // Mirrors aidlc.openClaudeTerminal.
+    // Mirrors aidlcNative.openClaudeTerminal.
     const launch = `claude ${JSON.stringify(skillCmd)}`;
     let sent = false;
     const integ = vscode.window.onDidChangeTerminalShellIntegration((e) => {
@@ -1875,12 +1875,12 @@ export class WorkspaceWebview {
       // Delegations
       case 'init': {
         const workflowId = typeof msg.workflowId === 'string' ? msg.workflowId : undefined;
-        await vscode.commands.executeCommand('aidlc.initWorkspace', workflowId);
+        await vscode.commands.executeCommand('aidlcNative.initWorkspace', workflowId);
         return;
       }
-      case 'applyPreset':  await vscode.commands.executeCommand('aidlc.applyPreset');   return;
+      case 'applyPreset':  await vscode.commands.executeCommand('aidlcNative.applyPreset');   return;
       case 'initSdlcPreset':
-        await vscode.commands.executeCommand('aidlc.applyPreset', 'aidlc-workflow', true);
+        await vscode.commands.executeCommand('aidlcNative.applyPreset', 'aidlc-workflow', true);
         return;
       // GH-67: open a project folder first, then apply the SDLC preset.
       case 'openProjectAndApplyPreset': {
@@ -1893,17 +1893,17 @@ export class WorkspaceWebview {
         }
         // Wait for workspace activation then apply the preset + refresh.
         setTimeout(async () => {
-          await vscode.commands.executeCommand('aidlc.applyPreset', 'aidlc-workflow', true);
+          await vscode.commands.executeCommand('aidlcNative.applyPreset', 'aidlc-workflow', true);
           this.refresh();
         }, 300);
         return;
       }
-      case 'savePreset':   await vscode.commands.executeCommand('aidlc.savePreset');    return;
-      case 'startEpic':    await vscode.commands.executeCommand('aidlc.startEpic');     return;
-      case 'addAgent':     await vscode.commands.executeCommand('aidlc.addAgent');      return;
-      case 'addSkill':     await vscode.commands.executeCommand('aidlc.addSkill');      return;
-      case 'addPipeline':  await vscode.commands.executeCommand('aidlc.addPipeline');   return;
-      case 'openClaude':   await vscode.commands.executeCommand('aidlc.openClaudeTerminal'); return;
+      case 'savePreset':   await vscode.commands.executeCommand('aidlcNative.savePreset');    return;
+      case 'startEpic':    await vscode.commands.executeCommand('aidlcNative.startEpic');     return;
+      case 'addAgent':     await vscode.commands.executeCommand('aidlcNative.addAgent');      return;
+      case 'addSkill':     await vscode.commands.executeCommand('aidlcNative.addSkill');      return;
+      case 'addPipeline':  await vscode.commands.executeCommand('aidlcNative.addPipeline');   return;
+      case 'openClaude':   await vscode.commands.executeCommand('aidlcNative.openClaudeTerminal'); return;
       case 'openEpicsList':
         // Same-panel switch — don't re-execute the command (avoid recursion).
         this.setView('epics');
@@ -2070,17 +2070,17 @@ export class WorkspaceWebview {
           await openFolder(vscode.Uri.file(parent));
           // Note: the workspace.yaml may not exist yet; the setting will be
           // picked up on next activation via the VS Code setting.
-          const EPICS_DIR_KEY = 'aidlc.workspace.epicsDirectory';
+          const EPICS_DIR_KEY = 'aidlcNative.workspace.epicsDirectory';
           void vscode.workspace.getConfiguration()
             .update(EPICS_DIR_KEY, rel, vscode.ConfigurationTarget.Workspace);
         }
         return;
       }
       case 'loadDemoProject':
-        await vscode.commands.executeCommand('aidlc.loadDemoProject');
+        await vscode.commands.executeCommand('aidlcNative.loadDemoProject');
         return;
       case 'startPipelineRun':
-        await vscode.commands.executeCommand('aidlc.startPipelineRun');
+        await vscode.commands.executeCommand('aidlcNative.startPipelineRun');
         return;
 
       // File-opening
@@ -2194,7 +2194,7 @@ export class WorkspaceWebview {
         if (!wsRoot) { return; }
         writeEpicsDirToYaml(wsRoot, newDir);
         // Also update the VS Code setting so the bidirectional sync stays consistent.
-        const EPICS_DIR_KEY = 'aidlc.workspace.epicsDirectory';
+        const EPICS_DIR_KEY = 'aidlcNative.workspace.epicsDirectory';
         void vscode.workspace.getConfiguration()
           .update(EPICS_DIR_KEY, newDir, vscode.ConfigurationTarget.Workspace);
         this.refresh();
@@ -2214,7 +2214,7 @@ export class WorkspaceWebview {
         const rel = path.relative(wsRoot, abs);
         const dir = rel.startsWith('..') || path.isAbsolute(rel) ? abs : rel;
         writeEpicsDirToYaml(wsRoot, dir);
-        const EPICS_DIR_KEY = 'aidlc.workspace.epicsDirectory';
+        const EPICS_DIR_KEY = 'aidlcNative.workspace.epicsDirectory';
         void vscode.workspace.getConfiguration()
           .update(EPICS_DIR_KEY, dir, vscode.ConfigurationTarget.Workspace);
         this.refresh();
@@ -2266,7 +2266,7 @@ export class WorkspaceWebview {
         // confirmed: webview already showed an inline ConfirmModal, skip the
         // VS Code warning dialog. Falsy for command-palette invocations.
         await vscode.commands.executeCommand(
-          'aidlc.deleteRun',
+          'aidlcNative.deleteRun',
           runId || undefined,
           msg.confirmed === true,
         );
@@ -2279,7 +2279,7 @@ export class WorkspaceWebview {
         // confirmed: DeleteEpicModal already gated this (checkbox + type-to-
         // confirm), so skip the host warning dialog.
         await vscode.commands.executeCommand(
-          'aidlc.deleteEpic',
+          'aidlcNative.deleteEpic',
           epicId,
           runId,
           msg.deleteFolder === true,
@@ -2382,7 +2382,7 @@ export class WorkspaceWebview {
               'Load Template',
             ).then((pick) => {
               if (pick === 'Load Template') {
-                void vscode.commands.executeCommand('aidlc.applyPreset');
+                void vscode.commands.executeCommand('aidlcNative.applyPreset');
               }
             });
           }
@@ -2448,7 +2448,7 @@ export class WorkspaceWebview {
         const feedback = String(msg.feedback ?? '');
         if (!slash || !runId) { return; }
         await vscode.commands.executeCommand(
-          'aidlc.runStepWithFeedback',
+          'aidlcNative.runStepWithFeedback',
           slash,
           runId,
           feedback,
@@ -2492,7 +2492,7 @@ export class WorkspaceWebview {
       case 'savePresetInline': {
         const draft = msg.draft;
         if (!draft || typeof draft !== 'object') { return; }
-        await vscode.commands.executeCommand('aidlc.savePresetInline', draft);
+        await vscode.commands.executeCommand('aidlcNative.savePresetInline', draft);
         return;
       }
       case 'pickAndReadFile': {
@@ -2654,7 +2654,7 @@ export class WorkspaceWebview {
         return;
       case 'runPipeline':
         await vscode.commands.executeCommand(
-          'aidlc.startPipelineRun',
+          'aidlcNative.startPipelineRun',
           String(msg.pipelineId ?? ''),
         );
         return;
@@ -3813,9 +3813,9 @@ export class WorkspaceWebview {
         // field gets the depth every epic worked at before it existed.
         strictMode: draft.strictMode !== false,
         // aidlc-autopilot is experimental / "coming soon": off unless the user
-        // opts in via the `aidlc.autopilot.enabled` setting.
+        // opts in via the `aidlcNative.autopilot.enabled` setting.
         enableAutopilot: vscode.workspace
-          .getConfiguration('aidlc')
+          .getConfiguration('aidlcNative')
           .get<boolean>('autopilot.enabled', false),
       });
     } catch (err) {
@@ -5081,7 +5081,7 @@ export class WorkspaceWebview {
         'Add Agent',
       );
       if (choice === 'Add Agent') {
-        await vscode.commands.executeCommand('aidlc.addAgent');
+        await vscode.commands.executeCommand('aidlcNative.addAgent');
       }
       return;
     }

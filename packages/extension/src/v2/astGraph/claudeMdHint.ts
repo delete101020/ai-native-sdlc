@@ -154,7 +154,7 @@ Keep using grep/read/edit for:
 - editing or refactoring code
 - following intent, naming, or non-AST signals (config files, prose)
 
-If the graph looks stale, ask the user to run \`AIDLC: Rescan AST Graph\`. ${freshness}
+If the graph looks stale, ask the user to run \`AIDLC Native: Rescan AST Graph\`. ${freshness}
 ${m.end}`;
 }
 
@@ -181,6 +181,6 @@ codegraph instead — map them:
 
 Keep using grep/read/edit for editing, config files, prose, and non-code signals.
 
-If the index looks missing or stale, ask the user to run \`AIDLC: Rescan AST Graph\`.
+If the index looks missing or stale, ask the user to run \`AIDLC Native: Rescan AST Graph\`.
 ${m.end}`;
 }

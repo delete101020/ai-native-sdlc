@@ -503,7 +503,7 @@ export type {
 export { expandHome, resolveDeclaredPath } from './util/paths';
 
 // Claude account/config dir resolution — `~/.claude` unless the user separates
-// accounts with `CLAUDE_CONFIG_DIR` / the `aidlc.claude.configDir` setting.
+// accounts with `CLAUDE_CONFIG_DIR` / the `aidlcNative.claude.configDir` setting.
 export {
   setClaudeConfigDir,
   getClaudeConfigDirOverride,
