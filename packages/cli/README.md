@@ -3,36 +3,32 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](https://github.com/delete101020/ai-native-sdlc/blob/main/LICENSE)
 [![npm](https://img.shields.io/npm/v/@delete101020/aidlc)](https://www.npmjs.com/package/@delete101020/aidlc)
 
-Terminal CLI for AIDLC — drives Claude through pipelines you declare in
-`.aidlc/workspace.yaml`. Manages the workspace, executes runs end-to-end via
-the `claude` CLI, and shares state with the VS Code extension over the
-filesystem (no daemon, no IPC).
+The terminal side of **AIDLC Native**: drive Claude through the six stages of the
+[AI-Native SDLC Playbook](https://claude.com/blog/the-ai-native-sdlc-playbook) —
+**Plan → Design → Build → Test → Deploy → Maintain** — from any shell, a CI job or
+a cron script. Every stage is an agent that writes one artifact (`intent.md`,
+`spec.md`, `plan.md`, `verify.md`, `review.md`, `incident.md`), and the
+pipeline waits at the review gates you keep.
+
+The CLI shares `.aidlc/workspace.yaml` and the run files with the
+[VS Code extension](https://marketplace.visualstudio.com/items?itemName=delete101020.aidlc-native)
+(no daemon, no IPC), so an epic started in one can be finished in the other.
 
 **Claude only.** The CLI shells out to `claude --print --append-system-prompt
-<skill>`. No Anthropic SDK calls, no other model runners.
+<skill>`. No Anthropic SDK calls.
 
-### New in 0.8
-
-`aidlc globals install` now also installs the **artifact annotation** tooling under
-`~/.claude` — a zero-dependency Markdown→HTML renderer, a vendored
-[annotron](https://www.npmjs.com/package/annotron) review editor (no global install), a
-per-epic **memory** tool, and the `/annotate-artifact` + `/epic-context` skills. Review epic
-artifacts in a browser and apply feedback back to the Markdown — from a plain terminal +
-Claude Code, no VS Code required. Optional `aidlc globals memory-hook enable` auto-loads an
-epic's memory whenever a prompt mentions it. See the [`globals`](#globals--built-in-workflow-agents--skills-under-claude) command.
+> **A fork** of [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc) by hueanmy, not
+> affiliated with the upstream author. The package is scoped because the upstream
+> owns `aidlc` on npm; the command it installs is still `aidlc`.
 
 ## Install
-
-The CLI of **AIDLC Native**, a fork of [`aidlc-io/aidlc`](https://github.com/aidlc-io/aidlc)
-(not affiliated with the upstream author). The package is scoped because the
-upstream owns `aidlc` on npm; the command it installs is still `aidlc`:
 
 ```sh
 npm install -g @delete101020/aidlc
 aidlc --version
 ```
 
-If the upstream `aidlc` package is installed globally, `npm uninstall -g aidlc`
+If the upstream `aidlc` package is installed globally, run `npm uninstall -g aidlc`
 first — both provide the `aidlc` command.
 
 To run unreleased changes, build it from the repo:
@@ -41,7 +37,6 @@ To run unreleased changes, build it from the repo:
 pnpm install                                 # at repo root
 pnpm -r compile
 cd packages/cli && pnpm bundle && npm link   # makes `aidlc` available globally
-aidlc --version                              # 3.5.1
 ```
 
 `npm link` points at the working tree, so a later `pnpm bundle` is enough to
@@ -60,19 +55,35 @@ Run `aidlc doctor` to verify all of the above.
 ## Five-minute walkthrough
 
 ```sh
-# 1. New workspace from scratch
-mkdir my-pipeline && cd my-pipeline
+# 1. A workspace with the AI-Native SDLC workflow
+cd my-project
 aidlc init
+aidlc preset apply ai-native                 # 6 agents, 7 skills, the ai-native-full pipeline
 aidlc doctor                                 # confirm claude is wired up
 
-# 2. Drop in a built-in preset (or build manually with skill/agent/pipeline add)
-aidlc preset apply code-review
-aidlc list                                   # see the agents, skills, pipeline you got
+# 2. Start an epic — the brief picks a recipe (here: native-fix)
+aidlc epic start EPIC-1 --brief "fix the login redirect loop"
 
-# 3. Kick off a run and let Claude do the work
-aidlc run start review-pipeline --context diff=$(git diff HEAD~1)
-aidlc run exec <runId>                       # streams claude output, advances on success
+# 3. Let Claude work it, stopping at each review gate
+aidlc run exec EPIC-1                        # exit 2 = waiting for your review
+aidlc run approve EPIC-1                     # or: aidlc run reject EPIC-1 --reason "…"
+aidlc run exec EPIC-1                        # carries on to the next gate
 ```
+
+Recipes right-size the pipeline to the task:
+
+| Recipe | Steps | For |
+|---|---|---|
+| `native-full` | intent → spec → build-plan → implement → verify → review | New behaviour |
+| `native-fix` | intent → build-plan → implement → verify → review | Bugs, refactors, tech debt |
+| `native-lite` | intent → build-plan → implement → review | Small changes with a precedent in the code |
+| `native-quick` | intent → build-plan → implement → verify | Small, well-understood changes |
+| `native-align` | intent → spec | Agreeing on scope before any code |
+| `native-hotfix` | build-plan → implement → review | Production is down and the cause is known |
+
+Pick one yourself with `aidlc epic start <id> --recipe native-full`, or list them
+with `aidlc pipeline recipes`. Stage 6 has its own entry point — see
+[`maintain`](#maintain--stage-6-the-ai-native-return-path).
 
 ## Command reference
 
@@ -125,15 +136,16 @@ run-state JSON files are parseable. Exit 1 on any failure (including skill /
 runner / runtime checks). `--json` emits every section as
 `{ ok, failures, sections }` — a parseable CI preflight.
 
-### `mcp` — give another CLI the ast-graph server
+### `mcp` — give another CLI the code-graph server
 
 ```
 aidlc mcp status
 aidlc mcp register [--runner codex] [--dry-run]
 ```
 
-The VS Code extension registers the `ast-graph` MCP server with Claude
-automatically, project-scoped. Codex keeps MCP servers in `~/.codex/config.toml`,
+The VS Code extension registers a code-graph MCP server with Claude
+automatically, project-scoped — `ast-graph` by default, or `codegraph` when
+`aidlcNative.astGraph.engine` is set to it. Codex keeps MCP servers in `~/.codex/config.toml`,
 which is per-user: registering there points every Codex session on the machine
 at this workspace's graph, so it stays an explicit command. `register` copies
 the binary and db path out of the registration Claude already has — run
@@ -255,8 +267,9 @@ aidlc preset apply <name>                 # merges into current workspace (no ov
 aidlc preset save <name>                  # snapshot current workspace to .aidlc/presets/<name>.json
 ```
 
-Built-in presets: `code-review`, `release-notes`, `sdlc` (full 9-phase SDLC
-pipeline ported from the legacy AIDLC).
+Built-in presets: `ai-native` (the six-stage AI-Native SDLC workflow),
+`sdlc` (the classic AIDLC pipeline: Plan → (Design ∥ Test Plan) →
+Implement ∥ Generate Test Cases → Execute Test), `code-review` and `release-notes` (single-agent pipelines).
 
 ### Epics
 
@@ -581,12 +594,12 @@ still needed by other globally-installed workflows.
 
 ## Recipes
 
-### Drive a complete SDLC pipeline end-to-end
+### Drive an AI-Native epic end-to-end, unattended
 
 ```sh
-aidlc preset apply sdlc
-aidlc run start sdlc-pipeline --id ABC-123 --context epic=ABC-123
-aidlc run exec ABC-123 --auto-approve     # claude works through every phase
+aidlc preset apply ai-native
+aidlc epic start EPIC-7 --recipe native-full
+aidlc run exec EPIC-7 --auto-approve      # clears human gates without pausing
 ```
 
 ### Manually mark a phase done that you completed outside AIDLC
@@ -622,7 +635,7 @@ aidlc epic list --json | jq '.[] | select(.status=="in_progress") | .id'
 
 ```sh
 # Terminal 1 — kick off the run, then walk away
-aidlc run start sdlc-pipeline --id ABC-123 --context epic=ABC-123
+aidlc epic start ABC-123 --brief "…"
 aidlc run exec ABC-123 --auto-approve
 
 # Terminal 2 — live table
