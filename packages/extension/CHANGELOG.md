@@ -1,5 +1,54 @@
 # Changelog
 
+## 3.14.0
+
+Opening the extension no longer starts an ast-graph scan. On a large repo that
+scan rewrote the whole graph every time and could run for ten minutes before
+timing out. Large repos can now use CodeGraph instead, which indexes once and
+then keeps itself up to date.
+
+### Added
+
+- **CodeGraph engine (opt-in).** Set `aidlc.astGraph.engine` to `codegraph`
+  and reload. The extension downloads a pinned, checksummed CodeGraph bundle,
+  builds `.codegraph/` once in the background, and registers its MCP server
+  with Claude. From then on the server syncs changed files itself, so nothing
+  rescans on open or on save. The CLAUDE.md block points Claude at
+  `codegraph_explore` and maps the ast-graph tool names that skills and agents
+  use onto it. Switching engines removes the other engine's MCP entry and
+  CLAUDE.md block.
+- `aidlc.astGraph.codegraphTelemetry`. CodeGraph's anonymous telemetry is off
+  for the processes the extension starts unless you turn this on.
+- `aidlc.astGraph.rescanOnSave` brings back the ast-graph rescan after every
+  save. It is off by default.
+- A failed ast-graph scan offers **Try codegraph engine**.
+- `aidlc doctor` and `aidlc mcp` recognise either engine.
+
+### Changed
+
+- ast-graph scans only when there is no graph yet, or when HEAD has moved since
+  the last scan (for example after a pull while VS Code was closed). Otherwise
+  it reuses the stored summary. Branch switch, merge and pull still trigger a
+  clean rescan.
+- Checking whether the MCP server is registered reads Claude's config file
+  instead of running `claude mcp list`. That command health-checks every server
+  and took several seconds on each open.
+
+### Fixed
+
+- On Windows, `claude` and `codex` installed through npm are `.cmd` shims,
+  which Node cannot start without a shell. MCP registration, the MCP Servers
+  panel, Ask, and both runners failed with "`claude` not found on PATH" even
+  though the command worked in a terminal. The shim is now resolved to the
+  program it runs.
+- Claude's project entries are found on Windows whatever the path spelling
+  (`C:/x` or `c:\x`). Before this, `aidlc doctor` reported a registered server
+  as missing.
+- Active Runs in the sidebar shows three runs, the ones an agent is working on
+  first, and a **Show N more** toggle for the rest.
+- Follow-up epics are listed in id order under their parent, so `-W2` comes
+  before `-W10`.
+
 ## 3.13.0
 
 Opening follow-up epics no longer ends at scaffolding them. A workspace that
