@@ -1,7 +1,7 @@
 {
   "name": "@delete101020/aidlc",
   "version": "3.14.0",
-  "description": "AIDLC Native CLI (AI-Native SDLC fork of AIDLC) — AI-driven SDLC pipeline runner. Plan → Prototype → Design ∥ Test → Implement → Release with discovery gates, prototype phase, requirements traceability, and Spec Kit support.",
+  "description": "AIDLC Native CLI, a fork of AIDLC — drive Claude through the six-stage AI-Native SDLC Playbook: Plan → Design → Build → Test → Deploy → Maintain, with artifact gates, requirements traceability, an incident loop back to Plan, and Spec Kit support.",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -1,6 +1,6 @@
 # AIDLC v3.6 🚀
 
-**AI-driven SDLC pipeline runner. Plan → Prototype → Design ∥ Test → Implement → Release, plus the six-stage AI-Native SDLC Playbook. See what Claude is building, control every step, track every token.**
+**AI-Native SDLC pipeline runner. Drive Claude through the six-stage AI-Native SDLC Playbook — Plan → Design → Build → Test → Deploy → Maintain, with Maintain looping back to Plan. See what Claude is building, control every step, track every token.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-97ca00)](LICENSE)
 [![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/delete101020.aidlc?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=delete101020.aidlc)
