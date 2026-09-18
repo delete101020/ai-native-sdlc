@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.0.1
+
+The Marketplace, Open VSX and npm pages are rewritten for AIDLC Native.
+Nothing in the extension or the CLI behaves differently.
+
+### Changed
+
+- The extension and CLI READMEs open with the six AI-Native SDLC stages (the
+  phase, agent and artifact of each), the `native-*` recipes, and a
+  getting-started path through `aidlc preset apply ai-native`,
+  `aidlc epic start --brief` and `aidlc run exec`.
+- Removed the upstream "New in …" sections, which live in this changelog.
+
+### Fixed
+
+- The extension's Requirements section said the build had to be compiled
+  locally, and that it clashes with `hueanmy.aidlc` on `aidlc.*` ids. Neither
+  has been true since 4.0.0.
+- The command table named a command that does not exist.
+
 ## 4.0.0
 
 The first release on the VS Code Marketplace, as **AIDLC Native**. This is a
