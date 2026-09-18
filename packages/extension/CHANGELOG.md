@@ -1,5 +1,37 @@
 # Changelog
 
+## 4.0.0
+
+The first release on the VS Code Marketplace, as **AIDLC Native**. This is a
+fork of AIDLC by hueanmy (`hueanmy.aidlc`) and is not affiliated with the
+upstream author. Every command, setting and view now has its own id, so the two
+extensions can be installed side by side.
+
+### Breaking
+
+- Commands and settings moved from `aidlc.*` to `aidlcNative.*`, and the
+  palette category is now **AIDLC Native**. On first activation your `aidlc.*`
+  settings (user, workspace and folder) are copied to the new keys, and the
+  extension offers a reload. The old keys are left alone, because the upstream
+  extension still reads them.
+- Keybindings cannot be migrated for you. In `keybindings.json`, change
+  `aidlc.` to `aidlcNative.` in any command you bound.
+- The CLI is published as `@delete101020/aidlc`, because upstream owns `aidlc`
+  on npm. The command is still `aidlc`. If the upstream CLI is installed
+  globally, run `npm uninstall -g aidlc` first.
+
+### Changed
+
+- New name, icon and Marketplace page. The page says up front that this is a
+  fork, and lists what reaches the network: your `claude` CLI, and the
+  checksum-pinned code-graph binary download.
+- Output channels are named **AIDLC Native**.
+- **Install via npm** in the missing-CLI prompt installs `@delete101020/aidlc`
+  instead of the upstream package.
+- Active Runs in the sidebar shows status only. Clicking a run opens its epic,
+  and every step action (mark done, approve, reject, rerun, copy command) is
+  there, with the epic's full context.
+
 ## 3.14.0
 
 Opening the extension no longer starts an ast-graph scan. On a large repo that

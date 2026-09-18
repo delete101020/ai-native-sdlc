@@ -353,8 +353,8 @@ To run unreleased changes. **The extension:**
 
 ```sh
 pnpm install
-pnpm package:extension                                  # → packages/extension/aidlc-3.14.0.vsix
-code --install-extension packages/extension/aidlc-3.14.0.vsix
+pnpm package:extension                                  # → packages/extension/aidlc-4.0.0.vsix
+code --install-extension packages/extension/aidlc-4.0.0.vsix
 ```
 
 Reload the window afterwards. A `.vsix` installs over the Marketplace copy (same
@@ -365,7 +365,7 @@ id), and the next Marketplace update replaces it again.
 ```sh
 pnpm -r compile
 cd packages/cli && pnpm bundle && npm link               # `aidlc` on your PATH
-aidlc --version                                          # 3.14.0
+aidlc --version                                          # 4.0.0
 ```
 
 To pick up later changes, re-run the same two commands — `npm link` points at
