@@ -1,16 +1,23 @@
 /**
- * AST Graph integration orchestrator. Wires the binary downloader, the
- * scanner, the MCP registration, and the status-bar entry point into a
- * single `registerAstGraph(context, output)` call invoked from
- * `extension.ts`.
+ * Code-graph integration orchestrator. Picks the engine from
+ * `aidlc.astGraph.engine` and wires it up from a single
+ * `registerAstGraph(context, output)` call invoked from `extension.ts`:
  *
- * Lifecycle per workspace folder (primary only — multi-root falls back
- * to the first folder, matching what Claude's `local` MCP scope can
- * actually point at):
+ *   - `ast-graph` (default) — this file.
+ *   - `codegraph` (opt-in)  — ./codegraph.ts.
+ *
+ * Lifecycle per workspace folder for ast-graph (primary only — multi-root
+ * falls back to the first folder, matching what Claude's `local` MCP scope
+ * can actually point at):
  *   1. Resolve binary (download + verify on first run, cache afterwards)
- *   2. Run initial scan with progress notification
- *   3. Register MCP server with Claude CLI (best-effort)
- *   4. Start a debounced file watcher → incremental rescans on save
+ *   2. Scan only when needed: no graph yet, or HEAD moved while the window
+ *      was closed. Otherwise reuse the cached summary — a scan rewrites the
+ *      whole db and can take minutes on a large repo, so doing it on every
+ *      activation is what made opening the extension slow.
+ *   3. Register MCP server with Claude CLI (config-file check first, so no
+ *      spawn when it is already registered)
+ *   4. Watch git refs → clean rescan on branch switch / merge / pull; watch
+ *      source saves only when `aidlc.astGraph.rescanOnSave` is on.
  *
  * Failures are surfaced via the status-bar pill rather than blocking
  * notifications — the user can click into the report to see what went
@@ -19,28 +26,43 @@
 
 import * as vscode from 'vscode';
 
-import { ensureAstGraphBinary, UnsupportedPlatformError } from './binary';
+import { AST_GRAPH_VERSION, ensureAstGraphBinary, UnsupportedPlatformError } from './binary';
 import {
   createSourceWatcher,
   createGitWatcher,
+  dbExists,
+  dbPathFor,
   ensureGitignoreEntry,
+  readGitHead,
   runScan,
   type ScanSummary,
 } from './scanner';
-import { isAlreadyRegistered, registerMcpServer } from './mcpRegister';
+import { ensureMcpServer, registeredServer, removeMcpServer, type McpRegistration } from './mcpRegister';
 import { ensureClaudeMdHint } from './claudeMdHint';
 import { AstGraphReportWebview } from './reportWebview';
+import { registerCodeGraph, CODEGRAPH_MCP_NAME } from './codegraph';
 
 const SETTING_NAMESPACE = 'aidlc.astGraph';
 const OPEN_REPORT_CMD = 'aidlc.astGraph.openReport';
 const RESCAN_CMD = 'aidlc.astGraph.rescan';
 const REREGISTER_CMD = 'aidlc.astGraph.reregisterMcp';
+const MCP_NAME = 'ast-graph';
+/** workspaceState key: last good scan per folder, so activation can skip scanning. */
+const CACHE_KEY = 'aidlc.astGraph.scanCache';
+
+interface ScanCacheEntry {
+  summary: ScanSummary;
+  /** Commit the tree was on when scanned; null when unknown (not a git repo). */
+  head: string | null;
+  /** Binary version that wrote the db — a bump invalidates the entry. */
+  version: string;
+}
 
 interface FolderState {
   folder: vscode.WorkspaceFolder;
   lastScan: ScanSummary | null;
   scanning: boolean;
-  mcp: { ok: boolean; reason: string };
+  mcp: McpRegistration;
   watcher: vscode.Disposable | null;
   /** Watches .git refs → clean rescan on branch switch / merge / pull. */
   gitWatcher: vscode.Disposable | null;
@@ -53,6 +75,31 @@ export function registerAstGraph(
   const cfg = () => vscode.workspace.getConfiguration(SETTING_NAMESPACE);
   if (!cfg().get<boolean>('enabled', true)) {
     output.appendLine('AST graph: disabled via aidlc.astGraph.enabled.');
+    return;
+  }
+
+  // The engine is fixed for the lifetime of the window: switching tears down
+  // one MCP registration and builds another, so ask for a reload instead of
+  // hot-swapping half-initialised state.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async (e) => {
+      if (!e.affectsConfiguration(`${SETTING_NAMESPACE}.engine`) && !e.affectsConfiguration(`${SETTING_NAMESPACE}.enabled`)) return;
+      const pick = await vscode.window.showInformationMessage(
+        'AIDLC: reload the window to apply the code-graph engine change.',
+        'Reload Window',
+      );
+      if (pick) void vscode.commands.executeCommand('workbench.action.reloadWindow');
+    }),
+  );
+
+  if (cfg().get<string>('engine', 'ast-graph') === 'codegraph') {
+    registerCodeGraph(context, output, {
+      openReportCmd: OPEN_REPORT_CMD,
+      rescanCmd: RESCAN_CMD,
+      reregisterCmd: REREGISTER_CMD,
+      // Claude should see one graph server, not both.
+      onReady: (folder) => dropOwnedRegistration(context, folder, MCP_NAME, output),
+    });
     return;
   }
 
@@ -74,6 +121,33 @@ export function registerAstGraph(
   const primaryState = (): FolderState | undefined => {
     const f = primaryFolder();
     return f ? folderStates.get(f.uri.toString()) : undefined;
+  };
+
+  const newState = (folder: vscode.WorkspaceFolder): FolderState => ({
+    folder,
+    lastScan: null,
+    scanning: false,
+    mcp: { ok: false, reason: 'not registered yet' },
+    watcher: null,
+    gitWatcher: null,
+  });
+
+  const stateFor = (folder: vscode.WorkspaceFolder): FolderState => {
+    const key = folder.uri.toString();
+    let s = folderStates.get(key);
+    if (!s) { s = newState(folder); folderStates.set(key, s); }
+    return s;
+  };
+
+  // ---- Scan cache ----------------------------------------------------------
+  const readCache = (folder: vscode.WorkspaceFolder): ScanCacheEntry | undefined => {
+    const all = context.workspaceState.get<Record<string, ScanCacheEntry>>(CACHE_KEY, {});
+    const entry = all[folder.uri.toString()];
+    return entry?.version === AST_GRAPH_VERSION ? entry : undefined;
+  };
+  const writeCache = async (folder: vscode.WorkspaceFolder, entry: ScanCacheEntry): Promise<void> => {
+    const all = context.workspaceState.get<Record<string, ScanCacheEntry>>(CACHE_KEY, {});
+    await context.workspaceState.update(CACHE_KEY, { ...all, [folder.uri.toString()]: entry });
   };
 
   const updateStatusBar = (): void => {
@@ -101,12 +175,13 @@ export function registerAstGraph(
       md.appendMarkdown('**AST graph**\n\n');
       md.appendMarkdown(`Files: ${s.lastScan.files} · Nodes: ${s.lastScan.nodes} · Edges: ${s.lastScan.edges}\n\n`);
       md.appendMarkdown(`Languages: ${s.lastScan.languages.join(', ') || '—'}\n\n`);
+      md.appendMarkdown(`Last scan: ${new Date(s.lastScan.finishedAt).toLocaleString()}\n\n`);
       md.appendMarkdown(`MCP: ${s.mcp.ok ? 'registered' : `off (${s.mcp.reason || 'not registered'})`}\n\n`);
       md.appendMarkdown('Click to open the report.');
       item.tooltip = md;
     } else {
       item.text = '$(type-hierarchy) AST';
-      item.tooltip = 'AST graph: no scan yet. Click to open.';
+      item.tooltip = 'AST graph: no scan summary yet. Click to open, or run "AIDLC: Rescan AST Graph".';
     }
     AstGraphReportWebview.notifyUpdate();
   };
@@ -117,25 +192,17 @@ export function registerAstGraph(
       output.appendLine('AST graph: binary not ready, scan skipped.');
       return;
     }
-    const key = folder.uri.toString();
-    const state: FolderState = folderStates.get(key) ?? {
-      folder,
-      lastScan: null,
-      scanning: false,
-      mcp: { ok: false, reason: 'not registered yet' },
-      watcher: null,
-      gitWatcher: null,
-    };
+    const state = stateFor(folder);
     if (state.scanning) {
       output.appendLine(`AST graph: scan already in flight for ${folder.name}, skipping.`);
       return;
     }
     state.scanning = true;
-    folderStates.set(key, state);
     updateStatusBar();
 
     try {
       await ensureGitignoreEntry(folder);
+      const head = await readGitHead(folder);
       const summary = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Window,
@@ -144,52 +211,47 @@ export function registerAstGraph(
         () => runScan({ binPath: binPath!, folder, clean, output }),
       );
       state.lastScan = summary;
+      await writeCache(folder, { summary, head, version: AST_GRAPH_VERSION });
       output.appendLine(
         `AST graph: scan done — ${summary.files} files, ${summary.nodes} nodes, ${summary.edges} edges in ${summary.durationMs}ms.`,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       output.appendLine(`AST graph: scan failed — ${msg}`);
-      void vscode.window.showWarningMessage(`AST graph scan failed: ${msg}`);
+      void vscode.window
+        .showWarningMessage(`AST graph scan failed: ${msg}`, 'Try codegraph engine')
+        .then((pick) => {
+          if (pick) void vscode.commands.executeCommand('workbench.action.openSettings', `${SETTING_NAMESPACE}.engine`);
+        });
     } finally {
       state.scanning = false;
-      folderStates.set(key, state);
       updateStatusBar();
     }
   }
 
-  async function registerMcp(folder: vscode.WorkspaceFolder): Promise<void> {
+  async function registerMcp(folder: vscode.WorkspaceFolder, force = false): Promise<void> {
     if (!binPath) return;
-    const key = folder.uri.toString();
-    const state = folderStates.get(key);
-    if (!state || !state.lastScan) return;
+    if (!(await dbExists(folder))) return;
+    const state = stateFor(folder);
 
-    const already = await isAlreadyRegistered(folder.uri.fsPath);
-    if (already) {
-      state.mcp = { ok: true, reason: 'already registered' };
-      folderStates.set(key, state);
-      output.appendLine(`AST graph: MCP already registered in ${folder.name}.`);
-      updateStatusBar();
-      return;
-    }
-    const result = await registerMcpServer({
-      binPath,
-      dbPath: state.lastScan.dbPath,
+    const result = await ensureMcpServer({
+      server: { name: MCP_NAME, command: binPath, args: ['mcp', '--db', dbPathFor(folder)] },
       cwd: folder.uri.fsPath,
+      force,
     });
     state.mcp = result;
-    folderStates.set(key, state);
     if (result.ok) {
-      output.appendLine(`AST graph: registered MCP server in ${folder.name}.`);
-      // Drop a hint into .claude/CLAUDE.md so Claude actually reaches
-      // for ast-graph tools instead of defaulting to grep+read. Without
-      // this the MCP server is "available but unused".
+      output.appendLine(`AST graph: MCP ${result.reason || 'registered'} in ${folder.name}.`);
+      // Keep the hint in .claude/CLAUDE.md so Claude actually reaches for
+      // ast-graph tools instead of defaulting to grep+read. Without this the
+      // MCP server is "available but unused". Idempotent — no write when the
+      // block is already current.
       try {
-        const hintPath = await ensureClaudeMdHint(folder);
-        output.appendLine(`AST graph: CLAUDE.md hint ensured at ${hintPath}`);
+        await ensureClaudeMdHint(folder, 'ast-graph', { rescanOnSave: cfg().get<boolean>('rescanOnSave', false) });
       } catch (err) {
         output.appendLine(`AST graph: failed to write CLAUDE.md hint — ${err instanceof Error ? err.message : String(err)}`);
       }
+      await dropOwnedRegistration(context, folder, CODEGRAPH_MCP_NAME, output);
     } else {
       output.appendLine(`AST graph: MCP registration skipped — ${result.reason}`);
     }
@@ -197,21 +259,20 @@ export function registerAstGraph(
   }
 
   function attachWatcher(folder: vscode.WorkspaceFolder): void {
-    const key = folder.uri.toString();
-    const state = folderStates.get(key);
-    if (!state) return;
-    if (state.watcher) return; // already attached
+    const state = stateFor(folder);
+    if (state.gitWatcher) return; // already attached
 
     const debounceMs = Math.max(1, cfg().get<number>('autoRescanDebounceSeconds', 5)) * 1000;
-    state.watcher = createSourceWatcher({
-      folder,
-      debounceMs,
-      onTrigger: () => {
-        // Incremental rescan — don't pass --clean, the CLI re-parses
-        // only changed files.
-        void scanFolder(folder, false);
-      },
-    });
+    // Rescan-on-save is opt-in: each ast-graph scan rewrites the whole db, so
+    // on a large repo it pins a core for minutes after every save.
+    if (cfg().get<boolean>('rescanOnSave', false)) {
+      state.watcher = createSourceWatcher({
+        folder,
+        debounceMs,
+        onTrigger: () => { void scanFolder(folder, false); },
+      });
+      context.subscriptions.push(state.watcher);
+    }
     // Git ref watcher: branch switch / merge / rebase / reset / pull → clean
     // rescan so the graph fully reflects the new tree (add/remove/rename).
     state.gitWatcher = createGitWatcher({
@@ -222,8 +283,34 @@ export function registerAstGraph(
         void scanFolder(folder, true);
       },
     });
-    folderStates.set(key, state);
-    context.subscriptions.push(state.watcher, state.gitWatcher);
+    context.subscriptions.push(state.gitWatcher);
+  }
+
+  /**
+   * Bring the primary folder up without scanning when the graph is still
+   * good. Scans (in the background) only when there is no db yet, or when
+   * HEAD moved since the cached scan — e.g. a pull while the window was
+   * closed, which the git watcher could not see.
+   */
+  async function bringUp(folder: vscode.WorkspaceFolder): Promise<void> {
+    const state = stateFor(folder);
+    if (!(await dbExists(folder))) {
+      output.appendLine(`AST graph: no graph for ${folder.name} yet — first scan.`);
+      await scanFolder(folder, false);
+    } else {
+      const cached = readCache(folder);
+      if (cached) state.lastScan = cached.summary;
+      const head = await readGitHead(folder);
+      if (cached && head && cached.head && head !== cached.head) {
+        output.appendLine(`AST graph: HEAD moved since last scan (${cached.head.slice(0, 7)} → ${head.slice(0, 7)}) — background clean rescan.`);
+        void scanFolder(folder, true);
+      } else {
+        output.appendLine(`AST graph: reusing existing graph for ${folder.name} — no scan on startup.`);
+      }
+      updateStatusBar();
+    }
+    await registerMcp(folder);
+    attachWatcher(folder);
   }
 
   // ---- Bootstrap (async, non-blocking) -------------------------------------
@@ -252,23 +339,10 @@ export function registerAstGraph(
     }
 
     const folders = vscode.workspace.workspaceFolders ?? [];
-    for (const f of folders) {
-      const key = f.uri.toString();
-      if (!folderStates.has(key)) {
-        folderStates.set(key, {
-          folder: f,
-          lastScan: null,
-          scanning: false,
-          mcp: { ok: false, reason: 'not registered yet' },
-          watcher: null,
-          gitWatcher: null,
-        });
-      }
-    }
-
+    for (const f of folders) stateFor(f);
     updateStatusBar();
 
-    // Only auto-scan the primary folder. Multi-root scans would
+    // Only bring up the primary folder. Multi-root scans would
     // multiply work and the MCP local scope can only point at one
     // db — users with multi-root setups can switch with `Rescan`.
     const primary = folders[0];
@@ -276,11 +350,7 @@ export function registerAstGraph(
       output.appendLine('AST graph: no workspace folder open, deferring scan.');
       return;
     }
-    await scanFolder(primary, false);
-    if (folderStates.get(primary.uri.toString())?.lastScan) {
-      await registerMcp(primary);
-      attachWatcher(primary);
-    }
+    await bringUp(primary);
   }
 
   void bootstrap();
@@ -290,26 +360,14 @@ export function registerAstGraph(
     vscode.workspace.onDidChangeWorkspaceFolders(async (ev) => {
       for (const f of ev.removed) {
         const s = folderStates.get(f.uri.toString());
-        if (s?.watcher) s.watcher.dispose();
+        s?.watcher?.dispose();
+        s?.gitWatcher?.dispose();
         folderStates.delete(f.uri.toString());
       }
-      for (const f of ev.added) {
-        folderStates.set(f.uri.toString(), {
-          folder: f,
-          lastScan: null,
-          scanning: false,
-          mcp: { ok: false, reason: 'not registered yet' },
-          watcher: null,
-          gitWatcher: null,
-        });
-      }
+      for (const f of ev.added) stateFor(f);
       const primary = primaryFolder();
-      if (primary && binPath && !folderStates.get(primary.uri.toString())?.lastScan) {
-        await scanFolder(primary, false);
-        if (folderStates.get(primary.uri.toString())?.lastScan) {
-          await registerMcp(primary);
-          attachWatcher(primary);
-        }
+      if (primary && binPath && !folderStates.get(primary.uri.toString())?.gitWatcher) {
+        await bringUp(primary);
       }
       updateStatusBar();
     }),
@@ -326,38 +384,16 @@ export function registerAstGraph(
       const f = primaryFolder();
       if (!f) return;
       await scanFolder(f, clean);
-      if (primaryState()?.lastScan) {
-        await registerMcp(f);
-        attachWatcher(f);
-      }
+      await registerMcp(f);
+      attachWatcher(f);
     },
     async reregisterMcp(): Promise<void> {
       const f = primaryFolder();
       if (!f) return;
-      // Force a re-run by bypassing the "already registered" short-circuit:
-      // bump the local state to "not registered" and re-invoke.
-      const s = folderStates.get(f.uri.toString());
-      if (s) {
-        s.mcp = { ok: false, reason: 'reregistering…' };
-        folderStates.set(f.uri.toString(), s);
-      }
-      // Skip the isAlreadyRegistered check on this path by inlining:
-      if (!binPath || !s?.lastScan) return;
-      const res = await registerMcpServer({
-        binPath,
-        dbPath: s.lastScan.dbPath,
-        cwd: f.uri.fsPath,
-      });
-      s.mcp = res;
-      folderStates.set(f.uri.toString(), s);
-      if (res.ok) {
-        try {
-          await ensureClaudeMdHint(f);
-        } catch (err) {
-          output.appendLine(`AST graph: failed to refresh CLAUDE.md hint — ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
+      const s = stateFor(f);
+      s.mcp = { ok: false, reason: 'reregistering…' };
       updateStatusBar();
+      await registerMcp(f, true);
     },
   };
 
@@ -373,4 +409,24 @@ export function registerAstGraph(
   );
 
   output.appendLine('AST graph: integration registered.');
+
+}
+
+/**
+ * Remove the other engine's local registration — but only one this extension
+ * made (its command lives under our globalStorage), never a server the user
+ * added by hand under the same name.
+ */
+async function dropOwnedRegistration(
+  context: vscode.ExtensionContext,
+  folder: vscode.WorkspaceFolder,
+  name: string,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const existing = registeredServer(folder.uri.fsPath, name);
+  if (!existing) return;
+  const storage = context.globalStorageUri.fsPath.toLowerCase();
+  if (!existing.command.toLowerCase().startsWith(storage)) return;
+  const res = await removeMcpServer(folder.uri.fsPath, name);
+  output.appendLine(`AST graph: ${res.ok ? 'removed' : 'could not remove'} the ${name} MCP entry (other engine)${res.ok ? '' : ` — ${res.reason}`}.`);
 }

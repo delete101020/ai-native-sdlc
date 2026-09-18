@@ -29,6 +29,7 @@ import type { AidlcRunner, HarnessCapabilities, RunnerContext, RunnerResult } fr
 import { codexMcpRegistrar } from './mcp';
 import { createJsonSink } from './ndjson';
 import { resolveProviderModel } from '../presets/models';
+import { resolveCommand } from '../util/resolveCommand';
 
 export interface CodexRunnerOptions {
   /** Override the codex binary. Default: `codex` on PATH. */
@@ -83,7 +84,8 @@ export class CodexRunner implements AidlcRunner {
       buildPrompt(ctx),
     ];
 
-    const proc = spawn(bin, args, {
+    const cmd = resolveCommand(bin);
+    const proc = spawn(cmd.command, [...cmd.args, ...args], {
       cwd: ctx.workspaceRoot,
       env: { ...process.env, ...ctx.env },
       stdio: ['ignore', 'pipe', 'pipe'],

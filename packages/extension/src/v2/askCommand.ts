@@ -12,7 +12,7 @@
  */
 import * as vscode from 'vscode';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
-import { AIDLC_KNOWLEDGE, buildClaudeSpawnEnv } from '@aidlc/core';
+import { AIDLC_KNOWLEDGE, buildClaudeSpawnEnv, resolveCommand } from '@aidlc/core';
 
 const SUGGESTIONS = [
   'What is AIDLC and how do I get started?',
@@ -192,7 +192,8 @@ export class AskWebview {
 
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn('claude', args, { cwd, env: buildClaudeSpawnEnv() });
+      const exe = resolveCommand('claude');
+      child = spawn(exe.command, [...exe.args, ...args], { cwd, env: buildClaudeSpawnEnv() });
     } catch (e) {
       this.fail(e instanceof Error ? e.message : String(e));
       return;

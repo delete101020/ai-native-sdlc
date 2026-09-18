@@ -196,27 +196,30 @@ function parityChecks(
   // ast-graph. Registration is now checked against each CLI's own config, which
   // is a file read rather than a subprocess, so doctor stays offline and still
   // stops implying that a graph on disk means a harness can reach it (G1).
-  const graphDb = path.join(root, '.ast-graph', 'graph.db');
-  if (!fs.existsSync(graphDb)) {
+  // The engine is a VS Code setting (aidlc.astGraph.engine) the CLI can't
+  // read, so infer it from which index is on disk — codegraph wins when both
+  // exist, since it is only there if someone opted into it.
+  const engine = fs.existsSync(path.join(root, '.codegraph', 'codegraph.db')) ? 'codegraph' : 'ast-graph';
+  if (engine === 'ast-graph' && !fs.existsSync(path.join(root, '.ast-graph', 'graph.db'))) {
     checks.push(warn('ast-graph', 'no .ast-graph/graph.db — run "AIDLC: Rescan AST Graph" to build it'));
     return checks;
   }
-  checks.push(ok('ast-graph', 'graph built'));
+  checks.push(ok(engine, engine === 'codegraph' ? 'index built (.codegraph/)' : 'graph built'));
 
   for (const runner of runners) {
     if (runner === 'default') {
-      const server = readProjectMcpServer(root, 'ast-graph', claudeJsonPath());
+      const server = readProjectMcpServer(root, engine, claudeJsonPath());
       checks.push(server
-        ? ok('ast-graph via claude', 'registered for this project')
-        : warn('ast-graph via claude',
+        ? ok(`${engine} via claude`, 'registered for this project')
+        : warn(`${engine} via claude`,
             'not in this project\'s MCP config — run "AIDLC: Rescan AST Graph" in VS Code'));
     } else if (runner === 'codex') {
-      checks.push(isCodexMcpConfigured('ast-graph', os.homedir())
-        ? ok('ast-graph via codex', 'declared in ~/.codex/config.toml (per-user, not per-project)')
-        : warn('ast-graph via codex',
+      checks.push(isCodexMcpConfigured(engine, os.homedir())
+        ? ok(`${engine} via codex`, 'declared in ~/.codex/config.toml (per-user, not per-project)')
+        : warn(`${engine} via codex`,
             'not in ~/.codex/config.toml — run "aidlc mcp register --runner codex"'));
     } else {
-      checks.push(warn(`ast-graph via ${runner}`,
+      checks.push(warn(`${engine} via ${runner}`,
         'AIDLC has no MCP registration for this runner — its phases run without the graph'));
     }
   }

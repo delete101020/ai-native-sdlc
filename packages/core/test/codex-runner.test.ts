@@ -20,6 +20,13 @@ vi.mock('child_process', () => ({
   },
 }));
 
+// Keep the bin name as written — on Windows the real resolver would swap in
+// whatever `codex` shim happens to be on this machine's PATH.
+vi.mock('../src/util/resolveCommand', () => ({
+  resolveCommand: (bin: string) => ({ command: bin, args: [] }),
+  clearResolveCommandCache: () => {},
+}));
+
 import { CodexRunner } from '../src';
 import type { RunnerContext } from '../src';
 

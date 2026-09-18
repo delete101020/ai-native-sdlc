@@ -284,13 +284,36 @@
         "aidlc.astGraph.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Auto-download the ast-graph CLI, scan the workspace in the background, and register it as a Claude MCP server so Claude can read structural code context cheaply."
+          "description": "Build a code graph of the workspace in the background and register it as a Claude MCP server so Claude can read structural code context cheaply. The engine is chosen by `aidlc.astGraph.engine`."
+        },
+        "aidlc.astGraph.engine": {
+          "type": "string",
+          "enum": [
+            "ast-graph",
+            "codegraph"
+          ],
+          "enumDescriptions": [
+            "ast-graph (default): scans into .ast-graph/graph.db. Rescans on branch switch / pull; each scan rewrites the whole graph, which is slow on very large repos.",
+            "CodeGraph (opt-in, github.com/colbymchenry/codegraph): indexes into .codegraph/ once; its MCP server then watches the project and syncs only changed files. Better for large repos. Maps AIDLC's ast-graph tool names onto codegraph_explore via the CLAUDE.md hint."
+          ],
+          "default": "ast-graph",
+          "markdownDescription": "Which code-graph engine backs the MCP server. Switching needs a window reload; the extension removes the other engine's MCP registration and CLAUDE.md block."
+        },
+        "aidlc.astGraph.rescanOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "ast-graph only: rescan after source files change. Off by default — every ast-graph scan rewrites the whole graph, so on a large repo it keeps a core busy after each save. Branch switch / merge / pull always trigger a rescan. (CodeGraph syncs on save by itself.)"
         },
         "aidlc.astGraph.autoRescanDebounceSeconds": {
           "type": "number",
           "default": 5,
           "minimum": 1,
-          "description": "Debounce window for incremental rescans after source files change (seconds)."
+          "description": "Debounce window for rescans after git ref changes, and after source file saves when `aidlc.astGraph.rescanOnSave` is on (seconds)."
+        },
+        "aidlc.astGraph.codegraphTelemetry": {
+          "type": "boolean",
+          "default": false,
+          "description": "CodeGraph only: allow CodeGraph's anonymous usage telemetry for the processes this extension starts. Off by default (sets CODEGRAPH_TELEMETRY=0)."
         },
         "aidlc.mcp.listTimeoutSeconds": {
           "type": "number",

@@ -151,7 +151,7 @@ async function isFileReady(p: string): Promise<boolean> {
  * Stream a URL to disk, following up to 5 redirects. Atomic-ish: writes to
  * `<dst>.part` and renames on success.
  */
-function downloadFile(url: string, dst: string, hops = 0): Promise<void> {
+export function downloadFile(url: string, dst: string, hops = 0): Promise<void> {
   return new Promise((resolve, reject) => {
     if (hops > 5) {
       reject(new Error(`ast-graph: too many redirects fetching ${url}`));
@@ -213,7 +213,7 @@ async function fetchExpectedSha(url: string): Promise<string> {
   });
 }
 
-function sha256OfFile(p: string): Promise<string> {
+export function sha256OfFile(p: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash('sha256');
     const s = fs.createReadStream(p);
@@ -270,7 +270,7 @@ async function extractArchive(
   }
 }
 
-function runChecked(cmd: string, args: string[], timeoutMs: number): Promise<void> {
+export function runChecked(cmd: string, args: string[], timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { timeout: timeoutMs }, (err, _stdout, stderr) => {
       if (err) {
