@@ -1,14 +1,15 @@
 ---
 name: install-local
-description: Build this fork and install it locally — package the VSIX, install it into VS Code, and link the CLI onto PATH. No Marketplace, no Open VSX, no npm. Invoke via /install-local [extension|cli|both] — default both.
+description: Build the working tree and install it on this machine — package the VSIX, install it into VS Code, and link the CLI onto PATH — to try changes before they are released. Publishes nothing. Invoke via /install-local [extension|cli|both] — default both.
 ---
 
 # /install-local — install this build on this machine
 
-This fork is not published anywhere (see W4 in `AI_NATIVE_SDLC_ALIGNMENT.md`).
-Both artifacts are built from the working tree and installed locally. Use this
-instead of `/publish`, which releases the **upstream** extension under
-`hueanmy`'s Marketplace and Open VSX accounts and does not apply here.
+Released builds come from the Marketplace / Open VSX / npm (see `/publish`).
+This skill is for everything else: both artifacts are built from the working
+tree and installed on this machine, so unreleased changes can be tried. The
+`.vsix` has the same id as the published extension, so it replaces it until the
+next Marketplace update; `npm link` shadows a global `@delete101020/aidlc`.
 
 Every step is mandatory; stop and report if any step fails — do NOT continue
 past a failure.
@@ -73,10 +74,8 @@ Verify it landed:
 code --list-extensions --show-versions | grep -i aidlc
 ```
 
-Expect `delete101020.aidlc@<version>`. **If `hueanmy.aidlc` also appears**, say
-so plainly and recommend disabling one — both contribute the same `aidlc.*`
-command ids, and VS Code will bind each command to whichever activated first.
-Do not uninstall the other one without being asked.
+Expect `delete101020.aidlc@<version>`. The upstream `hueanmy.aidlc` may also be
+listed; since 4.0.0 that is fine — this build's ids are all `aidlcNative.*`.
 
 Tell the user to reload the window (**Developer: Reload Window**); an installed
 `.vsix` does not take effect in already-open windows.
@@ -125,9 +124,8 @@ One concise block:
 
 ## Safety rules
 
-- Never publish. No `vsce publish`, no `ovsx publish`, no `npm publish` — this
-  fork has no registry presence, and running `/publish` here would target the
-  upstream author's accounts.
+- Never publish. No `vsce publish`, no `ovsx publish`, no `npm publish` —
+  releases go through `/publish`, which tags, and CI publishes the tag.
 - Never commit the `.vsix` (it is gitignored — `*.vsix`).
 - Never uninstall an existing extension without being asked; report the clash
   and let the user decide.
