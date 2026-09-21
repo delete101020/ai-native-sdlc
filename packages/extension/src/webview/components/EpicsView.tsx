@@ -76,7 +76,17 @@ export function EpicsView({
   const [focus, setFocus] = useState<{ id: string; nonce: number } | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-  useEffect(() => { if (focusEpic) { setFocus(focusEpic); } }, [focusEpic]);
+  // Deep links unfold the family they land in. Families start folded, so
+  // without this the sidebar would scroll to a card that is not rendered.
+  useEffect(() => {
+    if (!focusEpic) { return; }
+    const target = state.epics.find((e) => e.id === focusEpic.id);
+    if (target) { setCollapsed((c) => ({ ...c, [familyOf(target)]: false })); }
+    setFocus(focusEpic);
+    // Deliberately keyed on the link alone: re-running when `state.epics`
+    // changes would re-open a family the user had just folded shut.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusEpic]);
 
   // A deep link has to win over the filter — landing on an empty list because
   // the epic is done and the filter says "in progress" reads as a broken link.
@@ -392,9 +402,13 @@ export function EpicsView({
             if (f.epics.length < 2) { return cards; }
 
             const root = f.epics.find((e) => e.id === f.rootId);
-            // Finished families fold themselves away: an incident and its fix,
-            // both done, is history — it should not cost four rows forever.
-            const isCollapsed = collapsed[f.rootId] ?? f.epics.every((e) => e.status === 'done');
+            const running = f.epics.filter((e) => e.status === 'in_progress').length;
+            const failed = f.epics.filter((e) => e.status === 'failed').length;
+            // Folded until asked. An incident that opened three follow-ups is
+            // one thing that happened, and unfolding all of them by default
+            // buries every other epic in the list under it — so the header row
+            // stands in for the family and says what is still moving inside.
+            const isCollapsed = collapsed[f.rootId] ?? true;
             return (
               <div key={f.rootId} className="rounded-lg border border-border/70 bg-surface/40">
                 <button
@@ -414,8 +428,20 @@ export function EpicsView({
                   {root && (
                     <span className="truncate text-[11px] text-muted-foreground">{root.title}</span>
                   )}
-                  <span className="ml-auto shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                    {f.epics.length} epics
+                  <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                    {running > 0 && (
+                      <span className="rounded-full border border-info/30 bg-info/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-info">
+                        {running} running
+                      </span>
+                    )}
+                    {failed > 0 && (
+                      <span className="rounded-full border border-destructive/30 bg-destructive/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-destructive">
+                        {failed} failed
+                      </span>
+                    )}
+                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {f.epics.length} epics
+                    </span>
                   </span>
                 </button>
                 {!isCollapsed && (
