@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.0.5
 
 A step that writes four files can now be opened from the panel four times,
 and an `.html` artifact opens rendered instead of as markup.
@@ -35,6 +35,11 @@ and an `.html` artifact opens rendered instead of as markup.
   `<epic>/artifacts`, which does not exist for a pipeline that writes
   elsewhere (`docs/cr/<cr>/`). It now reveals the folder the epic's artifacts
   are actually in, keeping the old path as the fallback.
+
+### Changed
+
+- **The Builder opens on Workflows.** It is the tab you came for; Agents is
+  one click away.
 
 ## 4.0.4
 
