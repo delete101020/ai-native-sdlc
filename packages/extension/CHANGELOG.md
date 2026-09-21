@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.0.4
+
+An incident and the epics it opened now sit behind one folded row, so the
+Epics list stays a list.
+
+### Changed
+
+- **Epic families start folded.** An epic opened from another (a follow-up on
+  an incident) is grouped under it. That group only folded itself once every
+  epic in it was done, so a live incident with three follow-ups pushed the rest
+  of the list a screen down. The group now starts closed, and its header row
+  carries what the fold hides — a **running** and a **failed** count beside the
+  epic count — so nothing in flight goes quiet. Clicking a follow-up chip, or
+  an epic in the sidebar, opens the group it belongs to before scrolling to it.
+
 ## 4.0.3
 
 A workspace that writes its own recipes gets them back where they belong: the
