@@ -644,9 +644,8 @@ function ActiveRunsSection({
   // Every running epic is an active run, so a busy workspace turned this into
   // the whole sidebar. The host lists runs most recently updated first; runs
   // with an agent on them still lead, since those are the ones to watch.
-  const ordered = [...runs].sort(
-    (a, b) => Number(!!activity[b.runId]) - Number(!!activity[a.runId]),
-  );
+  const busyCount = (runId: string): number => activity[runId]?.length ?? 0;
+  const ordered = [...runs].sort((a, b) => busyCount(b.runId) - busyCount(a.runId));
   const shown = showAll ? ordered : ordered.slice(0, ACTIVE_RUNS_LIMIT);
   const hidden = ordered.length - shown.length;
 
@@ -663,7 +662,7 @@ function ActiveRunsSection({
       {!collapsed && (
         <div className="mt-1.5 space-y-1.5">
           {shown.map((r) => (
-            <ActiveRunCard key={r.runId} run={r} activity={activity[r.runId] ?? null} />
+            <ActiveRunCard key={r.runId} run={r} activities={activity[r.runId] ?? []} />
           ))}
           {ordered.length > ACTIVE_RUNS_LIMIT && (
             <button
@@ -691,10 +690,11 @@ const RUN_STEP_STATUS: Record<string, { label: string; cls: string }> = {
 
 function ActiveRunCard({
   run,
-  activity,
+  activities,
 }: {
   run: ActiveRun;
-  activity: AgentActivity | null;
+  /** Every dispatch still live on this run — a DAG can have one per open step. */
+  activities: AgentActivity[];
 }) {
   const status = RUN_STEP_STATUS[run.currentStepStatus] ?? {
     label: run.currentStepStatus || 'unknown',
@@ -747,7 +747,14 @@ function ActiveRunCard({
         )}
       </div>
 
-      {activity && <AgentActivityLine activity={activity} />}
+      {activities.map((a) => (
+        <AgentActivityLine
+          key={`${a.stepIdx ?? '*'}-${a.startedAt}`}
+          activity={a}
+          // Worth naming the step only when there is more than one to tell apart.
+          showStep={activities.length > 1}
+        />
+      ))}
 
       {note && (
         <div className="mt-1.5 line-clamp-2 break-words rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[10px] leading-snug text-muted-foreground">
@@ -780,12 +787,21 @@ function ActiveRunCard({
  * The sidebar's read-only form of `AgentRunningBanner`: same wording and timer,
  * without the dismiss button, which belongs with the step controls in the epic.
  */
-function AgentActivityLine({ activity }: { activity: AgentActivity }) {
+function AgentActivityLine({
+  activity,
+  showStep = false,
+}: {
+  activity: AgentActivity;
+  showStep?: boolean;
+}) {
   const elapsed = useElapsed(activity.startedAt);
   return (
     <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-primary" title={activity.command}>
       <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
       <span className="font-semibold">{activity.tracked ? 'Agent running' : 'Agent started'}</span>
+      {showStep && activity.stepIdx !== null && (
+        <span className="tabular-nums text-primary/70">step {activity.stepIdx + 1}</span>
+      )}
       <span className="tabular-nums text-primary/70">{elapsed}</span>
     </div>
   );

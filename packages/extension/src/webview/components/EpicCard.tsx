@@ -30,6 +30,7 @@ import {
   ClipboardList,
   Trash2,
   Gauge,
+  Loader2,
   Workflow,
   Tag as TagIcon,
 } from 'lucide-react';
@@ -108,11 +109,13 @@ interface Props {
    */
   focusNonce?: number;
   /**
-   * Set while an agent this window dispatched for the epic's run is still
-   * working. Null covers both "idle" and "running somewhere we cannot see" —
-   * the UI adds a busy state from this, it never infers an idle one.
+   * The agents this window dispatched for the epic's run that are still
+   * working — one entry per step, because a DAG opens its parallel steps
+   * together and each can have its own agent on it. An empty list covers both
+   * "idle" and "running somewhere we cannot see": the UI adds a busy state
+   * from this, it never infers an idle one.
    */
-  activity?: AgentActivity | null;
+  activities?: AgentActivity[];
   /** The incident this epic was opened from (`from_epic` in inputs.json). */
   fromEpic?: string | null;
   /** Epics opened from this one — an incident's fix, or a manifest's children. */
@@ -130,7 +133,7 @@ export function EpicCard({
   agentMeta,
   slashCommandsByAgent,
   focusNonce = 0,
-  activity = null,
+  activities = [],
   fromEpic = null,
   followUps = [],
   onNavigate,
@@ -162,6 +165,12 @@ export function EpicCard({
     setFocusedIdx((idx) => (idx === followedStep.current ? next : idx));
     followedStep.current = next;
   }, [epic.currentStep]);
+
+  // Which steps have an agent on them right now, for the stepper's spinner.
+  // An unattributed dispatch (`stepIdx: null`) names no step, so it marks none.
+  const busySteps = new Set(
+    activities.map((a) => a.stepIdx).filter((idx): idx is number => idx !== null),
+  );
 
   const ui = epicUiStatus(epic.status);
   const total = epic.stepDetails.length;
@@ -318,6 +327,7 @@ export function EpicCard({
               currentStep={epic.currentStep}
               focusedIdx={focusedIdx}
               onFocus={setFocusedIdx}
+              busySteps={busySteps}
             />
           )}
 
@@ -327,7 +337,12 @@ export function EpicCard({
               focusedIdx={focusedIdx}
               focused={focused}
               meta={agentMeta[focused.agent]}
-              activity={activity}
+              // The focused step's own agent, not the run's — focusing an idle
+              // parallel sibling used to inherit the running step's banner and
+              // lose its Run button with it.
+              activity={activityForStep(activities, focusedIdx)}
+              otherActivities={activities.filter((a) => a.stepIdx !== null && a.stepIdx !== focusedIdx)}
+              stepLabel={(idx) => epic.stepDetails[idx]?.stepName ?? epic.stepDetails[idx]?.agent ?? `step ${idx + 1}`}
               slashCommand={
                 // Use the host-resolved command (matched against the actual
                 // workspace.yaml slash_commands — bare `/implement` or
@@ -359,7 +374,9 @@ export function EpicCard({
           <EpicActions
             epic={epic}
             hasInputs={inputKeys.length > 0}
-            activity={activity}
+            // Deleting is a whole-epic act, so any agent anywhere on the run
+            // blocks it — unlike the step gates, which are per step.
+            busy={activities.length > 0}
             followUpCount={followUps.length}
           />
         </div>
@@ -792,21 +809,39 @@ function Stepper({
   currentStep,
   focusedIdx,
   onFocus,
+  busySteps,
 }: {
   steps: EpicStepDetailFull[];
   currentStep: number;
   focusedIdx: number;
   onFocus: (idx: number) => void;
+  /** Indices with an agent this window dispatched still working on them. */
+  busySteps: Set<number>;
 }) {
   const isDag = steps.some((s) => (s.dependsOn?.length ?? 0) > 0);
   return (
     <div className="overflow-x-auto rounded-md border border-border bg-surface/50 p-3">
       {isDag ? (
-        <DagStepper steps={steps} currentStep={currentStep} focusedIdx={focusedIdx} onFocus={onFocus} />
+        <DagStepper steps={steps} currentStep={currentStep} focusedIdx={focusedIdx} onFocus={onFocus} busySteps={busySteps} />
       ) : (
-        <LinearStepper steps={steps} currentStep={currentStep} focusedIdx={focusedIdx} onFocus={onFocus} />
+        <LinearStepper steps={steps} currentStep={currentStep} focusedIdx={focusedIdx} onFocus={onFocus} busySteps={busySteps} />
       )}
     </div>
+  );
+}
+
+/**
+ * The dispatch that belongs to one step: its own entry, or the unattributed
+ * one (`stepIdx: null`) when the host could not say which step a launch was
+ * for. That fallback keeps the old whole-run behaviour for such entries, which
+ * is the safe reading — better to over-report busy than to invite a second
+ * agent onto work already under way.
+ */
+function activityForStep(activities: AgentActivity[], idx: number): AgentActivity | null {
+  return (
+    activities.find((a) => a.stepIdx === idx)
+    ?? activities.find((a) => a.stepIdx === null)
+    ?? null
   );
 }
 
@@ -815,11 +850,13 @@ function LinearStepper({
   currentStep,
   focusedIdx,
   onFocus,
+  busySteps,
 }: {
   steps: EpicStepDetailFull[];
   currentStep: number;
   focusedIdx: number;
   onFocus: (idx: number) => void;
+  busySteps: Set<number>;
 }) {
   return (
     <div className="flex min-w-max items-start justify-center gap-0">
@@ -840,6 +877,7 @@ function LinearStepper({
             idx={i}
             isCurrent={i === currentStep}
             isFocused={i === focusedIdx}
+            isBusy={busySteps.has(i)}
             onFocus={() => onFocus(i)}
           />
         </div>
@@ -859,11 +897,13 @@ function DagStepper({
   currentStep,
   focusedIdx,
   onFocus,
+  busySteps,
 }: {
   steps: EpicStepDetailFull[];
   currentStep: number;
   focusedIdx: number;
   onFocus: (idx: number) => void;
+  busySteps: Set<number>;
 }) {
   const levels = computeEpicDagLevels(steps);
   // Level-based numbering: single occupant → "3", parallels → "2.1", "2.2".
@@ -891,6 +931,7 @@ function DagStepper({
                 label={labelByIdx.get(idx) ?? String(idx + 1)}
                 isCurrent={idx === currentStep}
                 isFocused={idx === focusedIdx}
+                isBusy={busySteps.has(idx)}
                 onFocus={() => onFocus(idx)}
               />
             ))}
@@ -944,6 +985,7 @@ function StepperNode({
   label,
   isCurrent,
   isFocused,
+  isBusy,
   onFocus,
 }: {
   step: EpicStepDetailFull;
@@ -952,14 +994,20 @@ function StepperNode({
   label?: string;
   isCurrent: boolean;
   isFocused: boolean;
+  /** An agent this window dispatched is working this step right now. */
+  isBusy?: boolean;
   onFocus: () => void;
 }) {
   // Pending step that carries history was previously approved and got reset
   // by a downstream Request-Update — surface that as a warning-tinted state
   // separate from never-touched pending.
   const isAwaitingUpdate = step.status === 'pending' && (step.history ?? []).length > 0;
-  const inner =
-    step.status === 'done'
+  // A spinner on the node is what makes the per-step banner findable: with
+  // parallel steps open the user has to know *which* of them the running agent
+  // is on before clicking the right one.
+  const inner = isBusy
+    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+    : step.status === 'done'
       ? <Check className="h-3.5 w-3.5" />
       : step.status === 'failed'
         ? <X className="h-3.5 w-3.5" />
@@ -969,7 +1017,7 @@ function StepperNode({
       type="button"
       onClick={onFocus}
       className="group flex flex-col items-center gap-1 px-1"
-      title={`${step.stepName ?? step.agent}${step.stepName && step.stepName !== step.agent ? ` · agent ${step.agent}` : ''} — ${isAwaitingUpdate ? 'awaiting update' : STEP_LABEL[step.status]}`}
+      title={`${step.stepName ?? step.agent}${step.stepName && step.stepName !== step.agent ? ` · agent ${step.agent}` : ''} — ${isBusy ? 'agent running' : isAwaitingUpdate ? 'awaiting update' : STEP_LABEL[step.status]}`}
     >
       <div
         className={cn(
@@ -1011,13 +1059,20 @@ function StepDetail({
   meta,
   slashCommand,
   activity,
+  otherActivities,
+  stepLabel,
 }: {
   epic: EpicSummary;
   focusedIdx: number;
   focused: EpicStepDetailFull;
   meta: AgentMeta | undefined;
   slashCommand: string | undefined;
+  /** The dispatch on *this* step, if any. */
   activity: AgentActivity | null;
+  /** Dispatches on the run's other steps — named here, never acted on. */
+  otherActivities: AgentActivity[];
+  /** Name of a step by index, for talking about the ones running elsewhere. */
+  stepLabel: (idx: number) => string;
 }) {
   const total = epic.stepDetails.length;
   const ui = (() => {
@@ -1307,6 +1362,8 @@ function StepDetail({
         artifactExists={artifactExists}
         artifactStale={artifactStale}
         activity={activity}
+        otherActivities={otherActivities}
+        stepLabel={stepLabel}
       />
       <RequestUpdateAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <StepHistory step={focused} />
@@ -1567,6 +1624,8 @@ function RunGate({
   artifactExists,
   artifactStale,
   activity,
+  otherActivities,
+  stepLabel,
 }: {
   epic: EpicSummary;
   focused: EpicStepDetailFull;
@@ -1577,7 +1636,11 @@ function RunGate({
   artifactExists: boolean;
   /** Artifact is on disk but older than this step — inherited from an earlier step. */
   artifactStale: boolean;
+  /** The dispatch on this step — what its gate buttons wait for. */
   activity: AgentActivity | null;
+  /** Dispatches on sibling steps — they gate the whole-run action only. */
+  otherActivities: AgentActivity[];
+  stepLabel: (idx: number) => string;
 }) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rerunOpen, setRerunOpen] = useState(false);
@@ -1591,13 +1654,23 @@ function RunGate({
   if (!ui) { return null; }
 
   const status = focused.runStatus!;
-  // While an agent we launched is still on this run, the gate buttons are
+  // While an agent we launched is still on *this step*, its gate buttons are
   // answers to a question that has not been asked yet: there is nothing to
   // mark done, approve or reject until the agent stops writing. The banner
   // above them carries a dismiss for the case where it did stop and we were
   // not told.
+  //
+  // A sibling step's agent is not this step's business. Parallel steps are the
+  // point of a DAG, and gating them on each other turned two open steps into a
+  // queue of one: the second could not be run, only watched.
   const busy = !!activity;
-  const busyTitle = 'An agent is still working on this run — wait for it, or dismiss the banner above';
+  const busyTitle = 'An agent is still working on this step — wait for it, or dismiss the banner above';
+  // Running to completion drives the run itself, so it waits for every agent
+  // on it — this step's and the siblings'.
+  const runBusy = busy || otherActivities.length > 0;
+  const runBusyTitle = busy
+    ? busyTitle
+    : `An agent is still working on ${otherActivities.map((a) => stepLabel(a.stepIdx!)).join(', ')} — wait for it, or dismiss its banner on that step`;
   // Marking done with no artifact on disk is not a choice the user gets to
   // make: `markStepDone` in core validates `produces` and throws. Leaving the
   // button live only turns that into an error toast after the click, and on a
@@ -1667,6 +1740,17 @@ function RunGate({
       </div>
 
       {activity && <AgentRunningBanner activity={activity} />}
+
+      {/* The siblings do not block this step, but the user is owed the reason
+          *Run to completion* is disabled, and a pointer to where the work is. */}
+      {otherActivities.length > 0 && (
+        <div className="flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin opacity-70" />
+          <span>
+            Also running in parallel: {otherActivities.map((a) => stepLabel(a.stepIdx!)).join(', ')}
+          </span>
+        </div>
+      )}
 
       {status === 'rejected' && focused.rejectReason && (
         <ClampedNote
@@ -1742,6 +1826,9 @@ function RunGate({
                         runId: epic.runId!,
                         slashCommand,
                         feedback: '',
+                        // Names the step this launch belongs to, so its banner
+                        // lands here and not on every open sibling.
+                        stepIdx: focusedIdx,
                       });
                     }
                   }}
@@ -1807,8 +1894,8 @@ function RunGate({
         {status !== 'rejected' && (
           <GateButton
             variant="primary"
-            disabled={busy}
-            title={busy ? busyTitle : 'Execute every remaining step back to back'}
+            disabled={runBusy}
+            title={runBusy ? runBusyTitle : 'Execute every remaining step back to back'}
             onClick={() => setAutoRunOpen(true)}
           >
             <Zap className="h-3 w-3" /> Run to completion
@@ -1847,6 +1934,7 @@ function RunGate({
               runId: epic.runId!,
               slashCommand,
               feedback,
+              stepIdx: focusedIdx,
             })
           }
           onClose={() => setRunOpen(false)}
@@ -1905,20 +1993,23 @@ function GateButton({
 function EpicActions({
   epic,
   hasInputs,
-  activity,
+  busy,
   followUpCount,
 }: {
   epic: EpicSummary;
   hasInputs: boolean;
-  activity: AgentActivity | null;
+  /**
+   * An agent this window dispatched is working *any* step of the run.
+   *
+   * Deleting an epic out from under one leaves it writing into a folder whose
+   * run state no longer exists — half-written artifacts in a directory nothing
+   * points at. The button stayed live through all of it.
+   */
+  busy: boolean;
   /** Epics opened from this one. */
   followUpCount: number;
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
-  // Deleting an epic out from under a running agent leaves the agent writing
-  // into a folder whose run state no longer exists — half-written artifacts in
-  // a directory nothing points at. The button stayed live through all of it.
-  const busy = !!activity;
   return (
     <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
       {/* A finished epic is offered no start button. The run file is gitignored

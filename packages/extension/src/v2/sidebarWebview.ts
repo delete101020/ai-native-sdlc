@@ -740,11 +740,18 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const runId = String(msg.runId ?? '');
         const feedback = String(msg.feedback ?? '');
         if (!slash || !runId) { return; }
+        // Which step the click came from. A DAG keeps several steps open at
+        // once, so an activity entry that names none makes every sibling look
+        // busy and takes their Run button away.
+        const stepIdx = typeof msg.stepIdx === 'number' && Number.isInteger(msg.stepIdx)
+          ? msg.stepIdx
+          : undefined;
         await vscode.commands.executeCommand(
           'aidlcNative.runStepWithFeedback',
           slash,
           runId,
           feedback,
+          stepIdx,
         );
         return;
       }
@@ -763,10 +770,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'clearAgentActivity': {
         // The user's override: they can see the agent is finished even though
         // no end signal reached us. Trusting them here is what keeps a missed
-        // signal from being a dead end.
+        // signal from being a dead end. Dismissing one step's banner leaves a
+        // parallel sibling's alone; a message with no stepIdx predates that
+        // and still means the whole run.
         const runId = String(msg.runId ?? '');
         if (!runId) { return; }
-        agentActivity.end(runId);
+        const stepIdx = typeof msg.stepIdx === 'number' && Number.isInteger(msg.stepIdx)
+          ? msg.stepIdx
+          : msg.stepIdx === null ? null : undefined;
+        agentActivity.end(runId, stepIdx);
         return;
       }
       case 'markStepDone':

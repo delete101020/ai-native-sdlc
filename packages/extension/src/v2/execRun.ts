@@ -113,7 +113,10 @@ export async function execRunToCompletion(
               log(`\n▶ step ${e.stepIdx + 1} · ${e.agent}${e.model ? ` (${e.model})` : ''}`);
               // The step index moved before the agent produced anything; the
               // panel should say which step is being worked, not the last one
-              // that finished.
+              // that finished. The loop runs one step at a time, so its own
+              // earlier entries — the run-wide one from launch, the previous
+              // step's — are all stale now that this step has started.
+              agentActivity.end(runId);
               agentActivity.begin({
                 runId, stepIdx: e.stepIdx, command: `aidlc ${label} ${runId}`,
                 startedAt: Date.now(), tracked: true,

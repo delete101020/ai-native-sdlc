@@ -60,11 +60,30 @@ export interface AgentActivity {
  */
 export const MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
-/** Serialisable form handed to the webviews, keyed by run id. */
-export type AgentActivityMap = Record<string, AgentActivity>;
+/**
+ * Serialisable form handed to the webviews: every live entry for a run, keyed
+ * by run id.
+ *
+ * A list, not a single entry, because a DAG pipeline opens its parallel steps
+ * together — `spec` and `test-plan` can each have an agent on them at the same
+ * moment, and a per-run slot made the second dispatch erase the first. The UI
+ * then reported one banner for both: focusing the idle sibling still said
+ * "agent running" and kept its Run button disabled.
+ */
+export type AgentActivityMap = Record<string, AgentActivity[]>;
+
+/**
+ * Identity of one entry: a run plus the step it was dispatched for. A dispatch
+ * that named no step (`null`) gets its own slot — "an agent is on this run, we
+ * do not know which step" is a different fact from "an agent is on step 3",
+ * and must not overwrite it.
+ */
+function keyOf(runId: string, stepIdx: number | null): string {
+  return `${runId}\u0000${stepIdx === null ? '*' : stepIdx}`;
+}
 
 export class AgentActivityRegistry {
-  private readonly byRun = new Map<string, AgentActivity>();
+  private readonly entries = new Map<string, AgentActivity>();
   private readonly listeners = new Set<() => void>();
 
   /**
@@ -77,49 +96,105 @@ export class AgentActivityRegistry {
   }
 
   /**
-   * Record a dispatch. One entry per run: a second dispatch for the same run
-   * replaces the first, which is the honest reading — the user re-launched,
-   * and it is the newer command we are waiting on.
+   * Record a dispatch. One entry per run *and step*: a second dispatch for the
+   * same step replaces the first, which is the honest reading — the user
+   * re-launched, and it is the newer command we are waiting on. A dispatch for
+   * a sibling step is a separate entry and leaves this one alone.
    */
   begin(activity: AgentActivity): void {
-    this.byRun.set(activity.runId, activity);
+    this.entries.set(keyOf(activity.runId, activity.stepIdx), activity);
     this.emit();
   }
 
   /**
-   * Note that the terminal for `runId` reported shell integration, so its end
-   * will be observed. No-op once the entry is gone.
+   * Note that the terminal for this dispatch reported shell integration, so
+   * its end will be observed. No-op once the entry is gone.
    */
-  markTracked(runId: string): void {
-    const found = this.byRun.get(runId);
+  markTracked(runId: string, stepIdx: number | null = null): void {
+    const key = keyOf(runId, stepIdx);
+    const found = this.entries.get(key);
     if (!found || found.tracked) { return; }
-    this.byRun.set(runId, { ...found, tracked: true });
+    this.entries.set(key, { ...found, tracked: true });
     this.emit();
   }
 
-  /** Drop the entry for `runId`. Silent when there is nothing to drop. */
-  end(runId: string): void {
-    if (!this.byRun.delete(runId)) { return; }
+  /**
+   * Drop entries for `runId`. With a `stepIdx` — including an explicit `null`,
+   * the unattributed slot — only that one goes; without one, every entry the
+   * run has, which is what a run-wide signal such as the exec loop finishing
+   * actually means. Silent when there is nothing to drop.
+   */
+  end(runId: string, stepIdx?: number | null): void {
+    if (stepIdx !== undefined) {
+      if (!this.entries.delete(keyOf(runId, stepIdx))) { return; }
+      this.emit();
+      return;
+    }
+    let dropped = false;
+    for (const [key, entry] of [...this.entries]) {
+      if (entry.runId !== runId) { continue; }
+      this.entries.delete(key);
+      dropped = true;
+    }
+    if (!dropped) { return; }
     this.emit();
   }
 
   /** Drop everything — used when the workspace folder changes underneath us. */
   clear(): void {
-    if (this.byRun.size === 0) { return; }
-    this.byRun.clear();
+    if (this.entries.size === 0) { return; }
+    this.entries.clear();
     this.emit();
   }
 
-  /** The live entry for `runId`, or undefined when idle or expired. */
+  /**
+   * A live entry for the run, or undefined when it is idle. The unattributed
+   * one first, else its oldest step's — what a whole-run question (may this
+   * epic be deleted? may the exec loop start?) is asking about.
+   *
+   * `stepIdx` is deliberately not a parameter here: it would sit where every
+   * existing caller passes `now`, and a wrong answer about who is busy is
+   * exactly the bug this registry exists to prevent. Ask { getStep}.
+   */
   get(runId: string, now: number = Date.now()): AgentActivity | undefined {
-    const found = this.byRun.get(runId);
-    if (!found) { return undefined; }
-    return now - found.startedAt < MAX_AGE_MS ? found : undefined;
+    return this.live(this.entries.get(keyOf(runId, null)), now) ?? this.forRun(runId, now)[0];
   }
 
-  /** True when an agent we started is still working this run. */
+  /**
+   * The live entry for one step: its own, falling back to the unattributed
+   * entry for the run — a dispatch we could not pin to a step might be this
+   * one, and the UI would rather over-report busy than invite a second agent
+   * onto work already under way.
+   */
+  getStep(runId: string, stepIdx: number, now: number = Date.now()): AgentActivity | undefined {
+    return (
+      this.live(this.entries.get(keyOf(runId, stepIdx)), now)
+      ?? this.live(this.entries.get(keyOf(runId, null)), now)
+    );
+  }
+
+  private live(entry: AgentActivity | undefined, now: number): AgentActivity | undefined {
+    return entry && now - entry.startedAt < MAX_AGE_MS ? entry : undefined;
+  }
+
+  /** Every live entry for a run, oldest dispatch first. */
+  forRun(runId: string, now: number = Date.now()): AgentActivity[] {
+    const out: AgentActivity[] = [];
+    for (const entry of this.entries.values()) {
+      if (entry.runId !== runId) { continue; }
+      if (now - entry.startedAt < MAX_AGE_MS) { out.push(entry); }
+    }
+    return out.sort((a, b) => a.startedAt - b.startedAt);
+  }
+
+  /** True when an agent we started is still working anywhere on this run. */
   isBusy(runId: string, now: number = Date.now()): boolean {
     return this.get(runId, now) !== undefined;
+  }
+
+  /** True when one is still working this particular step. */
+  isStepBusy(runId: string, stepIdx: number, now: number = Date.now()): boolean {
+    return this.getStep(runId, stepIdx, now) !== undefined;
   }
 
   /**
@@ -129,12 +204,15 @@ export class AgentActivityRegistry {
    */
   snapshot(now: number = Date.now()): AgentActivityMap {
     const out: AgentActivityMap = {};
-    for (const [runId, activity] of this.byRun) {
-      if (now - activity.startedAt < MAX_AGE_MS) {
-        out[runId] = activity;
-      } else {
-        this.byRun.delete(runId);
+    for (const [key, activity] of [...this.entries]) {
+      if (now - activity.startedAt >= MAX_AGE_MS) {
+        this.entries.delete(key);
+        continue;
       }
+      (out[activity.runId] ??= []).push(activity);
+    }
+    for (const list of Object.values(out)) {
+      list.sort((a, b) => a.startedAt - b.startedAt);
     }
     return out;
   }

@@ -70,7 +70,11 @@ export interface AgentActivity {
   tracked: boolean;
 }
 
-export type AgentActivityMap = Record<string, AgentActivity>;
+/**
+ * Every live dispatch for a run, keyed by run id. A list because a DAG opens
+ * its parallel steps together and each can have its own agent on it.
+ */
+export type AgentActivityMap = Record<string, AgentActivity[]>;
 
 export interface ActiveRun {
   runId: string;
@@ -424,9 +428,10 @@ export interface SidebarState {
   /** True when this checkout has not chosen a prefix of its own. */
   epicIdPrefixNeedsSetup: boolean;
   /**
-   * Runs whose agent this VS Code window launched and has not seen finish,
-   * keyed by run id. Only covers work the extension dispatched — a step run
-   * from the user's own Claude window is invisible to it.
+   * Dispatches this VS Code window launched and has not seen finish, keyed by
+   * run id — one entry per step, since a DAG can have an agent on several at
+   * once. Only covers work the extension dispatched: a step run from the
+   * user's own Claude window is invisible to it.
    */
   agentActivity: AgentActivityMap;
 }
@@ -763,9 +768,10 @@ export interface WorkspaceState {
   /** Current epics directory (relative path from project root). */
   epicsDir: string;
   /**
-   * Runs whose agent this VS Code window launched and has not seen finish,
-   * keyed by run id. Only covers work the extension dispatched — a step run
-   * from the user's own Claude window is invisible to it.
+   * Dispatches this VS Code window launched and has not seen finish, keyed by
+   * run id — one entry per step, since a DAG can have an agent on several at
+   * once. Only covers work the extension dispatched: a step run from the
+   * user's own Claude window is invisible to it.
    */
   agentActivity: AgentActivityMap;
 }

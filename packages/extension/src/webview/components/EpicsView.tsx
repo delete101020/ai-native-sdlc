@@ -386,7 +386,8 @@ export function EpicsView({
                 focusNonce={focus?.id === e.id ? focus.nonce : 0}
                 // Keyed by run id, and an epic's run id is the epic id by
                 // convention — but read it off the epic rather than assuming.
-                activity={(e.runId && state.agentActivity?.[e.runId]) || null}
+                // A list: a DAG can have an agent on each of its open steps.
+                activities={(e.runId && state.agentActivity?.[e.runId]) || []}
                 fromEpic={parentOf(e)}
                 followUps={followUpsByEpic[e.id] ?? []}
                 onNavigate={navigate}

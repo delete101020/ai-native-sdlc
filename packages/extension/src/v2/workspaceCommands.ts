@@ -123,10 +123,11 @@ function trackAgentRun(
   terminal: vscode.Terminal,
   runId: string,
   command: string,
+  stepIdx: number | null = null,
 ): void {
   agentActivity.begin({
     runId,
-    stepIdx: null,
+    stepIdx,
     command,
     startedAt: Date.now(),
     tracked: false,
@@ -134,7 +135,9 @@ function trackAgentRun(
 
   const subs: vscode.Disposable[] = [];
   const finish = () => {
-    agentActivity.end(runId);
+    // Only this dispatch's entry: a parallel sibling may have an agent of its
+    // own still working, and this terminal closing says nothing about it.
+    agentActivity.end(runId, stepIdx);
     for (const s of subs) { s.dispose(); }
     subs.length = 0;
   };
@@ -417,10 +420,13 @@ export function registerV2WorkspaceCommands(
    */
   const runWithFeedbackCmd = vscode.commands.registerCommand(
     'aidlcNative.runStepWithFeedback',
-    (slashCommand?: unknown, runId?: unknown, feedback?: unknown) => {
+    (slashCommand?: unknown, runId?: unknown, feedback?: unknown, stepIdx?: unknown) => {
       const slash = typeof slashCommand === 'string' ? slashCommand.trim() : '';
       const id = typeof runId === 'string' ? runId.trim() : '';
       const fb = typeof feedback === 'string' ? feedback.trim() : '';
+      // Which step the panel launched. A DAG can have several steps open at
+      // once, so an entry that names none leaves every sibling looking busy.
+      const step = typeof stepIdx === 'number' && Number.isInteger(stepIdx) ? stepIdx : null;
       if (!slash || !id) { return; }
 
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -459,7 +465,7 @@ export function registerV2WorkspaceCommands(
       // From here on the UI knows this step has an agent on it. Registered
       // before the command is sent, so even an immediate failure has an entry
       // to clear rather than leaving a half-started dispatch untracked.
-      trackAgentRun(terminal, id, prompt);
+      trackAgentRun(terminal, id, prompt, step);
 
       let sent = false;
       const integ = vscode.window.onDidChangeTerminalShellIntegration((e) => {
@@ -468,7 +474,7 @@ export function registerV2WorkspaceCommands(
           e.shellIntegration.executeCommand(oneShot);
           // Shell integration is up, so the end of this command will be
           // reported — the UI can say "running" and mean it.
-          agentActivity.markTracked(id);
+          agentActivity.markTracked(id, step);
           integ.dispose();
         }
       });

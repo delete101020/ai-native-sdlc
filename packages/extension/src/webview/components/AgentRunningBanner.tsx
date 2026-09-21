@@ -21,6 +21,9 @@ import type { AgentActivity } from '@/lib/types';
  *  - It only ever appears. Its absence means "we did not launch an agent for
  *    this", not "nothing is running" — a step run from the user's own Claude
  *    window is not visible to the extension at all.
+ *  - A dispatch the host could not pin to a step (`stepIdx: null`) shows on
+ *    every open step of the run, and says so. Parallel steps otherwise share a
+ *    banner that belongs to only one of them.
  *  - When `tracked` is false the host has no completion signal (the terminal
  *    came up without shell integration), so it says "started" rather than
  *    "running" and leans on the dismiss button.
@@ -47,6 +50,14 @@ export function AgentRunningBanner({
         {activity.tracked ? 'Agent running' : 'Agent started'}
       </span>
       <span className="tabular-nums text-primary/70">{elapsed}</span>
+      {activity.stepIdx === null && (
+        <span
+          className="truncate text-[10px] text-primary/70"
+          title="This launch did not name a step, so it shows on every open step of the run"
+        >
+          — somewhere on this run
+        </span>
+      )}
       {!activity.tracked && (
         <span className="truncate text-[10px] text-primary/70">
           — no completion signal from this shell
@@ -54,7 +65,15 @@ export function AgentRunningBanner({
       )}
       <button
         type="button"
-        onClick={() => postMessage({ type: 'clearAgentActivity', runId: activity.runId })}
+        onClick={() =>
+          postMessage({
+            type: 'clearAgentActivity',
+            runId: activity.runId,
+            // Clears this dispatch alone — a parallel sibling's agent may well
+            // still be working, and this button says nothing about it.
+            stepIdx: activity.stepIdx,
+          })
+        }
         title="The agent has finished — clear this and re-enable the step controls"
         className="ml-auto shrink-0 rounded p-0.5 text-primary/70 hover:bg-primary/20 hover:text-primary"
       >

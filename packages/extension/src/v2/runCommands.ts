@@ -63,14 +63,41 @@ import { agentActivity } from './agentActivity';
  * mirror runs first on purpose: state.json has to carry the approval before it
  * goes into the commit beside the artifact it approves.
  */
+/**
+ * Indices of the steps this transition changed — status or revision, the two
+ * things a dispatched agent is answering. Without a `prev` to compare against
+ * the caller has told us nothing about what moved, so every step counts: the
+ * old whole-run clear is the safe reading when the shape of the change is
+ * unknown.
+ */
+function movedSteps(prev: RunState | undefined, next: RunState): number[] {
+  if (!prev) { return next.steps.map((s) => s.stepIdx); }
+  const before = new Map(prev.steps.map((s) => [s.stepIdx, s]));
+  return next.steps
+    .filter((s) => {
+      const was = before.get(s.stepIdx);
+      return !was || was.status !== s.status || was.revision !== s.revision;
+    })
+    .map((s) => s.stepIdx);
+}
+
 function saveRun(workspaceRoot: string, next: RunState, prev?: RunState): void {
   RunStateStore.save(workspaceRoot, next);
-  // Every transition passes through here, and a transition settles the
-  // question: whatever agent we dispatched for this run, the run has moved on
-  // without waiting for it. Marking a step done while Claude is still typing
-  // is the user's call to make — but once made, the "agent running" flag it
-  // overrode is stale and must not keep buttons disabled.
-  agentActivity.end(next.runId);
+  // Every transition settles a question: whatever agent we dispatched for the
+  // steps it moved, the run has gone on without waiting. Marking a step done
+  // while Claude is still typing is the user's call to make — but once made,
+  // the "agent running" flag it overrode is stale and must not keep buttons
+  // disabled.
+  //
+  // Only the steps that actually moved, though. A DAG opens parallel steps
+  // together, and clearing the whole run here meant approving `spec` also
+  // erased the banner for the agent still working `test-plan` beside it. The
+  // unattributed entry always goes: a dispatch we could not pin to a step is
+  // no longer identifiable once the run has changed shape.
+  agentActivity.end(next.runId, null);
+  for (const idx of movedSteps(prev, next)) {
+    agentActivity.end(next.runId, idx);
+  }
   const doc = readYaml(workspaceRoot);
   try {
     mirrorRunStateToEpic(workspaceRoot, next, doc);
