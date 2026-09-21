@@ -233,6 +233,42 @@ Artifacts land in `docs/epics/<EPIC-ID>/artifacts/` (configurable via
 `state.root` in `workspace.yaml`), alongside the epic's `state.json` — which you
 never edit by hand; see step 5.
 
+### `produces_contains` — the gate on what is *in* the artifact
+
+A step's `produces` says which files must exist before it can advance.
+`produces_contains` says what must be *inside* them: every marker listed has
+to appear in at least one produced file, or `mark-done` refuses the step.
+
+```yaml
+steps:
+  - agent: architect
+    name: cr-intake
+    produces:
+      - docs/cr/{epic}/kickoff.md
+      - docs/cr/{epic}/comparison.md
+    produces_contains:
+      - '```mermaid'
+      - sequenceDiagram
+      - stateDiagram-v2
+```
+
+The markers are plain substrings — no regex, no per-file targeting — checked
+against the concatenated contents of the step's produced files.
+
+**Why it exists.** A skill can say "you must draw two Mermaid diagrams" as
+loudly as it likes and an agent can still skip it, because prose in a prompt
+is not enforcement. `produces` does not help: the file is there, it is simply
+missing a section. `produces_contains` is the only mechanism that gates on
+content rather than existence, which makes it the right tool whenever a
+required *section* of an artifact matters more than the artifact's presence —
+a diagram, a decision table, a `## Risks` heading, a filled-in template slot.
+
+Keep the markers short and stable. A whole sentence from a template will
+drift; a fence (` ```mermaid `), a heading, or a keyword will not.
+
+`aidlc run verify <runId>` re-checks these markers against the files on disk
+later on, so an artifact edited down after approval shows up as drift.
+
 ### An epic owns its pipeline
 
 Starting an epic assembles a pipeline from the recipe and keeps it, because

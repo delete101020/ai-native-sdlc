@@ -598,6 +598,19 @@ export interface EpicUsage {
   computedAt: number;
 }
 
+/** One entry of a step's `produces` list, resolved host-side. */
+export interface StepArtifact {
+  /** Workspace-relative (or absolute) path — send it back as `path` when
+   *  asking the host to open or reveal this artifact. */
+  path: string;
+  /** Display label — the basename, or `name/` for a directory. */
+  label: string;
+  exists: boolean;
+  /** A folder (declared with a trailing slash, or found as one on disk):
+   *  reveal it in the explorer rather than opening it as a file. */
+  isDirectory: boolean;
+}
+
 export interface EpicStepDetailFull {
   agent: string;
   /** Phase id / slash command name (e.g. `plan`, `test-plan`) when the
@@ -618,6 +631,11 @@ export interface EpicStepDetailFull {
   artifactExists?: boolean;
   /** Artifact exists but predates this step — inherited, not produced here. */
   artifactStale?: boolean;
+  /** Every artifact this step emits — the step's recorded `artifactsProduced`
+   *  when it has run, else its declared `produces`. `artifact` above is the
+   *  first of these; the rest had no way out to the panel before. Optional so
+   *  a host bundle that predates the field renders the headline one alone. */
+  artifacts?: StepArtifact[];
   status: 'pending' | 'in_progress' | 'done' | 'failed';
   runStatus: StepStatus | null;
   isCurrentRunStep: boolean;

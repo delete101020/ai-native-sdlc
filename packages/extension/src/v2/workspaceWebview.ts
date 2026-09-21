@@ -1059,6 +1059,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
       artifactPath: s.artifactPath,
       artifactExists: s.artifactExists,
       artifactStale: s.artifactStale,
+      artifacts: s.artifacts,
       status: s.status,
       runStatus: s.runStatus,
       isCurrentRunStep: s.isCurrentRunStep,
@@ -1485,6 +1486,15 @@ function artifactAbsPath(epicDir: string, filename: string, rel: unknown): strin
   return path.join(epicDir, 'artifacts', filename);
 }
 
+/** True when the path exists and is a folder. Missing paths are not folders. */
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export class WorkspaceWebview {
   static current: WorkspaceWebview | undefined;
   private disposables: vscode.Disposable[] = [];
@@ -1687,6 +1697,80 @@ export class WorkspaceWebview {
       const d = this.disposables.pop();
       if (d) { d.dispose(); }
     }
+  }
+
+  /**
+   * Open one artifact the way its type deserves.
+   *
+   * Every artifact used to go through `openTextDocument`, which is right for
+   * the Markdown these pipelines mostly emit and wrong for anything already
+   * rendered: an `.html` diagram opens as several hundred kilobytes of raw
+   * markup in an editor tab, which is no use to anyone. So:
+   *
+   * - `.html` / `.htm` → rendered in a webview (see {@link openHtmlArtifact}).
+   *   `rendered` makes no difference — it is markup either way.
+   * - `.md` → the source, or VS Code's Markdown preview when `rendered`.
+   * - everything else (`.json` sidecars, plain text) → the source. There is
+   *   no useful rendered form, so `rendered` falls back to the text.
+   */
+  private async openArtifactByType(
+    filePath: string,
+    opts: { rendered?: boolean } = {},
+  ): Promise<void> {
+    const ext = path.extname(filePath).toLowerCase();
+    const uri = vscode.Uri.file(filePath);
+
+    if (ext === '.html' || ext === '.htm') {
+      this.openHtmlArtifact(filePath);
+      return;
+    }
+
+    if (opts.rendered && ext === '.md') {
+      // The fallback mirrors `openGettingStartedGuide`: the built-in markdown
+      // extension can be disabled, and a menu item that silently does nothing
+      // is worse than one that opens the source.
+      void vscode.commands.executeCommand('markdown.showPreview', uri).then(
+        undefined,
+        () => { void vscode.window.showTextDocument(uri, { preview: false }); },
+      );
+      return;
+    }
+
+    const doc = await vscode.workspace.openTextDocument(filePath);
+    await vscode.window.showTextDocument(doc, { preview: false });
+  }
+
+  /**
+   * Render an `.html` artifact in a webview panel.
+   *
+   * Simple Browser is not an option: it is an iframe and will not load a
+   * `file:` URI. The artifacts this exists for — `archify` diagram exports —
+   * are self-contained documents with their CSS and JS inlined, so handing
+   * the markup straight to a webview renders them faithfully. A document that
+   * does reference sibling files still needs the real browser; that is what
+   * the panel's *Open in browser* action (`openArtifactExternally`) is for.
+   */
+  private openHtmlArtifact(filePath: string): void {
+    let html: string;
+    try {
+      html = fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        `Could not read ${path.basename(filePath)}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+    const panel = vscode.window.createWebviewPanel(
+      'aidlcHtmlArtifact',
+      path.basename(filePath),
+      vscode.ViewColumn.Active,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.file(path.dirname(filePath))],
+      },
+    );
+    panel.webview.html = html;
   }
 
   /**
@@ -2152,11 +2236,37 @@ export class WorkspaceWebview {
         return;
       }
       case 'revealArtifacts': {
+        // `produces` may name any path in the repo — a CR pipeline writes to
+        // `docs/cr/<cr>/`, outside the epic folder entirely — so the panel
+        // sends the artifact paths it is actually showing and we reveal the
+        // folder they live in. `<epic>/artifacts` stays the fallback: it is
+        // the classic layout, and older webview bundles send nothing else.
         const epicDir = String(msg.epicDir ?? '');
-        if (!epicDir) { return; }
-        const artifactsDir = path.join(epicDir, 'artifacts');
-        if (!fs.existsSync(artifactsDir)) { return; }
-        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(artifactsDir));
+        const sent = Array.isArray(msg.paths) ? (msg.paths as unknown[]).map(String) : [];
+        const candidates = sent
+          .filter((rel) => rel.trim() !== '')
+          .map((rel) => {
+            const abs = artifactAbsPath(epicDir, '', rel);
+            return isDirectory(abs) ? abs : path.dirname(abs);
+          });
+        if (epicDir) { candidates.push(path.join(epicDir, 'artifacts')); }
+        const target = candidates.find((p) => fs.existsSync(p));
+        if (!target) { return; }
+        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(target));
+        return;
+      }
+      case 'revealArtifactPath': {
+        // A `produces` entry that names a folder (`docs/cr/{epic}/diagrams/`)
+        // has nothing to open — show it in the explorer instead.
+        const epicDir = String(msg.epicDir ?? '');
+        const rel = String(msg.path ?? '');
+        if (!rel) { return; }
+        const target = artifactAbsPath(epicDir, '', rel);
+        if (!fs.existsSync(target)) {
+          void vscode.window.showWarningMessage(`Not produced yet: ${rel}`);
+          return;
+        }
+        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(target));
         return;
       }
       case 'openArtifactFile': {
@@ -2165,8 +2275,17 @@ export class WorkspaceWebview {
         if (!epicDir || !filename) { return; }
         const filePath = artifactAbsPath(epicDir, filename, msg.path);
         if (!fs.existsSync(filePath)) { return; }
-        const doc = await vscode.workspace.openTextDocument(filePath);
-        await vscode.window.showTextDocument(doc, { preview: false });
+        await this.openArtifactByType(filePath);
+        return;
+      }
+      case 'openArtifactExternally': {
+        // Out to the real browser — for the things a webview cannot do with a
+        // rendered artifact: print it, save it, put it on a second monitor.
+        const epicDir = String(msg.epicDir ?? '');
+        const filename = String(msg.filename ?? '');
+        const filePath = artifactAbsPath(epicDir, filename, msg.path);
+        if (!fs.existsSync(filePath)) { return; }
+        await vscode.env.openExternal(vscode.Uri.file(filePath));
         return;
       }
       case 'previewArtifactInVsCode': {
@@ -2175,19 +2294,15 @@ export class WorkspaceWebview {
         // extension for it — so this is offered alongside it, not instead of
         // it. Unlike `openArtifactFile`, nothing here is editable.
         //
-        // The fallback mirrors `openGettingStartedGuide`: the built-in
-        // markdown extension can be disabled, and a menu item that silently
-        // does nothing is worse than one that opens the source.
+        // An `.html` artifact takes the webview path instead: it is already
+        // rendered markup, and the Markdown preview has nothing to say about
+        // it. See openArtifactByType.
         const epicDir = String(msg.epicDir ?? '');
         const filename = String(msg.filename ?? '');
         if (!epicDir || !filename) { return; }
         const filePath = artifactAbsPath(epicDir, filename, msg.path);
         if (!fs.existsSync(filePath)) { return; }
-        const uri = vscode.Uri.file(filePath);
-        void vscode.commands.executeCommand('markdown.showPreview', uri).then(
-          undefined,
-          () => { void vscode.window.showTextDocument(uri, { preview: false }); },
-        );
+        await this.openArtifactByType(filePath, { rendered: true });
         return;
       }
       case 'viewArtifact': {

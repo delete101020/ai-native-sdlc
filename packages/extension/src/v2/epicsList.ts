@@ -38,6 +38,21 @@ import {
 
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
 
+/** One entry of a step's `produces` list, resolved for the panel to open. */
+export interface StepArtifact {
+  /** Workspace-relative (or absolute) path, run-context resolved. */
+  path: string;
+  /** Display label — the basename, or `name/` for a directory. */
+  label: string;
+  exists: boolean;
+  /**
+   * Declared with a trailing slash (`docs/cr/{epic}/diagrams/`) or found on
+   * disk as one. The panel reveals these in the explorer instead of trying
+   * to open them as a file.
+   */
+  isDirectory: boolean;
+}
+
 export interface EpicSummary {
   id: string;
   title: string;
@@ -83,6 +98,12 @@ export interface EpicSummary {
      * {@link artifactExists}; false when the file is missing or fresh.
      */
     artifactStale?: boolean;
+    /**
+     * Every artifact this step emits, not just the headline one above.
+     * A step that declares four `produces` entries had three of them
+     * unreachable from the panel — the payload only ever carried the first.
+     */
+    artifacts: StepArtifact[];
     status: EpicStatus;
     startedAt: string | null;
     finishedAt: string | null;
@@ -202,6 +223,29 @@ function statOrNull(filePath: string): fs.Stats | null {
   } catch {
     return null;
   }
+}
+
+/** `docs/cr/x/diagrams/` → `diagrams/`; `docs/cr/x/kickoff.md` → `kickoff.md`. */
+function artifactLabel(rel: string, isDirectory: boolean): string {
+  const segments = rel.split(/[/\\]/).filter((seg) => seg.length > 0);
+  const last = segments[segments.length - 1] ?? rel;
+  return isDirectory ? `${last}/` : last;
+}
+
+/**
+ * Resolve one `produces` entry into something the panel can render and open.
+ *
+ * Existence is checked against the workspace root, not the epic folder, for
+ * the same reason the headline artifact is: `produces` may name any path in
+ * the repo. A trailing slash is how a pipeline declares "this one is a
+ * folder" — honoured even when the folder is not there yet, so the panel
+ * never offers to open a missing directory as a file.
+ */
+function describeArtifact(workspaceRoot: string, rel: string): StepArtifact {
+  const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
+  const stat = statOrNull(abs);
+  const isDirectory = /[/\\]$/.test(rel) || !!stat?.isDirectory();
+  return { path: rel, label: artifactLabel(rel, isDirectory), exists: !!stat, isDirectory };
 }
 
 /**
@@ -345,6 +389,9 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
       name,
       slashCommand: undefined,
       artifact: filename,
+      // No pipeline, so no `produces` to read: the file on disk *is* the
+      // step, and it is the only artifact there is.
+      artifacts: [describeArtifact(artifactsDir, path.join(artifactsDir, filename))],
       status,
       startedAt: null,
       finishedAt: null,
@@ -488,9 +535,15 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const runHistoryByIdx = new Map<number, StepHistoryEntry[]>();
     const runFeedbackByIdx = new Map<number, string>();
     const runStartedAtByIdx = new Map<number, string>();
+    // What the step actually wrote, recorded by `markStepDone`. Richer than
+    // the pipeline's `produces`, which is only a declaration until it runs.
+    const runArtifactsByIdx = new Map<number, string[]>();
     if (runState) {
       for (const sr of runState.steps) {
         runStepByIdx.set(sr.stepIdx, sr.status);
+        if (Array.isArray(sr.artifactsProduced) && sr.artifactsProduced.length > 0) {
+          runArtifactsByIdx.set(sr.stepIdx, sr.artifactsProduced);
+        }
         if (sr.startedAt) { runStartedAtByIdx.set(sr.stepIdx, sr.startedAt); }
         if (sr.rejectReason) { runRejectByIdx.set(sr.stepIdx, sr.rejectReason); }
         if (sr.autoReviewVerdict) { runVerdictByIdx.set(sr.stepIdx, sr.autoReviewVerdict); }
@@ -513,6 +566,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const stepNameByIdx = new Map<number, string>();
     const stepArtifactByIdx = new Map<number, string>();
     const stepArtifactPathByIdx = new Map<number, string>();
+    const stepProducesByIdx = new Map<number, string[]>();
     // Same context the runner resolves `produces` with, so the panel and
     // `markStepDone` are looking at the same file.
     const artifactContext: Record<string, string> = runState?.context ?? { epic: epicId };
@@ -526,12 +580,18 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         // `step.produces[0]` is the canonical artifact path on built-in
         // pipelines (e.g. `docs/epics/{epic}/PRD.md`). The UI displays
         // the basename and resolves the absolute path via `epic.epicDir`.
-        const first = norm.produces[0];
-        if (typeof first === 'string' && first.length > 0) {
-          // Take the label off the *resolved* path: a document pipeline names
-          // its output `docs/snp/analysis/{topic}.md`, and the raw basename
-          // would put the literal `{topic}.md` on the card.
-          const resolved = resolvePath(first, artifactContext);
+        //
+        // Every entry is kept (`stepProducesByIdx`) so the panel can list a
+        // step that emits several files; the first stays the headline one.
+        // Take the label off the *resolved* path: a document pipeline names
+        // its output `docs/snp/analysis/{topic}.md`, and the raw basename
+        // would put the literal `{topic}.md` on the card.
+        const resolvedProduces = norm.produces
+          .filter((p): p is string => typeof p === 'string' && p.length > 0)
+          .map((p) => resolvePath(p, artifactContext));
+        if (resolvedProduces.length > 0) {
+          stepProducesByIdx.set(i, resolvedProduces);
+          const resolved = resolvedProduces[0];
           const basename = resolved.split(/[/\\]/).pop() ?? resolved;
           if (basename) { stepArtifactByIdx.set(i, basename); }
           stepArtifactPathByIdx.set(i, resolved);
@@ -668,6 +728,13 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         ? parseBranchInfoFromSummary(path.join(epicDir, 'artifacts', 'IMPLEMENT-SUMMARY.md'))
         : undefined;
 
+      // Prefer what the run recorded over what the pipeline declares: a step
+      // that has finished knows its own output, while the declaration is only
+      // a promise until then.
+      const artifactPaths = runArtifactsByIdx.get(i) ?? stepProducesByIdx.get(i) ?? [];
+      const artifacts = [...new Set(artifactPaths)]
+        .map((rel) => describeArtifact(workspaceRoot, rel));
+
       return {
         agent,
         name: stepNameByIdx.get(i),
@@ -676,6 +743,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         ...(artifactRel === undefined
           ? {}
           : { artifactPath: artifactRel, artifactExists: !!artifactOnDisk, artifactStale }),
+        artifacts,
         status: displayStatus,
         startedAt: typeof s.startedAt === 'string' ? s.startedAt : null,
         finishedAt: typeof s.finishedAt === 'string' ? s.finishedAt : null,

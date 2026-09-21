@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+A step that writes four files can now be opened from the panel four times,
+and an `.html` artifact opens rendered instead of as markup.
+
+### Added
+
+- **Every artifact a step produces, on the panel.** The step detail carried
+  one artifact — the first `produces:` entry — so a step that emits a kickoff
+  doc, a comparison table, a diagrams folder and a parking lot had three of
+  them reachable only by knowing their paths. The panel now lists the rest
+  under **Also produced**, taking the list from what the run recorded
+  (`artifactsProduced`) and falling back to the step's declared `produces`
+  before it has run. An entry declared as a folder (`docs/cr/{epic}/diagrams/`,
+  with the trailing slash) is revealed in the explorer rather than opened.
+
+- **`produces_contains` is documented.** The field gates on what is *inside*
+  an artifact — every marker must appear in at least one produced file or
+  `mark-done` refuses the step — and it was the only way to make a required
+  section (a Mermaid diagram, a heading, a filled template slot) mandatory
+  rather than merely requested. It had never been written down. See
+  [ONBOARDING.md](../../ONBOARDING.md#produces_contains--the-gate-on-what-is-in-the-artifact).
+
+### Fixed
+
+- **`.html` artifacts open rendered.** Opening an artifact always went through
+  the text editor, which turns a several-hundred-kilobyte diagram export into
+  a tab full of markup. HTML now renders in a webview, with **Open in browser**
+  alongside it for printing or a second monitor. Markdown and `.json` sidecars
+  open as before.
+
+- **Reveal artifacts follows the pipeline.** The button always revealed
+  `<epic>/artifacts`, which does not exist for a pipeline that writes
+  elsewhere (`docs/cr/<cr>/`). It now reveals the folder the epic's artifacts
+  are actually in, keeping the old path as the fallback.
+
 ## 4.0.4
 
 An incident and the epics it opened now sit behind one folded row, so the

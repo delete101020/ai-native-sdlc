@@ -232,6 +232,12 @@ aidlc run verify   <runId> [--json]              # re-check recorded artifacts s
 aidlc run report   <runId> [--format md|json] [--output <file>]
 ```
 
+`mark-done` validates a step's `produces` (the files exist) and its
+`produces_contains` (every listed marker appears in at least one of them —
+the only way to require a *section* of an artifact, such as a Mermaid
+diagram, rather than just the file). `run verify` re-checks both later.
+See [ONBOARDING.md](ONBOARDING.md#produces_contains--the-gate-on-what-is-in-the-artifact).
+
 `run exec` runs `auto_review` validators headlessly and exit-codes for CI:
 `0` completed, `2` paused on a gate, `1` error (`--require-complete` ⇒ any
 non-completed is `1`). See [packages/cli/AUTOMATION.md](packages/cli/AUTOMATION.md) for the

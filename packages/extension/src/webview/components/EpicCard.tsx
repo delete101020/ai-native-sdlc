@@ -1052,6 +1052,13 @@ function StepDetail({
   // so its two entries only make sense for artifacts that actually live there.
   const artifactInEpicFolder = !!artifactName && epic.existingArtifacts.includes(artifactName);
   const [artifactMenuOpen, setArtifactMenuOpen] = useState(false);
+  // A step may declare several `produces` entries. The first is the headline
+  // artifact rendered above; the rest are listed beside it, because otherwise
+  // the only way to reach them is to know their paths by heart.
+  const extraArtifacts = (focused.artifacts ?? []).filter(
+    (a) => a.path !== focused.artifactPath && a.label !== artifactName,
+  );
+  const artifactIsHtml = /\.html?$/i.test(artifactName);
 
   const accent = (() => {
     switch (focused.status) {
@@ -1155,21 +1162,39 @@ function StepDetail({
                       className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
                     >
                       <FileText className="h-3 w-3 text-muted-foreground" />
-                      <span>Open Markdown</span>
+                      {/* An .html artifact is rendered, not read as source —
+                          the host branches on the extension. */}
+                      <span>{artifactIsHtml ? 'Open rendered' : 'Open Markdown'}</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setArtifactMenuOpen(false);
-                        postMessage({ type: 'previewArtifactInVsCode', epicDir: epic.epicDir, filename: artifactName, path: focused.artifactPath });
-                      }}
-                      className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
-                      title="Render in VS Code's own Markdown preview — no terminal, no browser. Mermaid diagrams need a Markdown-preview extension; use Preview below for those."
-                    >
-                      <Eye className="h-3 w-3 text-muted-foreground" />
-                      <span>Preview (VS Code)</span>
-                    </button>
+                    {artifactIsHtml ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setArtifactMenuOpen(false);
+                          postMessage({ type: 'openArtifactExternally', epicDir: epic.epicDir, filename: artifactName, path: focused.artifactPath });
+                        }}
+                        className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
+                        title="Open in your default browser — for printing, saving, or a second monitor."
+                      >
+                        <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                        <span>Open in browser</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setArtifactMenuOpen(false);
+                          postMessage({ type: 'previewArtifactInVsCode', epicDir: epic.epicDir, filename: artifactName, path: focused.artifactPath });
+                        }}
+                        className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
+                        title="Render in VS Code's own Markdown preview — no terminal, no browser. Mermaid diagrams need a Markdown-preview extension; use Preview below for those."
+                      >
+                        <Eye className="h-3 w-3 text-muted-foreground" />
+                        <span>Preview (VS Code)</span>
+                      </button>
+                    )}
                     {artifactInEpicFolder && (
                       <>
                     <button
@@ -1214,6 +1239,44 @@ function StepDetail({
           )
         ) : (
           <div className="font-mono text-[11px] italic text-muted-foreground">—</div>
+        )}
+
+        {extraArtifacts.length > 0 && (
+          <>
+            <DetailLabel icon={<FolderOpen className="h-3 w-3" />} text="Also produced" />
+            <div className="flex w-fit flex-wrap gap-1.5">
+              {extraArtifacts.map((a) => (
+                <button
+                  key={a.path}
+                  type="button"
+                  disabled={!a.exists}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // A folder has nothing to open — reveal it instead.
+                    postMessage(
+                      a.isDirectory
+                        ? { type: 'revealArtifactPath', epicDir: epic.epicDir, path: a.path }
+                        : { type: 'openArtifactFile', epicDir: epic.epicDir, filename: a.label, path: a.path },
+                    );
+                  }}
+                  title={a.exists
+                    ? `${a.isDirectory ? 'Reveal' : 'Open'} ${a.path}`
+                    : `${a.path} — not produced yet`}
+                  className={cn(
+                    'inline-flex w-fit items-center gap-1 rounded border px-2 py-0.5 font-mono text-[11px] transition-colors',
+                    a.exists
+                      ? 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground'
+                      : 'border-border bg-muted/50 italic text-muted-foreground opacity-70',
+                  )}
+                >
+                  {a.isDirectory
+                    ? <Folder className="h-3 w-3 opacity-70" />
+                    : <FileText className="h-3 w-3 opacity-70" />}
+                  <span>{a.label}</span>
+                </button>
+              ))}
+            </div>
+          </>
         )}
 
         {slashCommand && (
@@ -1961,9 +2024,16 @@ function EpicActions({
           Open inputs.json
         </button>
       )}
+      {/* Send the paths this epic's steps actually produce: a pipeline that
+          writes outside the epic folder (docs/cr/...) has nothing in
+          <epic>/artifacts, which is all this button used to reveal. */}
       <button
         type="button"
-        onClick={() => postMessage({ type: 'revealArtifacts', epicDir: epic.epicDir })}
+        onClick={() => postMessage({
+          type: 'revealArtifacts',
+          epicDir: epic.epicDir,
+          paths: epic.stepDetails.flatMap((s) => (s.artifacts ?? []).filter((a) => a.exists).map((a) => a.path)),
+        })}
         className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
       >
         <Folder className="h-3 w-3" />
