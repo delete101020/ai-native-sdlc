@@ -16,6 +16,7 @@ import { builtinProfiles, workspaceStandard } from '@aidlc/core';
 import { themeManager } from './themeManager';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { readYaml, writeYaml } from './yamlIO';
+import { guardMessages } from './webviewMessageGuard';
 
 interface ProfileVM {
   id: string;
@@ -75,7 +76,7 @@ export class StandardPickerWebview {
     this.state = { profiles: buildProfiles(), current: this.readCurrent() };
     this.panel.webview.html = this.getHtml();
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
-    this.panel.webview.onDidReceiveMessage((msg) => this.handleMessage(msg), null, this.disposables);
+    this.panel.webview.onDidReceiveMessage(guardMessages((msg) => this.handleMessage(msg)), null, this.disposables);
     this.disposables.push(themeManager.register(this.panel.webview));
   }
 

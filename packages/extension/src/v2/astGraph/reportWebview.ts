@@ -14,6 +14,7 @@ import * as path from 'path';
 
 import { lookupSymbol, runReadCommand, type ScanSummary, type SymbolDetail } from './scanner';
 import { themeManager } from '../themeManager';
+import { guardMessages } from '../webviewMessageGuard';
 
 export interface AstGraphRuntime {
   /** Resolved on activation — may be null while the binary is still downloading. */
@@ -94,7 +95,7 @@ export class AstGraphReportWebview {
     this.panel.webview.html = this.html();
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.panel.webview.onDidReceiveMessage(
-      (msg) => this.handle(msg),
+      guardMessages((msg) => this.handle(msg)),
       null,
       this.disposables,
     );

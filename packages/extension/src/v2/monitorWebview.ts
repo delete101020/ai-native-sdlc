@@ -26,6 +26,7 @@ import {
   offlineStatus,
   type ObserveStatus,
 } from './observeClient';
+import { guardMessages } from './webviewMessageGuard';
 
 type MonitorTab = 'tokens' | 'agents' | 'insights';
 
@@ -85,7 +86,7 @@ export class MonitorWebview {
   ) {
     this.panel.webview.html = this.getHtml();
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
-    this.panel.webview.onDidReceiveMessage((msg) => this.handleMessage(msg), null, this.disposables);
+    this.panel.webview.onDidReceiveMessage(guardMessages((msg) => this.handleMessage(msg)), null, this.disposables);
     this.disposables.push(themeManager.register(this.panel.webview));
 
     void this.loadReport();

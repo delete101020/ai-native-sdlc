@@ -13,6 +13,7 @@
 import * as vscode from 'vscode';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { AIDLC_KNOWLEDGE, buildClaudeSpawnEnv, resolveCommand } from '@aidlc/core';
+import { guardMessages } from './webviewMessageGuard';
 
 const SUGGESTIONS = [
   'What is AIDLC and how do I get started?',
@@ -148,7 +149,7 @@ export class AskWebview {
   ) {
     this.panel.webview.html = this.getHtml();
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
-    this.panel.webview.onDidReceiveMessage((msg) => this.handleMessage(msg), null, this.disposables);
+    this.panel.webview.onDidReceiveMessage(guardMessages((msg) => this.handleMessage(msg)), null, this.disposables);
   }
 
   private handleMessage(msg: { type: string; [k: string]: unknown }): void {

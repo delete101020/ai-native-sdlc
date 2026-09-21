@@ -11,6 +11,7 @@ import { themeManager } from './themeManager';
 import { loadAllRecords } from './tokenRecords';
 import { buildReport, type TokenReport } from './tokenReport';
 import { missingBundleHtml } from './webviewBundleGuard';
+import { guardMessages } from './webviewMessageGuard';
 
 interface ReportPanelState {
   report: TokenReport | null;
@@ -56,7 +57,7 @@ export class TokenReportWebview {
     this.panel.webview.html = this.getHtml();
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.panel.webview.onDidReceiveMessage(
-      (msg) => this.handleMessage(msg),
+      guardMessages((msg) => this.handleMessage(msg)),
       null,
       this.disposables,
     );

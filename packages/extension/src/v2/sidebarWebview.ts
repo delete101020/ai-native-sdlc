@@ -55,6 +55,7 @@ import {
 import { WorkspaceWebview } from './workspaceWebview';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { agentActivity, type AgentActivityMap } from './agentActivity';
+import { guardMessages } from './webviewMessageGuard';
 
 // VS Code reuses output channels by name, so this resolves to the same
 // channel created in extension.ts activate().
@@ -494,7 +495,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this.extensionUri],
     };
     view.webview.html = this.getHtml(view.webview);
-    view.webview.onDidReceiveMessage((msg) => this.handleMessage(msg));
+    view.webview.onDidReceiveMessage(guardMessages((msg) => this.handleMessage(msg)));
     view.onDidChangeVisibility(() => {
       if (view.visible) { this.refresh(); }
     });
@@ -775,8 +776,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'runAutoReview':
       case 'openRunState': {
         const runId = String(msg.runId ?? '');
-        const cmd = `aidlc.${msg.type}`;
-        await vscode.commands.executeCommand(cmd, runId || undefined);
+        // Commands are contributed under the `aidlcNative.` namespace — a bare
+        // `aidlc.` id resolves to nothing, so the click died silently.
+        const cmd = `aidlcNative.${msg.type}`;
+        // A DAG pipeline can have several actionable steps, so the panel names
+        // the one it acted on. Dropping it fell back to the run's cursor.
+        const stepIdx = typeof msg.stepIdx === 'number' && Number.isInteger(msg.stepIdx)
+          ? msg.stepIdx
+          : undefined;
+        await vscode.commands.executeCommand(cmd, runId || undefined, stepIdx);
         // Refresh from here rather than leaning on the runs/ watcher. The
         // watcher is for edits made outside this window — the CLI, another
         // editor — and it is the wrong tool for a button the user just

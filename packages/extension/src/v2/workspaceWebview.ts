@@ -278,6 +278,7 @@ import { writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
 import { agentActivity, type AgentActivityMap } from './agentActivity';
 import { execRunToCompletion } from './execRun';
 import { runFollowUpsOpened, syncFollowUps, onDidRecordFollowUpHook } from './followUpHooks';
+import { guardMessages } from './webviewMessageGuard';
 
 // ── Shared helper: open/reuse the Claude terminal and send a slash command ───
 
@@ -1595,7 +1596,7 @@ export class WorkspaceWebview {
     this.panel.webview.html = this.getHtml();
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.panel.webview.onDidReceiveMessage(
-      (msg) => this.handleMessage(msg),
+      guardMessages((msg) => this.handleMessage(msg)),
       null,
       this.disposables,
     );
@@ -2395,7 +2396,7 @@ export class WorkspaceWebview {
       case 'runReport':
       case 'openRunState': {
         const runId = String(msg.runId ?? '');
-        const cmd = `aidlc.${msg.type}`;
+        const cmd = `aidlcNative.${msg.type}`;
         const stepIdx = typeof msg.stepIdx === 'number' && Number.isInteger(msg.stepIdx)
           ? msg.stepIdx
           : undefined;
