@@ -186,6 +186,44 @@ export function StartEpicModal({
     [recipes],
   );
   const aidlcPipelines = useMemo(() => pipelines.filter((p) => p.builtin), [pipelines]);
+  const choiceCount = sortedRecipes.length + userPipelines.length + aidlcPipelines.length + (recipes.length > 0 ? 1 : 0);
+
+  // The picker used to render every recipe and every pipeline at once — a dozen
+  // rows to scroll past before reaching the fields below, for a choice most
+  // epics leave on "Auto". It now shows the selected row only and opens on
+  // demand; `source` then splits the rows by where the workflow comes from,
+  // which is the question the user actually has once they do open it ("one of
+  // AIDLC's" vs "one of ours").
+  const [pickerOpen, setPickerOpen] = useState(() => recipes.length === 0);
+  const [source, setSource] = useState<'builtin' | 'custom'>(
+    () => (recipes.length === 0 && userPipelines.length > 0 ? 'custom' : 'builtin'),
+  );
+  // Open on the tab that holds what is selected, so the current choice is
+  // never off-screen behind the other tab.
+  const openPicker = () => {
+    setSource(
+      selected.kind === 'pipeline' && userPipelines.some((p) => p.id === selected.id)
+        ? 'custom'
+        : 'builtin',
+    );
+    setPickerOpen(true);
+  };
+  const choose = (next: Selection) => { setSelected(next); setPickerOpen(false); };
+
+  /** The selected pipeline/recipe as row props, for the collapsed summary. */
+  const selectedRow = useMemo(() => {
+    if (selected.kind === 'recipe') {
+      const r = recipes.find((x) => x.id === selected.id);
+      return r ? { id: r.id, steps: r.steps, description: r.description, badge: undefined as string | undefined } : null;
+    }
+    if (selected.kind === 'pipeline') {
+      const p = pipelines.find((x) => x.id === selected.id);
+      return p
+        ? { id: p.id, steps: p.steps.map((s) => s.name ?? s.agent), description: undefined, badge: p.builtin ? 'built-in' : undefined }
+        : null;
+    }
+    return null;
+  }, [selected, recipes, pipelines]);
 
   // Live mirrors of the inputs so the (deps-frozen) host-message listener can
   // tell whether an async analysis result is still relevant or stale.
@@ -718,11 +756,29 @@ export function StartEpicModal({
         </div>
 
         <div>
-          <label className="mb-1 flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-            <ListOrdered className="h-3 w-3" />
-            Workflow
-          </label>
-          <div className="max-h-72 overflow-y-auto rounded-md border border-border">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <label className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+              <ListOrdered className="h-3 w-3" />
+              Workflow
+            </label>
+            {pickerOpen && hasWorkflows && (
+              <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted/30 p-0.5">
+                <SourceTab
+                  label="Built-in"
+                  count={sortedRecipes.length + aidlcPipelines.length}
+                  active={source === 'builtin'}
+                  onClick={() => setSource('builtin')}
+                />
+                <SourceTab
+                  label="Custom"
+                  count={userPipelines.length}
+                  active={source === 'custom'}
+                  onClick={() => setSource('custom')}
+                />
+              </div>
+            )}
+          </div>
+          <div className={cn('overflow-y-auto rounded-md border border-border', pickerOpen && 'max-h-72')}>
             {!hasFolder && !hasWorkflows && extraProjects.length === 0 ? (
               <div className="px-3 py-4 text-center text-[11px] text-muted-foreground">
                 Add a project above first — pipelines load from the project's workspace.
@@ -732,6 +788,39 @@ export function StartEpicModal({
                 onClose={onClose}
                 projectPath={!hasFolder ? extraProjects.find((p) => p.type === 'local')?.ref : undefined}
               />
+            ) : !pickerOpen ? (
+              <>
+                {selected.kind === 'auto' ? (
+                  <AutoRow
+                    active
+                    classifying={classifying || loadingExternal}
+                    suggestion={suggestion}
+                    recipes={recipes}
+                    onClick={openPicker}
+                  />
+                ) : selectedRow ? (
+                  <WorkflowRow
+                    id={selectedRow.id}
+                    active
+                    badge={selectedRow.badge}
+                    stepCount={selectedRow.steps.length}
+                    steps={selectedRow.steps}
+                    description={selectedRow.description}
+                    onClick={openPicker}
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  onClick={openPicker}
+                  className="flex w-full items-center justify-between border-t border-border/50 bg-muted/20 px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                >
+                  <span>Change workflow</span>
+                  <span className="flex items-center gap-1">
+                    {choiceCount} option{choiceCount === 1 ? '' : 's'}
+                    <ChevronRight className="h-3 w-3" />
+                  </span>
+                </button>
+              </>
             ) : (
               <>
                 {recipes.length > 0 && (
@@ -740,57 +829,67 @@ export function StartEpicModal({
                     classifying={classifying || loadingExternal}
                     suggestion={suggestion}
                     recipes={recipes}
-                    onClick={() => setSelected({ kind: 'auto' })}
+                    onClick={() => choose({ kind: 'auto' })}
                   />
                 )}
-                {recipes.length > 0 && (
-                  <GroupHeader label="Recipes (right-sized)" />
+                {source === 'builtin' ? (
+                  <>
+                    {recipes.length > 0 && (
+                      <GroupHeader label="Recipes (right-sized)" />
+                    )}
+                    {sortedRecipes.map((r) => (
+                      <WorkflowRow
+                        key={`r:${r.id}`}
+                        id={r.id}
+                        active={selected.kind === 'recipe' && selected.id === r.id}
+                        suggested={suggestion?.recipeId === r.id ? suggestion.confidence : undefined}
+                        stepCount={r.steps.length}
+                        steps={r.steps}
+                        description={r.description}
+                        onClick={() => choose({ kind: 'recipe', id: r.id })}
+                      />
+                    ))}
+                    {aidlcPipelines.length > 0 && (
+                      <GroupHeader label="AIDLC pipelines (built-in)" />
+                    )}
+                    {aidlcPipelines.map((p) => {
+                      const steps = p.steps.map((s) => s.name ?? s.agent);
+                      return (
+                        <WorkflowRow
+                          key={`p:${p.id}`}
+                          id={p.id}
+                          active={selected.kind === 'pipeline' && selected.id === p.id}
+                          badge="built-in"
+                          stepCount={steps.length}
+                          steps={steps}
+                          onClick={() => choose({ kind: 'pipeline', id: p.id })}
+                        />
+                      );
+                    })}
+                  </>
+                ) : userPipelines.length > 0 ? (
+                  <>
+                    <GroupHeader label="Your pipelines" />
+                    {userPipelines.map((p) => {
+                      const steps = p.steps.map((s) => s.name ?? s.agent);
+                      return (
+                        <WorkflowRow
+                          key={`p:${p.id}`}
+                          id={p.id}
+                          active={selected.kind === 'pipeline' && selected.id === p.id}
+                          stepCount={steps.length}
+                          steps={steps}
+                          onClick={() => choose({ kind: 'pipeline', id: p.id })}
+                        />
+                      );
+                    })}
+                  </>
+                ) : (
+                  <div className="px-3 py-4 text-center text-[11px] leading-relaxed text-muted-foreground">
+                    No pipelines of your own yet — add one in the Workspace Builder,
+                    or pick a built-in on the other tab.
+                  </div>
                 )}
-                {sortedRecipes.map((r) => (
-                  <WorkflowRow
-                    key={`r:${r.id}`}
-                    id={r.id}
-                    active={selected.kind === 'recipe' && selected.id === r.id}
-                    suggested={suggestion?.recipeId === r.id ? suggestion.confidence : undefined}
-                    stepCount={r.steps.length}
-                    steps={r.steps}
-                    description={r.description}
-                    onClick={() => setSelected({ kind: 'recipe', id: r.id })}
-                  />
-                ))}
-                {userPipelines.length > 0 && (
-                  <GroupHeader label="Your pipelines" />
-                )}
-                {userPipelines.map((p) => {
-                  const steps = p.steps.map((s) => s.name ?? s.agent);
-                  return (
-                    <WorkflowRow
-                      key={`p:${p.id}`}
-                      id={p.id}
-                      active={selected.kind === 'pipeline' && selected.id === p.id}
-                      stepCount={steps.length}
-                      steps={steps}
-                      onClick={() => setSelected({ kind: 'pipeline', id: p.id })}
-                    />
-                  );
-                })}
-                {aidlcPipelines.length > 0 && (
-                  <GroupHeader label="AIDLC pipelines (built-in)" />
-                )}
-                {aidlcPipelines.map((p) => {
-                  const steps = p.steps.map((s) => s.name ?? s.agent);
-                  return (
-                    <WorkflowRow
-                      key={`p:${p.id}`}
-                      id={p.id}
-                      active={selected.kind === 'pipeline' && selected.id === p.id}
-                      badge="built-in"
-                      stepCount={steps.length}
-                      steps={steps}
-                      onClick={() => setSelected({ kind: 'pipeline', id: p.id })}
-                    />
-                  );
-                })}
               </>
             )}
           </div>
@@ -1066,6 +1165,31 @@ export function StartEpicModal({
         <ModalConfirmButton onClick={submit} label="Start epic" disabled={!!error} />
       </ModalFooter>
     </Modal>
+  );
+}
+
+/**
+ * One side of the built-in / custom switch above the open picker. The count is
+ * part of the label because an empty side is a real answer ("this workspace
+ * has no pipelines of its own") rather than a reason to hide the tab.
+ */
+function SourceTab({
+  label, count, active, onClick,
+}: { label: string; count: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors',
+        active ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {label}
+      <span className={cn('ml-1 font-mono text-[9px]', active ? 'text-primary/70' : 'text-muted-foreground/70')}>
+        {count}
+      </span>
+    </button>
   );
 }
 
