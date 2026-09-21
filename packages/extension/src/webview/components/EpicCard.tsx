@@ -31,6 +31,7 @@ import {
   Trash2,
   Gauge,
   Workflow,
+  Tag as TagIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -43,6 +44,8 @@ import type {
   AgentActivity,
 } from '@/lib/types';
 import { StatusBadge } from './StatusBadge';
+import { TagInput } from './TagInput';
+import { normalizeTags } from '@/lib/tags';
 import { RejectModal } from './RejectModal';
 import { RerunModal } from './RerunModal';
 import { RunWithFeedbackModal } from './RunWithFeedbackModal';
@@ -116,6 +119,10 @@ interface Props {
   followUps?: string[];
   /** Jump the list to another epic — expands it, scrolls to it, highlights it. */
   onNavigate?: (epicId: string) => void;
+  /** Every tag in use in the workspace — offered while editing this epic's. */
+  tagSuggestions?: string[];
+  /** Filter the list by a tag the user clicked on this card. */
+  onTagClick?: (tag: string) => void;
 }
 
 export function EpicCard({
@@ -127,6 +134,8 @@ export function EpicCard({
   fromEpic = null,
   followUps = [],
   onNavigate,
+  tagSuggestions = [],
+  onTagClick,
 }: Props) {
   const [expanded, setExpanded] = useState<boolean>(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -185,6 +194,7 @@ export function EpicCard({
           <span className="shrink-0 font-mono text-xs font-bold text-primary">{epic.id}</span>
           <span className="truncate text-sm text-foreground">{epic.title}</span>
           <EpicLinks fromEpic={fromEpic} followUps={followUps} onNavigate={onNavigate} />
+          <TagChips tags={epic.tags ?? []} onTagClick={onTagClick} />
           {(epic.followUpHookFailures?.length ?? 0) > 0 && (
             <span
               title="A follow-up hook failed — expand the card for its error, then Sync follow-ups."
@@ -269,6 +279,9 @@ export function EpicCard({
               </span>
             )}
             {!epic.artifactsOnly && <DepthBadge epic={epic} />}
+            {!epic.artifactsOnly && (
+              <TagsEditor epic={epic} suggestions={tagSuggestions} onTagClick={onTagClick} />
+            )}
             {epic.createdAt && (
               <span>
                 · Started{' '}
@@ -475,6 +488,138 @@ function EpicLinks({
  *    flipping it would change the record of how the artifacts were produced and
  *    nothing else.
  */
+/**
+ * The epic's tags in the collapsed header — read-only, and clickable as a
+ * filter. Capped at three with a "+n" because the header is a scanning row: a
+ * heavily tagged epic must not push its own title out of view. The rest are one
+ * expand away, in the editor below.
+ */
+function TagChips({ tags, onTagClick }: { tags: string[]; onTagClick?: (tag: string) => void }) {
+  if (tags.length === 0) { return null; }
+  const shown = tags.slice(0, 3);
+  const rest = tags.length - shown.length;
+
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {shown.map((tag) => (
+        <button
+          key={tag}
+          type="button"
+          title={onTagClick ? `Filter the list by ${tag}` : tag}
+          onClick={(e) => { e.stopPropagation(); onTagClick?.(tag); }}
+          className={cn(
+            'rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-primary',
+            onTagClick && 'hover:bg-primary/20',
+          )}
+        >
+          {tag}
+        </button>
+      ))}
+      {rest > 0 && (
+        <span title={tags.join(' ')} className="text-[10px] text-muted-foreground">
+          +{rest}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * The epic's tags, and the only place they can be changed after it is created.
+ *
+ * Unlike `DepthBadge` this writes without asking. The two look alike and are
+ * not: depth silently changes the prompt of every step still to run, while a
+ * tag changes which list an epic shows up in and is undone by typing it back.
+ * Confirming a retag would be ceremony around an edit nobody can get badly
+ * wrong.
+ *
+ * The write is still explicit — Save, not save-as-you-type — because each write
+ * rewrites `state.json` and refreshes the panel, and a per-keystroke version of
+ * that would fight the user's cursor.
+ */
+function TagsEditor({
+  epic,
+  suggestions,
+  onTagClick,
+}: {
+  epic: EpicSummary;
+  suggestions: string[];
+  onTagClick?: (tag: string) => void;
+}) {
+  const saved = epic.tags ?? [];
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string[]>(saved);
+
+  const open = () => { setDraft(saved); setEditing(true); };
+  const save = () => {
+    const next = normalizeTags(draft);
+    // Nothing changed → no write, no refresh. The panel re-renders every card
+    // on a refresh, and a no-op one costs the user their scroll position.
+    if (next.join('\u0000') !== saved.join('\u0000')) {
+      postMessage({ type: 'setEpicTags', epicId: epic.id, tags: next });
+    }
+    setEditing(false);
+  };
+
+  if (!editing) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <TagIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+        {saved.length > 0 ? (
+          <span className="flex flex-wrap items-center gap-1">
+            {saved.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                title={onTagClick ? `Filter the list by ${tag}` : tag}
+                onClick={() => onTagClick?.(tag)}
+                className={cn(
+                  'rounded-full bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-primary',
+                  onTagClick && 'hover:bg-primary/20',
+                )}
+              >
+                {tag}
+              </button>
+            ))}
+          </span>
+        ) : (
+          <span className="text-[11px] text-muted-foreground">No tags</span>
+        )}
+        <button
+          type="button"
+          onClick={open}
+          title="Edit this epic's tags — free text in, stored uppercase"
+          className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          {saved.length > 0 ? 'Edit' : 'Add tags'}
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <div className="basis-full space-y-2 rounded-md border border-border bg-surface/40 p-2.5">
+      <TagInput tags={draft} onChange={setDraft} suggestions={suggestions} autoFocus />
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={save}
+          className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Save tags
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          className="rounded-md px-2.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function DepthBadge({ epic }: { epic: EpicSummary }) {
   const [confirming, setConfirming] = useState(false);
 

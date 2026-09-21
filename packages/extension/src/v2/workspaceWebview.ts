@@ -192,6 +192,8 @@ import {
   scaffoldEpic,
   epicsRoot,
   STRICT_MODE_KEY,
+  EPIC_TAGS_KEY,
+  normalizeTags,
   commandBodyIsStale,
   resolveEpicIdPrefixChain,
   readUserConfig,
@@ -499,6 +501,9 @@ interface EpicSummaryUi {
    * regardless of what is on disk.
    */
   strictMode: boolean;
+  /** Canonical (uppercase) tags from state.json. Read by the card's chips and
+   *  by the tag filter above the list. */
+  tags: string[];
   /** True when `signal.json` sits in the epic folder — an incident epic. */
   hasSignal: boolean;
   /** True when `followups.json` sits in the epic folder — work handed forward. */
@@ -1067,6 +1072,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     agent: e.agent,
     runId: e.runId,
     inputs: e.inputs,
+    tags: e.tags,
     epicDir,
     existingArtifacts,
     // Cheap and exact: the file core writes is the only marker of an incident
@@ -2387,6 +2393,30 @@ export class WorkspaceWebview {
             });
           }
         }
+        return;
+      }
+      case 'setEpicTags': {
+        const epicId = String(msg.epicId ?? '');
+        const root = this.getRootOrWarn();
+        if (!root || !epicId) { return; }
+        const doc = readYaml(root);
+        const file = path.join(epicsRoot(root, doc), epicId, 'state.json');
+        try {
+          // Read-modify-write, as with strict_mode: state.json also carries the
+          // mirrored run, and none of that is ours to rewrite.
+          const state = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+          // The webview sends what the user typed. Canonicalizing here rather
+          // than there is what stops a stale bundle — or any other caller —
+          // from writing a tag the filter can never match.
+          state[EPIC_TAGS_KEY] = normalizeTags(msg.tags);
+          fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n', 'utf8');
+        } catch (err) {
+          void vscode.window.showWarningMessage(
+            `AIDLC: could not update tags for ${epicId} — ${String(err)}`,
+          );
+          return;
+        }
+        this.refresh();
         return;
       }
       case 'startEpicInline': {
@@ -3812,6 +3842,9 @@ export class WorkspaceWebview {
         // Absent means strict — an older webview bundle that does not send the
         // field gets the depth every epic worked at before it existed.
         strictMode: draft.strictMode !== false,
+        // Free text from the modal; `scaffoldEpic` folds it to the canonical
+        // uppercase form before it reaches state.json.
+        tags: Array.isArray(draft.tags) ? (draft.tags as unknown[]).map(String) : undefined,
         // aidlc-autopilot is experimental / "coming soon": off unless the user
         // opts in via the `aidlcNative.autopilot.enabled` setting.
         enableAutopilot: vscode.workspace

@@ -22,6 +22,11 @@ import {
   suggestEpicId,
   epicStrictMode,
   STRICT_MODE_KEY,
+  EPIC_TAGS_KEY,
+  applyTagEdit,
+  epicMatchesTags,
+  normalizeTags,
+  readEpicTags,
   stepAgentId,
   RunStateStore,
   planAddEpicStep,
@@ -52,13 +57,23 @@ export function registerEpic(program: Command): void {
     .description('List all epics found under workspace state.root (default: docs/epics/)')
     .option('--json', 'Output raw JSON')
     .option('--status <status>', 'Filter by status (pending | in_progress | done | failed)')
-    .action((opts: { json?: boolean; status?: string }, actionCmd: Command) => {
+    .option(
+      '--tag <tag>',
+      'Filter by tag — repeatable, and an epic must carry all of them. Case and accents are folded, so --tag "thanh toán" finds THANH-TOAN',
+      collectKv, [] as string[],
+    )
+    .action((opts: { json?: boolean; status?: string; tag: string[] }, actionCmd: Command) => {
       const root = resolveWorkspaceRoot(actionCmd);
       const doc  = readYaml(root);
       let epics  = listEpics(root, doc);
 
       if (opts.status) {
         epics = epics.filter(e => e.status === opts.status);
+      }
+
+      const wantedTags = normalizeTags(opts.tag);
+      if (wantedTags.length > 0) {
+        epics = epics.filter(e => epicMatchesTags(e.tags, wantedTags));
       }
 
       if (opts.json) {
@@ -68,12 +83,18 @@ export function registerEpic(program: Command): void {
 
       if (epics.length === 0) {
         console.log(chalk.dim('No epics found.'));
+        if (wantedTags.length > 0) {
+          // The filter folded what was typed; say what it actually looked for,
+          // so an empty list reads as "no epic has this tag" rather than
+          // "the tag I typed was wrong".
+          console.log(chalk.dim(`  tags = ${wantedTags.join(' + ')}`));
+        }
         console.log(chalk.dim(`  state.root = ${doc?.state ? (doc.state as Record<string, unknown>).root ?? 'docs/epics' : 'docs/epics'}`));
         return;
       }
 
       const table = new Table({
-        head: [chalk.bold('Epic'), chalk.bold('Title'), chalk.bold('Progress'), chalk.bold('Status'), chalk.bold('Pipeline')],
+        head: [chalk.bold('Epic'), chalk.bold('Title'), chalk.bold('Tags'), chalk.bold('Progress'), chalk.bold('Status'), chalk.bold('Pipeline')],
         style: { head: [], border: [] },
       });
 
@@ -86,6 +107,7 @@ export function registerEpic(program: Command): void {
         table.push([
           chalk.bold(epic.id),
           truncate(epic.title || chalk.dim('(untitled)'), 40),
+          epic.tags.length > 0 ? chalk.cyan(truncate(epic.tags.join(' '), 28)) : chalk.dim('—'),
           stepLabel,
           colorEpicStatus(epic.status),
           chalk.dim(epic.pipeline ?? '—'),
@@ -136,10 +158,11 @@ export function registerEpic(program: Command): void {
     .option('--title <title>', 'epic title')
     .option('--desc <description>', 'epic description / requirement snapshot')
     .option('--input <kv>', 'capability input as key=value (repeatable)', collectKv, [] as string[])
+    .option('--tag <tag>', 'tag for this epic (repeatable) — stored uppercase, e.g. "thanh toán" → THANH-TOAN', collectKv, [] as string[])
     .option('--no-strict', 'work to the size of this epic — no invented NFR / risk / alternatives sections')
     .action((epicId: string, opts: {
       recipe?: string; pipeline?: string; brief?: string[]; llm?: boolean;
-      from?: string; title?: string; desc?: string; input: string[]; strict: boolean;
+      from?: string; title?: string; desc?: string; input: string[]; tag: string[]; strict: boolean;
     }, actionCmd: Command) => {
       const root = resolveWorkspaceRoot(actionCmd);
       const doc  = requireYaml(root);
@@ -243,12 +266,19 @@ export function registerEpic(program: Command): void {
           inputs,
           pipeline: pipelineCfg,
           strictMode: opts.strict,
+          tags: opts.tag,
         });
+        const tags = normalizeTags(opts.tag);
         const steps = agents.join(' → ');
         console.log(chalk.green('✔') + ` Started epic ${chalk.bold(epicId)}`);
         console.log(chalk.dim(`  Pipeline: ${pipelineCfg.id}`));
         console.log(chalk.dim(`  Steps:    ${steps}`));
         console.log(chalk.dim(`  Dir:      ${epicDir}`));
+        // Echoed because the stored form is not always the typed form — this is
+        // where the user finds out what `--tag "thanh toán"` became.
+        if (tags.length > 0) {
+          console.log(chalk.dim('  Tags:     ') + chalk.cyan(tags.join(' ')));
+        }
         if (!opts.strict) {
           console.log(chalk.dim('  Depth:    strict_mode: false — phases stay proportional to the work'));
         }
@@ -274,6 +304,83 @@ export function registerEpic(program: Command): void {
           process.exit(1);
         }
         throw err;
+      }
+    });
+
+  // ── tag ────────────────────────────────────────────────────────────────────
+  //
+  // Tags are the one piece of epic metadata a person is expected to change
+  // *after* the epic exists — an epic joins a release, a theme turns out to be
+  // the wrong one. Read-modify-write on state.json, because that file also
+  // carries the mirrored run and none of that is ours to rewrite.
+  cmd
+    .command('tag <id> [tags...]')
+    .description('Show or edit an epic\'s tags. Bare `tag <id>` prints them; extra words are added.')
+    .option('--add <tag>', 'add a tag (repeatable) — same as passing it positionally', collectKv, [] as string[])
+    .option('--remove <tag>', 'remove a tag (repeatable)', collectKv, [] as string[])
+    .option('--set <tag>', 'replace every tag with these (repeatable)', collectKv, [] as string[])
+    .option('--clear', 'remove every tag')
+    .option('--json', 'Output the resulting tags as JSON')
+    .action((id: string, positional: string[], opts: {
+      add: string[]; remove: string[]; set: string[]; clear?: boolean; json?: boolean;
+    }, actionCmd: Command) => {
+      const root = resolveWorkspaceRoot(actionCmd);
+      const doc  = readYaml(root);
+      const file = path.join(epicsRoot(root, doc), id, 'state.json');
+
+      if (!fs.existsSync(file)) {
+        const all = listEpics(root, doc).map(e => e.id);
+        console.error(chalk.red(`Epic "${id}" not found.`));
+        if (all.length > 0) { console.error(chalk.dim(`Available: ${all.join(', ')}`)); }
+        process.exit(1);
+      }
+
+      let state: Record<string, unknown>;
+      try {
+        state = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+      } catch (err) {
+        console.error(chalk.red(`Could not read ${file}: ${err instanceof Error ? err.message : String(err)}`));
+        process.exit(1);
+        return;
+      }
+
+      const before = readEpicTags(state);
+      const add    = [...positional, ...opts.add];
+      const clear  = opts.clear === true;
+      const hasEdit = clear || add.length > 0 || opts.remove.length > 0 || opts.set.length > 0;
+
+      if (!hasEdit) {
+        if (opts.json) { console.log(JSON.stringify(before, null, 2)); return; }
+        console.log(before.length > 0 ? chalk.cyan(before.join(' ')) : chalk.dim('(no tags)'));
+        return;
+      }
+
+      const after = applyTagEdit(before, {
+        // `--clear` is `--set` with nothing in it; spelling it separately keeps
+        // "remove everything" from needing an empty-string argument.
+        set: clear ? [] : (opts.set.length > 0 ? opts.set : undefined),
+        add,
+        remove: opts.remove,
+      });
+
+      if (after.join('\u0000') === before.join('\u0000')) {
+        console.log(chalk.dim(`No change — ${id} already has ${before.length > 0 ? chalk.cyan(before.join(' ')) : 'no tags'}.`));
+        return;
+      }
+
+      state[EPIC_TAGS_KEY] = after;
+      try {
+        fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n', 'utf8');
+      } catch (err) {
+        console.error(chalk.red(`Could not write ${file}: ${err instanceof Error ? err.message : String(err)}`));
+        process.exit(1);
+      }
+
+      if (opts.json) { console.log(JSON.stringify(after, null, 2)); return; }
+      console.log(chalk.green('✔') + ` ${chalk.bold(id)} tags: ` +
+        (after.length > 0 ? chalk.cyan(after.join(' ')) : chalk.dim('(none)')));
+      if (before.length > 0) {
+        console.log(chalk.dim(`  was: ${before.join(' ')}`));
       }
     });
 
@@ -653,6 +760,7 @@ function printEpicDetail(epic: EpicSummary): void {
   console.log(chalk.bold(epic.id) + '  ' + colorEpicStatus(epic.status));
   if (epic.title)       { console.log(chalk.dim('  title:    ') + epic.title); }
   if (epic.description) { console.log(chalk.dim('  desc:     ') + epic.description); }
+  if (epic.tags.length) { console.log(chalk.dim('  tags:     ') + chalk.cyan(epic.tags.join(' '))); }
   if (epic.pipeline)    { console.log(chalk.dim('  pipeline: ') + epic.pipeline); }
   if (epic.createdAt)   { console.log(chalk.dim('  created:  ') + epic.createdAt); }
   console.log(chalk.dim('  state:    ') + chalk.dim(epic.statePath));

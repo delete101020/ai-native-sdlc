@@ -66,7 +66,7 @@ the other within ~200ms.
 - Bootstrap: \`aidlc init\`, \`aidlc validate\`, \`aidlc doctor\`, \`aidlc list [--json]\`.
 - Config (mirrors the Builder): \`aidlc skill|agent|pipeline add|list|show|remove\`.
 - Presets: \`aidlc preset apply|save|list\` (built-ins code-review, release-notes, sdlc).
-- Epics: \`aidlc epic list|status <id>|start <id> --brief "…" [--llm]\`.
+- Epics: \`aidlc epic list [--tag <tag>]|status <id>|start <id> --brief "…" [--llm]|tag <id> [tags…]\`.
 - Recipes: \`aidlc recipe init\`, \`aidlc pipeline recipes|classify "<brief>"|generate\`.
 - Runs: \`aidlc run start <pipeline> --context k=v\`, \`aidlc run exec <runId> [--auto-approve]\`.
 - Watch: \`aidlc watch\`, \`aidlc tail\`, \`aidlc dashboard\`, \`aidlc monitor [--start|--open]\`.
@@ -151,7 +151,8 @@ VS Code extension over the filesystem.
 
 ── Step 4: Work by epic (task-type → pipeline) ────────
   aidlc epic start <id> --brief "…" [--llm]
-  aidlc epic list [--status …]    aidlc epic status <id>
+  aidlc epic list [--status …] [--tag …]    aidlc epic status <id>
+  aidlc epic tag <id> [tags…]         tag an epic (stored uppercase)
 
 ── Step 5: Watch what's happening ─────────────────────
   aidlc watch          live table of all runs

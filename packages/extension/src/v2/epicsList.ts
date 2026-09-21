@@ -18,6 +18,7 @@ import {
   mirrorRunStateToEpic,
   RUN_STATE_SCHEMA_VERSION,
   epicStrictMode,
+  readEpicTags,
 } from '@aidlc/core';
 import type {
   RunState,
@@ -43,6 +44,8 @@ export interface EpicSummary {
   description: string;
   status: EpicStatus;
   createdAt: string;
+  /** Canonical (uppercase) tags from state.json — see core `loader/epicTags`. */
+  tags: string[];
   pipeline: string | null;
   agent: string | null;
   agents: string[];
@@ -376,6 +379,8 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
     description: '',
     status: epicStatus,
     createdAt,
+    // No state.json to carry them, and nowhere to write one back to.
+    tags: [],
     pipeline: null,
     agent: null,
     agents: stepDetails.map((s) => s.agent),
@@ -711,6 +716,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       description: typeof parsed.description === 'string' ? parsed.description : '',
       status: epicStatus,
       createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
+      tags: readEpicTags(parsed),
       pipeline: typeof parsed.pipeline === 'string' ? parsed.pipeline : null,
       agent: typeof parsed.agent === 'string' ? parsed.agent : null,
       agents: Array.isArray(parsed.agents) ? (parsed.agents as unknown[]).map(String) : [],

@@ -278,13 +278,23 @@ under whatever `state.root` your `workspace.yaml` declares (default
 `docs/epics/`).
 
 ```
-aidlc epic list [--status pending|in_progress|done|failed] [--json]
+aidlc epic list [--status pending|in_progress|done|failed] [--tag <tag>…] [--json]
 aidlc epic status <id> [--json]                 # phase-by-phase view
 aidlc epic show <id>                            # alias for status
 aidlc epic start <id> --brief "…" [--llm]       # classify the brief → recipe → assembled pipeline
 aidlc epic start <id> --recipe <recipeId>       # or pick the recipe yourself
 aidlc epic start <id> --pipeline <pipelineId>   # or use an existing pipeline as-is
+aidlc epic start <id> … --tag payment --tag "thanh toán"   # tag it at creation
+aidlc epic tag <id>                             # print this epic's tags
+aidlc epic tag <id> payment "release q3"        # add tags (also --add/--remove/--set/--clear)
 ```
+
+**Tags** are free text in and one canonical form on disk: uppercase, ASCII,
+dash-separated — `"thanh toán VNPay"` is stored as `THANH-TOAN-VNPAY`, and the
+accents and case are folded on the way *in* to a filter too, so `--tag "thanh
+toán"` finds it. Repeating `--tag` narrows: an epic must carry every tag given.
+They live under `tags` in the epic's `state.json` and are shown, and editable,
+on each card in the VS Code panel.
 
 `epic start` mirrors the extension's smart **Start Epic**: `--brief` classifies
 the requirement into a task-type recipe (heuristic by default, `--llm` for

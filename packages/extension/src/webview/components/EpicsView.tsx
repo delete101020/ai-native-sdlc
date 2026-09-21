@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw } from 'lucide-react';
+import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
 import { EpicCard } from './EpicCard';
@@ -18,6 +18,20 @@ const FILTERS: { id: EpicFilter; label: string }[] = [
 function matches(epic: EpicSummary, filter: EpicFilter): boolean {
   if (filter === 'all') { return true; }
   return epic.status === filter;
+}
+
+/**
+ * Tag filtering is AND, not OR: each tag clicked narrows the list.
+ *
+ * OR is the other plausible reading, and it is the wrong one here — tags on an
+ * epic are facets (a theme, a release, a squad), so "PAYMENT + RELEASE-Q3" is a
+ * question someone actually asks and "PAYMENT or RELEASE-Q3" is one nobody does.
+ * It is also the behaviour of every tracker these tags are borrowed from.
+ */
+function matchesTags(epic: EpicSummary, wanted: string[]): boolean {
+  if (wanted.length === 0) { return true; }
+  const have = epic.tags ?? [];
+  return wanted.every((t) => have.includes(t));
 }
 
 /**
@@ -53,6 +67,7 @@ export function EpicsView({
   focusEpic?: { id: string; nonce: number } | null;
 }) {
   const [filter, setFilter] = useState<EpicFilter>('all');
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [startEpicOpen, setStartEpicOpen] = useState(false);
   const [reportSignalOpen, setReportSignalOpen] = useState(false);
   // Focus comes from two places now: the host deep link, and the incident ⇄
@@ -66,8 +81,16 @@ export function EpicsView({
   // A deep link has to win over the filter — landing on an empty list because
   // the epic is done and the filter says "in progress" reads as a broken link.
   useEffect(() => {
-    if (focus) { setFilter('all'); }
+    if (focus) { setFilter('all'); setTagFilter([]); }
   }, [focus]);
+
+  // A tag that no epic carries any more (its last epic was retagged or deleted)
+  // would otherwise stay selected and hide everything, with no chip left to
+  // click to undo it.
+  useEffect(() => {
+    const live = new Set(state.epics.flatMap((e) => e.tags ?? []));
+    setTagFilter((cur) => (cur.every((t) => live.has(t)) ? cur : cur.filter((t) => live.has(t))));
+  }, [state.epics]);
 
   useEffect(() => {
     return onHostMessage((msg) => {
@@ -93,8 +116,31 @@ export function EpicsView({
   }, [state.epics]);
 
   const visible = useMemo(
-    () => state.epics.filter((e) => matches(e, filter)),
-    [state.epics, filter],
+    () => state.epics.filter((e) => matches(e, filter) && matchesTags(e, tagFilter)),
+    [state.epics, filter, tagFilter],
+  );
+
+  /**
+   * Every tag in use, with how many epics carry it — counted against the status
+   * filter so the numbers describe the list the user is looking at. Ordered by
+   * count, then alphabetically: the themes an epic is most likely to belong to
+   * sit where the eye already is.
+   */
+  const tagCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const e of state.epics) {
+      if (!matches(e, filter)) { continue; }
+      for (const t of e.tags ?? []) { counts.set(t, (counts.get(t) ?? 0) + 1); }
+    }
+    // A selected tag always keeps its chip, even when the status filter has
+    // narrowed its count to zero — it is the only way back out of that state.
+    for (const t of tagFilter) { if (!counts.has(t)) { counts.set(t, 0); } }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [state.epics, filter, tagFilter]);
+
+  const allTags = useMemo(
+    () => [...new Set(state.epics.flatMap((e) => e.tags ?? []))].sort(),
+    [state.epics],
   );
 
   /** epic id → epics opened from it. Read by the cards to draw the link back. */
@@ -271,9 +317,52 @@ export function EpicsView({
         ))}
       </div>
 
+      {tagCounts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <TagIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+          {tagCounts.map(([tag, count]) => {
+            const on = tagFilter.includes(tag);
+            return (
+              <button
+                key={tag}
+                type="button"
+                onClick={() =>
+                  setTagFilter((cur) => (on ? cur.filter((t) => t !== tag) : [...cur, tag]))
+                }
+                title={on ? `Stop filtering by ${tag}` : `Show only epics tagged ${tag}`}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10.5px] font-semibold tracking-wide transition-colors',
+                  on
+                    ? 'border-primary bg-primary/15 text-primary'
+                    : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
+                )}
+              >
+                {tag}
+                <span className={cn('font-sans text-[9.5px] tabular-nums', on ? 'text-primary/70' : 'text-muted-foreground/70')}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+          {tagFilter.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setTagFilter([])}
+              title="Clear the tag filter"
+              className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-2.5 w-2.5" />
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
       {visible.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-surface/50 p-6 text-center text-xs text-muted-foreground">
-          {filter === 'all' ? 'No epics yet.' : `No ${filter.replace('_', ' ')} epics.`}
+          {tagFilter.length > 0
+            ? `No epics tagged ${tagFilter.join(' + ')}${filter === 'all' ? '' : ` in ${filter.replace('_', ' ')}`}.`
+            : filter === 'all' ? 'No epics yet.' : `No ${filter.replace('_', ' ')} epics.`}
         </div>
       ) : (
         <div className="space-y-2">
@@ -291,6 +380,10 @@ export function EpicsView({
                 fromEpic={parentOf(e)}
                 followUps={followUpsByEpic[e.id] ?? []}
                 onNavigate={navigate}
+                tagSuggestions={allTags}
+                onTagClick={(tag) =>
+                  setTagFilter((cur) => (cur.includes(tag) ? cur.filter((t) => t !== tag) : [...cur, tag]))
+                }
               />
             ));
             // A family of one is just an epic. Wrapping it in a header would
@@ -343,6 +436,7 @@ export function EpicsView({
           epicIdPrefixNeedsSetup={state.epicIdPrefixNeedsSetup}
           epicIdPrefixSuggestion={state.epicIdPrefixSuggestion}
           existingEpicIds={state.existingEpicIds}
+          existingTags={allTags}
           epicsDir={state.epicsDir}
           isFirstEpic={state.epics.length === 0}
           workspaceName={state.workspaceName}

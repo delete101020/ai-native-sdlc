@@ -8,6 +8,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { readEpicTags } from '@aidlc/core';
 import type { YamlDocument } from './yamlIO';
 
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
@@ -25,6 +26,8 @@ export interface EpicSummary {
   description: string;
   status: EpicStatus;
   createdAt: string;
+  /** Canonical (uppercase) tags from state.json — see core `loader/epicTags`. */
+  tags: string[];
   pipeline: string | null;
   agents: string[];
   currentStep: number;
@@ -84,6 +87,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       description:  typeof parsed.description === 'string' ? parsed.description : '',
       status:       asStatus(parsed.status),
       createdAt:    typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
+      tags:         readEpicTags(parsed),
       pipeline:     typeof parsed.pipeline === 'string' ? parsed.pipeline : null,
       agents:       Array.isArray(parsed.agents) ? (parsed.agents as unknown[]).map(String) : [],
       currentStep:  typeof parsed.currentStep === 'number' ? parsed.currentStep : 0,

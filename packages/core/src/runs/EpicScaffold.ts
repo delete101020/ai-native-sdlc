@@ -22,6 +22,7 @@ import type { RunState, StepStatus } from './RunState';
 import { startRun } from './PipelineRunner';
 import { RunStateStore } from './RunStateStore';
 import { EPIC_PIPELINE_FILENAME } from '../loader/EpicPipelineStore';
+import { EPIC_TAGS_KEY, normalizeTags } from '../loader/epicTags';
 import { collectContext } from '../epics/ContextCollector';
 import { generatePlan, renderPlanMarkdown } from '../epics/PlanGenerator';
 
@@ -172,6 +173,13 @@ export interface ScaffoldEpicArgs {
    * setting existed. See `loader/strictMode.ts`.
    */
   strictMode?: boolean;
+  /**
+   * Free-text tags for this epic. Normalized to their canonical
+   * SCREAMING-KEBAB form before they are written, so `["thanh toán", "Payment"]`
+   * lands as `["PAYMENT", "THANH-TOAN"]` and a filter can compare them
+   * literally. See `loader/epicTags.ts`.
+   */
+  tags?: string[];
 }
 
 export interface ScaffoldEpicResult {
@@ -189,7 +197,7 @@ export interface ScaffoldEpicResult {
 export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   const {
     workspaceRoot, doc, epicId, title, description, target, agents, inputs, extraProjects, pipeline,
-    seedArtifacts, enableAutopilot = false, strictMode = true,
+    seedArtifacts, enableAutopilot = false, strictMode = true, tags,
   } = args;
 
   if (!epicId.trim()) { throw new EpicScaffoldError('Epic id is required.'); }
@@ -260,6 +268,9 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     // because the point of a per-epic knob is that it can be found and flipped
     // by hand on an epic that turns out bigger or smaller than it looked.
     strict_mode: strictMode,
+    // Written even when empty, for the same reason as `strict_mode`: a key that
+    // is there is a key someone can find and fill in by hand.
+    [EPIC_TAGS_KEY]: normalizeTags(tags),
     createdAt: new Date().toISOString(),
     stepStates: agents.map((a) => ({
       agent: a,

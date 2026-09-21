@@ -6,6 +6,7 @@ import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Mod
 import { pickAndReadFile, pickFolder } from '@/lib/pickFile';
 import { postMessage, onHostMessage } from '@/lib/bridge';
 import { isEpicOwnedPipeline, selectablePipelines } from '@/lib/pipelines';
+import { TagInput } from './TagInput';
 
 const ID_PATTERN = /^[A-Z][A-Z0-9-]*$/;
 
@@ -41,6 +42,11 @@ export interface StartEpicDraft {
   title: string;
   description: string;
   inputs: Record<string, string>;
+  /**
+   * Free-text tags. Already folded to canonical uppercase by the field, and
+   * folded again by the host — the filter only ever compares canonical forms.
+   */
+  tags?: string[];
   extraProjects?: ExtraProject[];
   /**
    * How deep the phases of this epic go. Sits next to the workflow choice
@@ -62,6 +68,9 @@ interface Props {
   /** Two letters derived from `git config user.name`, or null. */
   epicIdPrefixSuggestion: string | null;
   existingEpicIds: string[];
+  /** Tags already in use across the workspace — offered as one-click chips so
+   *  a theme does not fork into two spellings the day after it is created. */
+  existingTags?: string[];
   epicsDir: string;
   isFirstEpic: boolean;
   workspaceName: string;
@@ -104,6 +113,7 @@ export function StartEpicModal({
   epicIdPrefixNeedsSetup,
   epicIdPrefixSuggestion,
   existingEpicIds,
+  existingTags = [],
   epicsDir,
   isFirstEpic,
   workspaceName,
@@ -124,6 +134,7 @@ export function StartEpicModal({
   const [epicId, setEpicId] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
   const [inputs, setInputs] = useState<Record<string, string>>({});
   // Capability inputs are all optional (blank = skip) and every one of them is a
   // path or URL only the user can supply, so the common case is to fill none.
@@ -549,6 +560,7 @@ export function StartEpicModal({
       epicId: effectiveId,
       title: title.trim(),
       description: description.trim(),
+      tags,
       inputs: cleanInputs,
       extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
       strictMode,
@@ -984,6 +996,20 @@ export function StartEpicModal({
               {descLoadInfo.text}
             </div>
           )}
+        </div>
+
+        <div>
+          <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+            Tags <span className="font-normal normal-case tracking-normal text-muted-foreground/80">
+              (optional — type anything; stored uppercase, e.g. &ldquo;thanh toán&rdquo; → THANH-TOAN)
+            </span>
+          </label>
+          <TagInput
+            tags={tags}
+            onChange={setTags}
+            suggestions={existingTags}
+            disabled={!hasWorkflows}
+          />
         </div>
 
         {capabilities.length > 0 && (

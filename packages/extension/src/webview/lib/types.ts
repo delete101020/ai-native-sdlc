@@ -654,6 +654,9 @@ export interface EpicSummary {
   epicDir: string;
   existingArtifacts: string[];
   createdAt: string;
+  /** Canonical (uppercase) tags from state.json. Optional so an older host
+   *  bundle that predates tags renders as "no tags" rather than crashing. */
+  tags?: string[];
   /** `strict_mode` from state.json: false = phases stay proportional to the
    *  work. Absent on disk reads as true. */
   strictMode: boolean;

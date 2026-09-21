@@ -276,6 +276,16 @@ export {
   resolveEpicStrictMode,
   strictModeSection,
 } from './loader/strictMode';
+// Epic tags — free text in, one canonical SCREAMING-KEBAB form on disk.
+export {
+  EPIC_TAGS_KEY,
+  MAX_TAG_LENGTH,
+  applyTagEdit,
+  epicMatchesTags,
+  normalizeTag,
+  normalizeTags,
+  readEpicTags,
+} from './loader/epicTags';
 export { commandBodyIsStale } from './presets/commandBodyFreshness';
 export type { ComposeInput, ComposedPrompt } from './loader/promptComposer';
 
