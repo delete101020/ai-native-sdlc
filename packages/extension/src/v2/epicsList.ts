@@ -564,6 +564,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const stepGateByIdx = new Map<number, { auto: boolean; human: boolean }>();
     const stepDependsByIdx = new Map<number, string[]>();
     const stepNameByIdx = new Map<number, string>();
+    const stepSkillsByIdx = new Map<number, string[]>();
     const stepArtifactByIdx = new Map<number, string>();
     const stepArtifactPathByIdx = new Map<number, string>();
     const stepProducesByIdx = new Map<number, string[]>();
@@ -576,6 +577,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         stepGateByIdx.set(i, { auto: norm.auto_review, human: norm.human_review });
         stepDependsByIdx.set(i, norm.depends_on);
         if (norm.name) { stepNameByIdx.set(i, norm.name); }
+        if (norm.skills && norm.skills.length > 0) { stepSkillsByIdx.set(i, norm.skills); }
         // Surface the produced artifact for the per-step detail panel —
         // `step.produces[0]` is the canonical artifact path on built-in
         // pipelines (e.g. `docs/epics/{epic}/PRD.md`). The UI displays
@@ -646,12 +648,23 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
           .map((p) => (typeof p.id === 'string' ? p.id : ''))
           .filter(Boolean)
       : [];
-    const slashForStep = (stepName: string | undefined): string | undefined => {
-      if (!stepName) { return undefined; }
+    const slashForStep = (
+      stepName: string | undefined,
+      skills: string[] | undefined,
+    ): string | undefined => {
+      // A step's `skills:` names the command file that actually runs it, and
+      // it is the only entry that survives the epic owning its own pipeline:
+      // there, `pipelineId` is the epic id, so a namespaced guess spells
+      // `/CR-Y01-cr-solo-dev` — a command that cannot exist, and never will,
+      // because it would need a fresh command file per epic. The epic id is an
+      // argument (`/cr-solo-dev CR-Y01`), never part of the name.
+      const fromSkill = skills?.find((id) => id && slashNames.has(`/${id}`));
+      if (!stepName) { return fromSkill ? `/${fromSkill}` : undefined; }
       const namespaced = pipelineId ? `/${pipelineId}-${stepName}` : '';
       if (namespaced && slashNames.has(namespaced)) { return namespaced; }
       const bare = `/${stepName}`;
       if (slashNames.has(bare)) { return bare; }
+      if (fromSkill) { return `/${fromSkill}`; }
       // A recipe-assembled epic runs on a per-epic pipeline (e.g. `SWIFT-142`),
       // but the command files are only generated for the recipe's *source*
       // pipeline (`/sdlc-parallel-full-implement`). The source command reads the
@@ -663,8 +676,12 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         const cand = `/${pid}-${stepName}`;
         if (slashNames.has(cand)) { return cand; }
       }
-      // Prefer namespaced as the default when the pipeline id is known and the
-      // table has neither (fresh build before re-apply); else fall back to bare.
+      // Nothing is installed under either name yet (fresh build before
+      // re-apply). A skill the step declares is a real file id, so it beats a
+      // synthesized name; otherwise prefer namespaced when the pipeline id is
+      // known, and fall back to bare.
+      const declared = skills?.[0];
+      if (declared) { return `/${declared}`; }
       return namespaced || bare;
     };
 
@@ -738,7 +755,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       return {
         agent,
         name: stepNameByIdx.get(i),
-        slashCommand: slashForStep(stepNameByIdx.get(i)),
+        slashCommand: slashForStep(stepNameByIdx.get(i), stepSkillsByIdx.get(i)),
         artifact: stepArtifactByIdx.get(i),
         ...(artifactRel === undefined
           ? {}
