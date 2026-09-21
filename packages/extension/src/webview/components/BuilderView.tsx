@@ -23,7 +23,7 @@ export function BuilderView({
   /** "Edit workflow" on an epic card — open Workflows on this pipeline. */
   focusPipeline?: { id: string; nonce: number } | null;
 }) {
-  const [tab, setTab] = useState<BuilderTab>('agents');
+  const [tab, setTab] = useState<BuilderTab>('workflows');
   const [addPipelineOpen, setAddPipelineOpen] = useState(false);
   const [addSkillOpen, setAddSkillOpen] = useState(false);
   const [addAgentOpen, setAddAgentOpen] = useState(false);
