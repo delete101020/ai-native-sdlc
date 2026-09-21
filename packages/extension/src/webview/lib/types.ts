@@ -519,6 +519,8 @@ export interface RecipeSummary {
   steps: string[];
   /** Resolved agent ids (ordered) — for capability prompts. */
   agents: string[];
+  /** One of AIDLC's own recipes (vs. one this workspace wrote). */
+  builtin?: boolean;
 }
 
 export interface AutoReviewVerdict {

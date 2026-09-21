@@ -39,7 +39,18 @@ describe('start epic — modal layout', () => {
 
   it('lists recipes most-steps-first rather than in source order', () => {
     expect(modal).toContain('[...recipes].sort((a, b) => b.steps.length - a.steps.length)');
-    expect(modal).toContain('{sortedRecipes.map((r) => (');
+    // Both tabs draw from the sorted list, so the ladder survives the split.
+    expect(modal).toContain('sortedRecipes.filter((r) => r.builtin)');
+    expect(modal).toContain('sortedRecipes.filter((r) => !r.builtin)');
+    expect(modal).toContain('{builtinRecipes.map((r) => (');
+    expect(modal).toContain('{customRecipes.map((r) => (');
+  });
+
+  it("keeps the workspace's own recipes off the Built-in tab", () => {
+    // `preset apply` copies AIDLC's recipes into workspace.yaml, so origin
+    // cannot be read off the row's shape — the host sets `builtin`, and the
+    // Built-in tab must render that list, never every recipe.
+    expect(modal).not.toContain('{sortedRecipes.map((r) => (');
   });
 });
 

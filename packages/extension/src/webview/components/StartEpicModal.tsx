@@ -185,6 +185,13 @@ export function StartEpicModal({
     () => [...recipes].sort((a, b) => b.steps.length - a.steps.length),
     [recipes],
   );
+  // Recipes split the same way pipelines do. `preset apply` copies the
+  // built-ins into workspace.yaml, so both origins arrive as plain rows and
+  // only `builtin` (set by the host from the recipe's id + source pipeline)
+  // says which tab a row belongs on. Without it every hand-written recipe
+  // showed up under "Built-in".
+  const builtinRecipes = useMemo(() => sortedRecipes.filter((r) => r.builtin), [sortedRecipes]);
+  const customRecipes = useMemo(() => sortedRecipes.filter((r) => !r.builtin), [sortedRecipes]);
   const aidlcPipelines = useMemo(() => pipelines.filter((p) => p.builtin), [pipelines]);
   const choiceCount = sortedRecipes.length + userPipelines.length + aidlcPipelines.length + (recipes.length > 0 ? 1 : 0);
 
@@ -196,16 +203,16 @@ export function StartEpicModal({
   // AIDLC's" vs "one of ours").
   const [pickerOpen, setPickerOpen] = useState(() => recipes.length === 0);
   const [source, setSource] = useState<'builtin' | 'custom'>(
-    () => (recipes.length === 0 && userPipelines.length > 0 ? 'custom' : 'builtin'),
+    () => (builtinRecipes.length === 0 && aidlcPipelines.length === 0
+      && (customRecipes.length > 0 || userPipelines.length > 0) ? 'custom' : 'builtin'),
   );
   // Open on the tab that holds what is selected, so the current choice is
   // never off-screen behind the other tab.
   const openPicker = () => {
-    setSource(
-      selected.kind === 'pipeline' && userPipelines.some((p) => p.id === selected.id)
-        ? 'custom'
-        : 'builtin',
-    );
+    const inCustom =
+      (selected.kind === 'pipeline' && userPipelines.some((p) => p.id === selected.id))
+      || (selected.kind === 'recipe' && customRecipes.some((r) => r.id === selected.id));
+    setSource(inCustom ? 'custom' : 'builtin');
     setPickerOpen(true);
   };
   const choose = (next: Selection) => { setSelected(next); setPickerOpen(false); };
@@ -765,13 +772,13 @@ export function StartEpicModal({
               <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted/30 p-0.5">
                 <SourceTab
                   label="Built-in"
-                  count={sortedRecipes.length + aidlcPipelines.length}
+                  count={builtinRecipes.length + aidlcPipelines.length}
                   active={source === 'builtin'}
                   onClick={() => setSource('builtin')}
                 />
                 <SourceTab
                   label="Custom"
-                  count={userPipelines.length}
+                  count={customRecipes.length + userPipelines.length}
                   active={source === 'custom'}
                   onClick={() => setSource('custom')}
                 />
@@ -834,10 +841,10 @@ export function StartEpicModal({
                 )}
                 {source === 'builtin' ? (
                   <>
-                    {recipes.length > 0 && (
+                    {builtinRecipes.length > 0 && (
                       <GroupHeader label="Recipes (right-sized)" />
                     )}
-                    {sortedRecipes.map((r) => (
+                    {builtinRecipes.map((r) => (
                       <WorkflowRow
                         key={`r:${r.id}`}
                         id={r.id}
@@ -867,9 +874,26 @@ export function StartEpicModal({
                       );
                     })}
                   </>
-                ) : userPipelines.length > 0 ? (
+                ) : customRecipes.length > 0 || userPipelines.length > 0 ? (
                   <>
-                    <GroupHeader label="Your pipelines" />
+                    {customRecipes.length > 0 && (
+                      <GroupHeader label="Your recipes" />
+                    )}
+                    {customRecipes.map((r) => (
+                      <WorkflowRow
+                        key={`r:${r.id}`}
+                        id={r.id}
+                        active={selected.kind === 'recipe' && selected.id === r.id}
+                        suggested={suggestion?.recipeId === r.id ? suggestion.confidence : undefined}
+                        stepCount={r.steps.length}
+                        steps={r.steps}
+                        description={r.description}
+                        onClick={() => choose({ kind: 'recipe', id: r.id })}
+                      />
+                    ))}
+                    {userPipelines.length > 0 && (
+                      <GroupHeader label="Your pipelines" />
+                    )}
                     {userPipelines.map((p) => {
                       const steps = p.steps.map((s) => s.name ?? s.agent);
                       return (
@@ -886,8 +910,8 @@ export function StartEpicModal({
                   </>
                 ) : (
                   <div className="px-3 py-4 text-center text-[11px] leading-relaxed text-muted-foreground">
-                    No pipelines of your own yet — add one in the Workspace Builder,
-                    or pick a built-in on the other tab.
+                    Nothing of your own yet — add a pipeline or recipe in the
+                    Workspace Builder, or pick a built-in on the other tab.
                   </div>
                 )}
               </>

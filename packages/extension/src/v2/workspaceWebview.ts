@@ -406,6 +406,13 @@ interface RecipeSummary {
   steps: string[];
   /** Resolved agent ids (ordered) for capability prompts in the modal. */
   agents: string[];
+  /**
+   * True when the row is one of AIDLC's own recipes rather than one the
+   * workspace wrote. `preset apply` copies the built-ins into workspace.yaml,
+   * so by the time the picker sees them the two are the same shape — only the
+   * (id, source pipeline) pair tells them apart.
+   */
+  builtin?: boolean;
 }
 
 interface AgentMeta {
@@ -588,6 +595,18 @@ const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
 
 // ── State builders ────────────────────────────────────────────────────────
 
+/** Identity of a recipe row — an id alone is not unique across pipelines. */
+const recipeKey = (id: string, from: string): string => `${id} ${from}`;
+
+/**
+ * Every recipe AIDLC ships, keyed by (id, source pipeline). A recipe the user
+ * wrote over a built-in pipeline is still theirs, and a built-in id reused on
+ * a custom pipeline is not ours — so the pair, not the id, is the test.
+ */
+const BUILTIN_RECIPE_KEYS = new Set(
+  getBuiltinRecipeSummaries().map((r) => recipeKey(r.id, r.from)),
+);
+
 /**
  * Resolve a raw recipe entry into a {@link RecipeSummary}, mapping its step
  * ids to the source pipeline's agent ids (in recipe order). Returns null when
@@ -616,6 +635,7 @@ function buildRecipeSummary(
     from: String(source.id),
     steps: r.steps,
     agents,
+    builtin: BUILTIN_RECIPE_KEYS.has(recipeKey(r.id, String(source.id))),
   };
 }
 
@@ -708,7 +728,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       configExists: false,
       agents, skills,
       pipelines: builtinPipelines,
-      recipes: getBuiltinRecipeSummaries(),
+      recipes: getBuiltinRecipeSummaries().map((r) => ({ ...r, builtin: true })),
       epics,
       agentMeta, slashCommandsByAgent,
       agentsCount: agents.length,
