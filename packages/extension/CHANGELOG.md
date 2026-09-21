@@ -1,5 +1,38 @@
 # Changelog
 
+## 4.0.2
+
+Epics can carry tags now, and the epic list filters by them. The Start epic
+modal also stops opening with a dozen workflow rows: it shows the one that is
+selected, and opens the full list only when you ask for it.
+
+### Added
+
+- **Tags on epics.** Type them freely — they are stored in one canonical form:
+  uppercase ASCII, dash-separated, accents folded (`thanh toán VNPay` →
+  `THANH-TOAN-VNPAY`), so three spellings of a theme stay one bucket and a
+  filter finds all of it.
+  - VS Code: a Tags field on Start epic, tag chips on every epic card (click
+    one to filter by it), an inline editor for retagging afterwards, and a
+    filter row above the list with per-tag counts. Selecting several tags
+    narrows — an epic has to carry all of them.
+  - CLI: `aidlc epic start <id> --tag payment --tag "thanh toán"`,
+    `aidlc epic list --tag payment` (repeatable, AND), and
+    `aidlc epic tag <id> [tags…]` with `--add` / `--remove` / `--set` /
+    `--clear` to retag an existing epic.
+  - New epics get a `tags` key in `state.json` even when empty, so it is there
+    to fill in by hand.
+
+### Changed
+
+- **The Start epic workflow picker is collapsed by default.** It shows the
+  selected workflow only, plus a `Change workflow · N options` bar that opens
+  the full list; picking a row closes it again. Once open, a **Built-in /
+  Custom** switch separates AIDLC's recipes and pipelines from the ones your
+  workspace defines, and opens on the tab holding the current selection.
+  *Auto — suggest from task* stays above the switch, since it resolves to a
+  recipe rather than being a source of its own.
+
 ## 4.0.1
 
 The Marketplace, Open VSX and npm pages are rewritten for AIDLC Native.
