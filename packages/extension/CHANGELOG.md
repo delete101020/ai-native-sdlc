@@ -1,5 +1,29 @@
 # Changelog
 
+## 4.0.6
+
+The panel's step buttons work again: "Mark step done" and the other run-gate
+buttons now actually run, and "Run with Claude" sends a command that exists.
+
+### Fixed
+
+- **"Mark step done" did nothing.** Mark step done, Approve, Reject, Rerun,
+  Run auto-review and Open run state all built their command id under the
+  wrong namespace, so the click resolved to no command at all — and the
+  failure was swallowed, with no message anywhere. A step with every artifact
+  written and no gate left to clear simply would not advance.
+- **The wrong step advanced on a DAG pipeline.** The sidebar dropped the step
+  the panel had named, and acted on the run's cursor instead.
+- **"Run with Claude" called a command that cannot exist.** On an epic that
+  owns its pipeline, the button spelled the epic id into the command name
+  (`/CR-Y01-cr-solo-dev`), and Claude answered "Unknown command". The step's
+  own `skills:` entry names the command file that runs it and is now used;
+  the epic id goes where it belongs, in the argument
+  (`/cr-solo-dev CR-Y01`).
+- **A failing panel action is no longer silent.** Every webview message
+  handler is wrapped, so a handler that throws reports it in the
+  "AIDLC Native · Webview" output channel and to the user.
+
 ## 4.0.5
 
 A step that writes four files can now be opened from the panel four times,

@@ -2,7 +2,7 @@
   "name": "aidlc-native",
   "displayName": "AIDLC Native",
   "description": "AI-Native SDLC pipeline runner for VS Code, a fork of AIDLC. Drive Claude through the six-stage AI-Native SDLC Playbook — Plan → Design → Build → Test → Deploy → Maintain, where Maintain's incident loop opens the next Plan — step by step or unattended. Each epic owns its pipeline, depth and review gates: human-in-the-loop and headless auto-review gates, artifact annotation, requirements traceability, and an AIDLC Monitor with token usage & live observability. Also ships the classic AIDLC workflow and Spec Kit.",
-  "version": "4.0.5",
+  "version": "4.0.6",
   "publisher": "delete101020",
   "license": "MIT",
   "repository": {
