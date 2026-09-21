@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.0.7
+
+Parallel steps are workable again. A pipeline that opens two steps at once now
+tracks an agent per step instead of per run, so the step nobody is working on
+keeps its own controls.
+
+### Fixed
+
+- **A parallel step could not be run while its sibling was busy.** The panel
+  kept one "agent running" entry per run, so launching one step marked the
+  whole epic busy: focusing the open sibling still showed *Agent running*, and
+  its **Run with Claude** and **Mark step done** buttons stayed disabled until
+  the other agent finished. Each step now has its own entry — its gates wait on
+  its own agent, and on nothing else.
+- **A step transition cleared a sibling's banner.** Approving one step ended
+  the "agent running" state for every step of the run, including one an agent
+  was still writing. Only the steps a transition actually moved are cleared
+  now, and dismissing a banner dismisses that step's alone.
+
+### Changed
+
+- The stepper spins the node of any step with an agent on it, so the running
+  branch is findable before clicking into it.
+- **Run to completion** and **Delete epic** still wait on the whole run — they
+  drive it — and now name the parallel step they are waiting for.
+- The Active Runs sidebar lists one line per running agent, labelled by step
+  when a run has more than one.
+
 ## 4.0.6
 
 The panel's step buttons work again: "Mark step done" and the other run-gate
