@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.0.3
+
+A workspace that writes its own recipes gets them back where they belong: the
+Start epic picker no longer files them under "Built-in".
+
+### Fixed
+
+- **Your recipes are yours.** `preset apply` copies AIDLC's recipes into
+  `workspace.yaml`, so a built-in and a hand-written recipe reach the picker
+  looking identical — and every recipe was listed under **Built-in**, with
+  **Custom** holding pipelines alone. Recipes now carry an origin, decided by
+  the recipe's id *together with* its source pipeline: a recipe you wrote over
+  a built-in pipeline is still yours, and a built-in id reused on a pipeline of
+  yours is not AIDLC's. The Custom tab gained a **Your recipes** group, and the
+  tab counts, the tab the picker opens on, and the tab "Change workflow" lands
+  on all follow the same split.
+
 ## 4.0.2
 
 Epics can carry tags now, and the epic list filters by them. The Start epic

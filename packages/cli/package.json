@@ -1,6 +1,6 @@
 {
   "name": "@delete101020/aidlc",
-  "version": "4.0.2",
+  "version": "4.0.3",
   "description": "AIDLC Native CLI, a fork of AIDLC — drive Claude through the six-stage AI-Native SDLC Playbook: Plan → Design → Build → Test → Deploy → Maintain, with artifact gates, requirements traceability, an incident loop back to Plan, and Spec Kit support.",
   "license": "MIT",
   "repository": {
