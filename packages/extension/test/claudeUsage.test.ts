@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   parseUsageWindows,
+  usageAlert,
   statusBarWindows,
   usageMarkdown,
   usageStatusText,
@@ -127,6 +128,51 @@ describe('plan usage rendering', () => {
       ],
     });
     expect(statusBarWindows(windows).map((w) => w.shortLabel)).toEqual(['5h', 'monthly']);
+  });
+
+  it('colours by the window that gates every model, not the tightest one', () => {
+    const windows = parseUsageWindows({
+      limits: [
+        { kind: 'session', group: 'session', percent: 20, severity: 'normal', resets_at: null },
+        { kind: 'weekly_all', group: 'weekly', percent: 40, severity: 'normal', resets_at: null },
+        { kind: 'weekly_fable', group: 'weekly', percent: 97, severity: 'normal', resets_at: null },
+      ],
+    });
+    // Fable is at 3% left, but the fix for that is to run the next step on
+    // another model — amber, and never the red that means "everything stops".
+    const alert = usageAlert({ kind: 'ok', windows, tightest: windows[2], fetchedAt: 0 });
+    expect(alert.level).toBe('warning');
+    expect(alert.window?.key).toBe('weekly_fable');
+  });
+
+  it('goes red when a gating window is at the wall', () => {
+    const windows = parseUsageWindows({
+      limits: [
+        { kind: 'session', group: 'session', percent: 96, severity: 'normal', resets_at: null },
+        { kind: 'weekly_all', group: 'weekly', percent: 40, severity: 'normal', resets_at: null },
+      ],
+    });
+    const alert = usageAlert({ kind: 'ok', windows, tightest: windows[0], fetchedAt: 0 });
+    expect(alert).toMatchObject({ level: 'critical' });
+    expect(alert.window?.key).toBe('session');
+  });
+
+  it('defers to the server on overage, and stays quiet with room everywhere', () => {
+    const locked = parseUsageWindows({
+      limits: [{ kind: 'weekly_all', group: 'weekly', percent: 61, severity: 'critical', resets_at: null }],
+    });
+    expect(usageAlert({ kind: 'ok', windows: locked, tightest: locked[0], fetchedAt: 0 }).level)
+      .toBe('critical');
+
+    const roomy = parseUsageWindows({
+      limits: [
+        { kind: 'session', group: 'session', percent: 10, severity: 'normal', resets_at: null },
+        { kind: 'weekly_fable', group: 'weekly', percent: 50, severity: 'normal', resets_at: null },
+      ],
+    });
+    expect(usageAlert({ kind: 'ok', windows: roomy, tightest: roomy[1], fetchedAt: 0 }).level)
+      .toBe('none');
+    expect(usageAlert({ kind: 'no-plan' }).level).toBe('none');
   });
 
   it('says nothing at all when there is nothing trustworthy to say', () => {

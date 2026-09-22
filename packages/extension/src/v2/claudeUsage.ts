@@ -463,6 +463,54 @@ export function usageStatusText(
   return picked.map((w) => `${w.shortLabel} ${w.remainingPct}%`).join(' · ');
 }
 
+/** How loudly the status bar should say it, and which window is saying it. */
+export interface UsageAlert {
+  level: 'critical' | 'warning' | 'none';
+  /** The window the level came from — `undefined` only when the level is `none`. */
+  window?: UsageWindow;
+}
+
+/** A window whose exhaustion stops *all* work, not just one model's. */
+function blocksEverything(w: UsageWindow): boolean {
+  return w.group === 'session' || WEEKLY_ALL.has(w.key);
+}
+
+/**
+ * What the status bar's background colour should be, and why.
+ *
+ * Red has to keep meaning "you are about to be refused". Only the 5-hour and
+ * all-models weekly windows can say that: they gate every model, so running
+ * one down stops the work outright. A per-model weekly window running down is
+ * a different, smaller event — the fix is to run the next step on another
+ * model, not to stop — so it is worth amber and never worth red. Colouring by
+ * the tightest window of all made a nearly-spent Fable week look exactly like
+ * a spent account, which is how you teach someone to ignore the colour.
+ *
+ * The server's own `severity` wins where it has an opinion: it knows about
+ * overage and locks, which no percentage here can tell us about.
+ */
+export function usageAlert(state: UsageState | undefined): UsageAlert {
+  if (state?.kind !== 'ok' || !state.windows.length) { return { level: 'none' }; }
+
+  const severe = (w: UsageWindow): boolean => w.severity === 'critical';
+  const flagged = (w: UsageWindow): boolean => w.severity !== 'normal' && w.severity !== 'none';
+
+  const gating = state.windows.filter(blocksEverything);
+  // A plan that reports only per-model windows still deserves a warning, so
+  // fall back to all of them rather than going silent.
+  const primary = (gating.length ? gating : state.windows)
+    .reduce((a, b) => (b.usedPct > a.usedPct ? b : a));
+
+  if (severe(primary) || primary.remainingPct <= 5) { return { level: 'critical', window: primary }; }
+  if (flagged(primary) || primary.remainingPct <= 20) { return { level: 'warning', window: primary }; }
+
+  // Nothing gating is close, but a model window may be: amber, capped there.
+  const model = state.windows
+    .filter((w) => !blocksEverything(w) && (severe(w) || flagged(w) || w.remainingPct <= 20))
+    .reduce<UsageWindow | undefined>((a, b) => (!a || b.usedPct > a.usedPct ? b : a), undefined);
+  return model ? { level: 'warning', window: model } : { level: 'none' };
+}
+
 /** One line for a status bar or a QuickPick row. `undefined` = say nothing. */
 export function usageSummary(state: UsageState | undefined): string | undefined {
   switch (state?.kind) {
@@ -522,18 +570,27 @@ export function registerClaudePlanUsage(
   const render = (state: UsageState): void => {
     if (state.kind === 'ok') {
       item.text = `$(pulse) ${usageStatusText(state, statusBarStyle())}`;
-      // Red at the wall, yellow in the last fifth — the point is to be noticed
-      // before a run is refused, not after. The server's own `severity` wins
-      // where it has an opinion, since it knows about overage and locks.
-      const { remainingPct, severity } = state.tightest;
+      // Red at the wall, amber in the last fifth — the point is to be noticed
+      // before a run is refused, not after. Which window gets to say it is
+      // {@link usageAlert}'s call.
+      const alert = usageAlert(state);
       item.backgroundColor =
-        severity === 'critical' || remainingPct <= 5
+        alert.level === 'critical'
           ? new vscode.ThemeColor('statusBarItem.errorBackground')
-          : (severity !== 'normal' && severity !== 'none') || remainingPct <= 20
+          : alert.level === 'warning'
             ? new vscode.ThemeColor('statusBarItem.warningBackground')
             : undefined;
       item.tooltip = new vscode.MarkdownString(
-        ['**Claude plan usage left**', '', ...usageMarkdown(state), '', 'Click to refresh.'].join('\n'),
+        [
+          '**Claude plan usage left**',
+          '',
+          ...usageMarkdown(state),
+          ...(alert.window
+            ? ['', `_${alert.window.label} is what the colour is about._`]
+            : []),
+          '',
+          'Click to refresh.',
+        ].join('\n'),
       );
       item.show();
       return;
