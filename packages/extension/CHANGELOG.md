@@ -1,5 +1,28 @@
 # Changelog
 
+## 4.0.13
+
+The artifacts a step produced are now visible without leaving the epic panel,
+including the ones a pipeline could not name in advance.
+
+### Fixed
+
+- **A produced folder lists the files inside it.** A step that declares a
+  folder rather than filenames — `docs/cr/{epic}/diagrams/` — showed one chip
+  for the folder and nothing else, so the documents it generated were reachable
+  only through the explorer, although the panel can already render an `.html`
+  artifact itself. One level of real files is now listed beneath the folder
+  entry, which stays first: it is what the step declared, and the way to
+  anything deeper.
+- **The panel notices artifacts as they land.** Its watchers covered the run's
+  own bookkeeping and the built-in `artifacts/` layout, so a workflow writing
+  anywhere else — `docs/cr/<id>/`, say — left every artifact reading *"not
+  produced yet"* until an unrelated change happened to force a refresh. The
+  directories watched are now derived from the workspace's own `produces:`
+  paths and rebuilt when `workspace.yaml` changes; the refresh is debounced,
+  because finishing one step writes a document, its diagrams and its index
+  within a second or two.
+
 ## 4.0.12
 
 Two things that were previously only knowable by leaving the editor: how much
