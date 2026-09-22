@@ -709,7 +709,12 @@ export interface EpicSummary {
   title: string;
   description: string;
   status: 'pending' | 'in_progress' | 'done' | 'failed';
+  /** Weighted completion 0–100: steps that run as peers count as one stage. */
   progress: number;
+  /** Stages the pipeline has. Absent on an older host bundle. */
+  stages?: number;
+  /** Stages finished, fractional while a stage is only partly done. */
+  stagesDone?: number;
   statePath: string;
   stepDetails: EpicStepDetailFull[];
   currentStep: number;

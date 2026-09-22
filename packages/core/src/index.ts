@@ -414,8 +414,9 @@ export {
   isRunComplete,
   isStepOptional,
   isActiveStatus,
+  weighStepProgress,
 } from './runs/runProgress';
-export type { RunProgress } from './runs/runProgress';
+export type { RunProgress, ProgressStep, ProgressWeighting } from './runs/runProgress';
 export { checkBudget } from './runs/budget';
 export type { BudgetCheckArgs, BudgetVerdict, CostAccounting, CostConfidence } from './runs/budget';
 export {

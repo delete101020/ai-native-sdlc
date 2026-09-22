@@ -50,7 +50,7 @@ import {
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { readYaml, requireYaml, writeYaml, existingIds } from '../yamlIO';
-import { listEpics, loadEpic, type EpicStatus, type EpicSummary } from '../epicsList';
+import { epicProgress, listEpics, loadEpic, type EpicStatus, type EpicSummary } from '../epicsList';
 import { classifyWithLlm } from './pipeline';
 
 export function registerEpic(program: Command): void {
@@ -108,7 +108,9 @@ export function registerEpic(program: Command): void {
       for (const epic of epics) {
         const total = epic.stepDetails.length;
         const done  = epic.stepDetails.filter(s => s.status === 'done').length;
-        const pct   = total ? Math.round((done / total) * 100) : 0;
+        // Counted in stages, so a fan-out does not inflate the percentage —
+        // the steps either side of it stay the same fraction of the work.
+        const pct   = epicProgress(epic).percent;
         const stepLabel = total ? `${done}/${total} (${pct}%)` : '—';
 
         table.push([

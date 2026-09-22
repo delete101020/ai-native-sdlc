@@ -239,6 +239,7 @@ import {
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
   expandHome,
+  weighStepProgress,
 } from '@aidlc/core';
 import { SKILL_TEMPLATES } from './skillTemplates';
 import {
@@ -509,7 +510,12 @@ interface EpicSummaryUi {
   title: string;
   description: string;
   status: 'pending' | 'in_progress' | 'done' | 'failed';
+  /** Weighted completion 0–100 — see {@link stages}. */
   progress: number;
+  /** Stages the pipeline has: steps that run as peers count as one. */
+  stages: number;
+  /** Stages finished, fractional while a stage is only partly done. */
+  stagesDone: number;
   statePath: string;
   stepDetails: EpicStepDetailFull[];
   currentStep: number;
@@ -1051,9 +1057,17 @@ function readHookFailures(epicDir: string): FollowUpHookFailureUi[] | undefined 
 }
 
 function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
-  const total = e.stepDetails.length || 1;
-  const done = e.stepDetails.filter((s) => s.status === 'done').length;
-  const progress = Math.round((done / total) * 100);
+  // By stage, not by step: three peers that all wait on the same step are one
+  // round of work, and counting them three times makes a wide pipeline look
+  // further along than a narrow one that got the same distance.
+  const weighted = weighStepProgress(
+    e.stepDetails.map((s) => ({
+      id: s.name ?? s.agent,
+      dependsOn: s.dependsOn,
+      done: s.status === 'done',
+    })),
+  );
+  const progress = weighted.percent;
   const epicDir = e.epicDir;
   const artifactsDir = path.join(epicDir, 'artifacts');
   let existingArtifacts: string[] = [];
@@ -1068,6 +1082,8 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     description: e.description,
     status: e.status,
     progress,
+    stages: weighted.stages,
+    stagesDone: weighted.stagesDone,
     statePath: e.statePath,
     stepDetails: e.stepDetails.map((s) => ({
       agent: s.agent,

@@ -140,3 +140,102 @@ export function isRunComplete(state: RunState, pipeline: PipelineConfig): boolea
     return s.status === 'rejected' || s.status === 'pending';
   });
 }
+
+/** One step, as the progress weighting needs to see it. */
+export interface ProgressStep {
+  /** The step's identity — `name ?? agent`, the same id `depends_on` uses. */
+  id: string;
+  /** Ids this step waits on. Absent/empty means it starts at the front. */
+  dependsOn?: readonly string[];
+  /** Whether this step is finished, however the caller defines finished. */
+  done: boolean;
+}
+
+/** How far along a run is, counting parallel steps as one unit of work. */
+export interface ProgressWeighting {
+  /** Longest-path depth per step — steps sharing one are peers. */
+  ranks: number[];
+  /** Each step's share of the run, in [0, 1]. Peers split their rank's unit. */
+  weights: number[];
+  /** Number of distinct ranks: the units the run is measured in. */
+  stages: number;
+  /** Completed stages, fractional while a rank is partly done. */
+  stagesDone: number;
+  /** `stagesDone / stages` as a rounded percentage. */
+  percent: number;
+}
+
+/**
+ * Weigh a run's progress by stage rather than by step.
+ *
+ * Counting steps makes a pipeline's percentage depend on how wide it is, not
+ * how far it has come: CR-Y01 fans out to `cr-solo-ba`, `cr-solo-dev` and
+ * `cr-solo-qc`, which all wait on the same step and all feed the same one, so
+ * finishing the three of them is one round of work — yet by step count it is
+ * a third of the pipeline, and a pipeline that split that round five ways
+ * would claim more progress for the same amount of review.
+ *
+ * So steps are grouped by rank (longest path from a root), peers share their
+ * rank's single unit, and the total is the number of ranks. A pipeline with no
+ * `depends_on` gives every step its own rank, which is the old count exactly —
+ * sequential pipelines are unaffected.
+ *
+ * Pure, and never throws: an id that nothing declares, a duplicate id, or a
+ * dependency cycle each just stop constraining the rank they appear in.
+ */
+export function weighStepProgress(steps: ReadonlyArray<ProgressStep>): ProgressWeighting {
+  const n = steps.length;
+  if (n === 0) {
+    return { ranks: [], weights: [], stages: 0, stagesDone: 0, percent: 0 };
+  }
+
+  // First index wins on a duplicate id: two steps can share an agent with no
+  // `name`, and `depends_on` can only ever have meant one of them.
+  const idxById = new Map<string, number>();
+  steps.forEach((s, i) => { if (!idxById.has(s.id)) { idxById.set(s.id, i); } });
+
+  // No step declares a dependency: index order is the chain, exactly as
+  // `startRun` reads it. Every step is then its own stage, which is the plain
+  // step count — a sequential pipeline's percentage does not move.
+  if (!steps.some((s) => (s.dependsOn?.length ?? 0) > 0)) {
+    const ranks = steps.map((_, i) => i);
+    const weights = steps.map(() => 1);
+    const stagesDone = steps.reduce((sum, s) => (s.done ? sum + 1 : sum), 0);
+    return { ranks, weights, stages: n, stagesDone, percent: Math.round((stagesDone / n) * 100) };
+  }
+
+  const ranks = new Array<number>(n).fill(-1);
+  const visiting = new Array<boolean>(n).fill(false);
+  const rankOf = (i: number): number => {
+    if (ranks[i] >= 0) { return ranks[i]; }
+    // A cycle is a broken pipeline, not a reason to hang: treat the step we
+    // re-entered as a root and let the rest of the graph resolve around it.
+    if (visiting[i]) { return 0; }
+    visiting[i] = true;
+    let rank = 0;
+    for (const dep of steps[i].dependsOn ?? []) {
+      const j = idxById.get(dep);
+      if (j === undefined || j === i) { continue; }
+      rank = Math.max(rank, rankOf(j) + 1);
+    }
+    visiting[i] = false;
+    ranks[i] = rank;
+    return rank;
+  };
+  for (let i = 0; i < n; i++) { rankOf(i); }
+
+  const sizeByRank = new Map<number, number>();
+  for (const r of ranks) { sizeByRank.set(r, (sizeByRank.get(r) ?? 0) + 1); }
+
+  const weights = ranks.map((r) => 1 / (sizeByRank.get(r) ?? 1));
+  const stages = sizeByRank.size;
+  const stagesDone = steps.reduce((sum, s, i) => (s.done ? sum + weights[i] : sum), 0);
+
+  return {
+    ranks,
+    weights,
+    stages,
+    stagesDone,
+    percent: stages > 0 ? Math.round((stagesDone / stages) * 100) : 0,
+  };
+}

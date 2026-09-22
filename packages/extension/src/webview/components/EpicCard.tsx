@@ -131,6 +131,24 @@ interface Props {
   onTagClick?: (tag: string) => void;
 }
 
+/**
+ * What the percentage is counted in. The bar measures stages, not steps —
+ * steps that run as peers share one — so a card showing "3/9 steps done" next
+ * to 33% needs to say where the 33% came from.
+ */
+function progressTitle(epic: EpicSummary): string {
+  const total = epic.stepDetails.length;
+  const done = epic.stepDetails.filter((s) => s.status === 'done').length;
+  if (typeof epic.stages !== 'number' || epic.stages === 0) {
+    return `${done} of ${total} steps done`;
+  }
+  const stagesDone = Math.round((epic.stagesDone ?? 0) * 10) / 10;
+  return epic.stages === total
+    ? `${done} of ${total} steps done`
+    : `${stagesDone} of ${epic.stages} stages done — ${done} of ${total} steps, `
+      + 'with steps that run as peers counting as one stage';
+}
+
 export function EpicCard({
   epic,
   agentMeta,
@@ -218,7 +236,7 @@ export function EpicCard({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5" title={progressTitle(epic)}>
             <div className="h-1.5 w-20 overflow-hidden rounded-full bg-secondary">
               <div
                 className={cn(
