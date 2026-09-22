@@ -82,6 +82,15 @@ export type {
 } from './runs/EpicScaffold';
 
 export {
+  setEpicDescription,
+  EpicDescriptionError,
+} from './runs/EpicDescription';
+export type {
+  EpicDescriptionEdit,
+  EpicDocOutcome,
+} from './runs/EpicDescription';
+
+export {
   planAddEpicStep,
   planRemoveEpicStep,
   planSetEpicStepGates,

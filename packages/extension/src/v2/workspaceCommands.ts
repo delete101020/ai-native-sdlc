@@ -44,7 +44,7 @@ import { uninstallWorkflowGlobalsCommand } from './uninstallWorkflowGlobalsComma
 import { readYaml } from './yamlIO';
 import { agentActivity } from './agentActivity';
 import { StandardPickerWebview } from './standardPickerWebview';
-import { startEpicCommand } from './epicWizard';
+import { startEpicCommand, editEpicDescriptionCommand } from './epicWizard';
 import { analyzeRequirementsCommand } from './requirementWizard';
 import { registerAskCommand } from './askCommand';
 import { insertDemoEpicCommand } from './demoEpic';
@@ -319,6 +319,14 @@ export function registerV2WorkspaceCommands(
   const startEpicCmd = vscode.commands.registerCommand(
     'aidlcNative.startEpic',
     () => startEpicCommand(),
+  );
+
+  // The Epics panel edits a description inline; this is the same edit for when
+  // the panel is not open. Takes an optional epic id so a caller that already
+  // knows which epic (a tree item, another command) skips the picker.
+  const editEpicDescriptionCmd = vscode.commands.registerCommand(
+    'aidlcNative.editEpicDescription',
+    (epicId?: string) => editEpicDescriptionCommand(typeof epicId === 'string' ? epicId : undefined),
   );
 
   const analyzeRequirementsCmd = vscode.commands.registerCommand(
@@ -642,6 +650,7 @@ export function registerV2WorkspaceCommands(
       uninstallWorkflowGlobalsCmd,
       migrateEpicsCmd,
       startEpicCmd,
+      editEpicDescriptionCmd,
       analyzeRequirementsCmd,
       selectStandardCmd,
       openEpicsListCmd,

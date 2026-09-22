@@ -14,6 +14,8 @@ import {
   heuristicClassify,
   scaffoldEpic,
   EpicScaffoldError,
+  setEpicDescription,
+  EpicDescriptionError,
   epicsRoot,
   readGitUserName,
   readUserConfig,
@@ -381,6 +383,68 @@ export function registerEpic(program: Command): void {
         (after.length > 0 ? chalk.cyan(after.join(' ')) : chalk.dim('(none)')));
       if (before.length > 0) {
         console.log(chalk.dim(`  was: ${before.join(' ')}`));
+      }
+    });
+
+  // ── describe ───────────────────────────────────────────────────────────────
+  //
+  // The description is the epic's brief, and a brief is clearest a day in — not
+  // at the moment the wizard asked for it. Alongside state.json this also moves
+  // the lead paragraph of `<id>.md`, which is the copy the first phase's skill
+  // reads; core `setEpicDescription` owns both, and leaves a brief someone has
+  // since rewritten by hand alone.
+  cmd
+    .command('describe <id> [text...]')
+    .description("Show or set an epic's description. Bare `describe <id>` prints it.")
+    .option('--clear', 'empty the description')
+    .option('--json', 'Output the result as JSON')
+    .action((id: string, text: string[], opts: { clear?: boolean; json?: boolean }, actionCmd: Command) => {
+      const root = resolveWorkspaceRoot(actionCmd);
+      const doc  = readYaml(root);
+      const dir  = path.join(epicsRoot(root, doc), id);
+      const file = path.join(dir, 'state.json');
+
+      if (!fs.existsSync(file)) {
+        const all = listEpics(root, doc).map(e => e.id);
+        console.error(chalk.red(`Epic "${id}" not found.`));
+        if (all.length > 0) { console.error(chalk.dim(`Available: ${all.join(', ')}`)); }
+        process.exit(1);
+      }
+
+      const words = text.join(' ').trim();
+      if (!opts.clear && words === '') {
+        let current = '';
+        try {
+          const state = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+          current = typeof state.description === 'string' ? state.description : '';
+        } catch (err) {
+          console.error(chalk.red(`Could not read ${file}: ${err instanceof Error ? err.message : String(err)}`));
+          process.exit(1);
+        }
+        if (opts.json) { console.log(JSON.stringify({ id, description: current }, null, 2)); return; }
+        console.log(current ? current : chalk.dim('(no description)'));
+        return;
+      }
+
+      try {
+        const edit = setEpicDescription(dir, id, opts.clear ? '' : words);
+        if (opts.json) {
+          console.log(JSON.stringify(edit, null, 2));
+          return;
+        }
+        console.log(chalk.green('✔') + ` ${chalk.bold(id)}: ` +
+          (edit.description ? edit.description : chalk.dim('(no description)')));
+        if (edit.previous) { console.log(chalk.dim(`  was: ${edit.previous}`)); }
+        // Naming the brief's outcome matters most when it is `kept`: state.json
+        // moved and the file agents read did not.
+        console.log(chalk.dim(`  ${id}.md: ${
+          edit.doc === 'kept'
+            ? 'left as it is — written by hand since, and agents read it'
+            : edit.doc === 'created' ? 'created' : edit.doc
+        }`));
+      } catch (err) {
+        console.error(chalk.red(err instanceof EpicDescriptionError ? err.message : String(err)));
+        process.exit(1);
       }
     });
 

@@ -422,12 +422,6 @@ function FollowUpHookFailures({ epic }: { epic: EpicSummary }) {
 }
 
 /**
- * Epic description. When the full requirement lives in an `init-requirement.md`
- * (or similarly named) artifact, keep the card concise by showing a link to
- * open that file instead of dumping the text inline. Falls back to the plain
- * description when no such file exists.
- */
-/**
  * The incident ⇄ follow-up edge, drawn in the card header.
  *
  * The link already existed on disk — `from_epic` in inputs.json, and the
@@ -735,32 +729,106 @@ function DepthBadge({ epic }: { epic: EpicSummary }) {
   );
 }
 
+/**
+ * The epic's description, and the only place it can be changed after the
+ * wizard captured it.
+ *
+ * It was read-only until now, which made a sentence typed in a hurry permanent:
+ * every panel shows it, and the first phase's skill reads it out of the .md
+ * brief. Editing writes both — see core `setEpicDescription` — and stops at a
+ * brief somebody has since rewritten by hand.
+ *
+ * When the real requirement lives in an `init-requirement.md` artifact the card
+ * links to that file instead of dumping its text inline; the one-liner behind
+ * it is still editable, since that is what the list rows show.
+ */
 function EpicDescription({ epic }: { epic: EpicSummary }) {
   const reqFile = epic.existingArtifacts.find((f) =>
-    /init.?requirements?.*\.md$/i.test(f),
+    /init.?requirements?.*.md$/i.test(f),
   );
-  if (reqFile) {
+  const saved = (epic.description ?? '').trim();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(saved);
+
+  const open = () => { setDraft(saved); setEditing(true); };
+  const save = () => {
+    const next = draft.trim();
+    // Nothing changed → no write, no refresh: a refresh re-renders every card
+    // and costs the user their scroll position.
+    if (next !== saved) {
+      postMessage({ type: 'setEpicDescription', epicId: epic.id, description: next });
+    }
+    setEditing(false);
+  };
+
+  if (editing) {
     return (
-      <button
-        type="button"
-        onClick={() =>
-          postMessage({ type: 'openArtifactFile', epicDir: epic.epicDir, filename: reqFile })
-        }
-        className="inline-flex w-fit items-center gap-1.5 rounded border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[11px] text-primary transition-colors hover:border-primary/50 hover:bg-primary/20"
-        title={`Open ${reqFile}`}
-      >
-        <FileText className="h-3 w-3" />
-        {reqFile}
-      </button>
+      <div className="space-y-2 rounded-md border border-border bg-surface/40 p-2.5">
+        <textarea
+          autoFocus
+          rows={3}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { e.stopPropagation(); setEditing(false); }
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+          }}
+          placeholder="One-line summary of what this epic delivers"
+          className="w-full resize-y rounded border border-border bg-background px-2 py-1.5 text-xs leading-relaxed text-foreground outline-none focus:border-primary/60"
+        />
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={save}
+            className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Save description
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            className="rounded-md px-2.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            Cancel
+          </button>
+          <span className="ml-auto text-[10px] text-muted-foreground">
+            Also rewrites the lead of {epic.id}.md, unless it has been rewritten by hand
+          </span>
+        </div>
+      </div>
     );
   }
-  const desc = (epic.description ?? '').trim();
-  if (!desc) { return null; }
+
   return (
-    <p className="text-xs italic leading-relaxed text-muted-foreground">{desc}</p>
+    <div className="flex flex-wrap items-start gap-2">
+      {reqFile ? (
+        <button
+          type="button"
+          onClick={() =>
+            postMessage({ type: 'openArtifactFile', epicDir: epic.epicDir, filename: reqFile })
+          }
+          className="inline-flex w-fit items-center gap-1.5 rounded border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[11px] text-primary transition-colors hover:border-primary/50 hover:bg-primary/20"
+          title={`Open ${reqFile}`}
+        >
+          <FileText className="h-3 w-3" />
+          {reqFile}
+        </button>
+      ) : saved ? (
+        <p className="min-w-0 flex-1 text-xs italic leading-relaxed text-muted-foreground">{saved}</p>
+      ) : (
+        <span className="text-[11px] text-muted-foreground">No description</span>
+      )}
+      <button
+        type="button"
+        onClick={open}
+        title="Edit this epic's description — writes state.json and the lead of its .md brief"
+        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        {saved ? 'Edit' : 'Add description'}
+      </button>
+    </div>
   );
 }
-
 function Frag({ keyName, value }: { keyName: string; value: string }) {
   return (
     <>

@@ -44,6 +44,8 @@ import {
   readUserConfig,
   suggestEpicId,
   lockedEpicDirError,
+  setEpicDescription,
+  EpicDescriptionError,
 } from '@aidlc/core';
 import type { PipelineConfig } from '@aidlc/core';
 
@@ -98,6 +100,123 @@ const CAPABILITY_PROMPTS: Record<string, CapabilityPrompt> = {
   'files':         { prompt: 'Files glob (relative to project root)',     placeholder: 'src/**/*.ts' },
   'web':           { prompt: 'URLs to fetch (comma-separated, optional)', placeholder: 'https://example.com/...' },
 };
+
+// ── Edit description ────────────────────────────────────────────────────
+
+/**
+ * `aidlcNative.editEpicDescription` — change an epic's description after it was
+ * created, from anywhere.
+ *
+ * The wizard asked for it once and nothing could change it afterwards, which is
+ * the wrong shape for a field that is the *brief*: what an epic is for is
+ * usually clearest a day into it. The Epics panel has an inline editor for the
+ * same thing; this is the version for when the panel is not open, and for an
+ * epic the panel is not currently showing.
+ *
+ * Both write through core `setEpicDescription`, so both move state.json and the
+ * lead of `<epicId>.md` — the copy agents actually read.
+ */
+export async function editEpicDescriptionCommand(explicitEpicId?: string): Promise<void> {
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) {
+    void vscode.window.showWarningMessage('AIDLC: Open a project first.');
+    return;
+  }
+  const doc = readYaml(root);
+  const epicsDir = path.resolve(root, doc ? readEpicRoot(doc) : 'docs/epics');
+
+  const epicId = explicitEpicId ?? await pickExistingEpic(epicsDir);
+  if (!epicId) { return; }
+
+  const epicDir = path.join(epicsDir, epicId);
+  let current = '';
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(epicDir, 'state.json'), 'utf8'));
+    current = typeof state?.description === 'string' ? state.description : '';
+  } catch (err) {
+    void vscode.window.showWarningMessage(
+      `AIDLC: cannot read the state of ${epicId} — ${String(err)}`,
+    );
+    return;
+  }
+
+  const next = await vscode.window.showInputBox({
+    prompt: `Description for ${epicId}`,
+    placeHolder: 'One-line summary of what this epic delivers',
+    value: current,
+    ignoreFocusOut: true,
+  });
+  if (next === undefined) { return; }
+
+  let edit;
+  try {
+    edit = setEpicDescription(epicDir, epicId, next);
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      `AIDLC: ${err instanceof EpicDescriptionError ? err.message : String(err)}`,
+    );
+    return;
+  }
+
+  // Say which files moved. "Updated" alone would let the `kept` case — the
+  // brief was rewritten by hand, so it was left alone — pass as a full success.
+  const where = edit.doc === 'kept'
+    ? `state.json updated. ${epicId}.md was written by hand and was left as it is — agents read that file.`
+    : edit.doc === 'created'
+      ? `state.json and a new ${epicId}.md brief updated.`
+      : edit.doc === 'updated'
+        ? `state.json and the ${epicId}.md brief updated.`
+        : 'state.json updated.';
+  void vscode.window.showInformationMessage(`AIDLC: ${where}`, 'Open brief').then((pick) => {
+    if (pick === 'Open brief' && fs.existsSync(edit.docFile)) {
+      void vscode.window.showTextDocument(vscode.Uri.file(edit.docFile));
+    }
+  });
+}
+
+/** Quick-pick over the epic folders on disk — newest first, by mtime. */
+async function pickExistingEpic(epicsDir: string): Promise<string | undefined> {
+  let ids: string[];
+  try {
+    ids = fs.readdirSync(epicsDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && fs.existsSync(path.join(epicsDir, e.name, 'state.json')))
+      .map((e) => e.name);
+  } catch {
+    ids = [];
+  }
+  if (ids.length === 0) {
+    void vscode.window.showInformationMessage('AIDLC: no epics found in this project.');
+    return undefined;
+  }
+  const items = ids
+    .map((id) => {
+      let title = '';
+      let description = '';
+      try {
+        const state = JSON.parse(fs.readFileSync(path.join(epicsDir, id, 'state.json'), 'utf8'));
+        title = typeof state?.title === 'string' ? state.title : '';
+        description = typeof state?.description === 'string' ? state.description : '';
+      } catch { /* an unreadable epic is still one you may want to pick */ }
+      return {
+        label: id,
+        description: title,
+        detail: description || '(no description)',
+        mtime: statMtime(path.join(epicsDir, id)),
+      };
+    })
+    .sort((a, b) => b.mtime - a.mtime);
+  const pick = await vscode.window.showQuickPick(items, {
+    placeHolder: 'Pick an epic to re-describe',
+    matchOnDescription: true,
+    matchOnDetail: true,
+    ignoreFocusOut: true,
+  });
+  return pick?.label;
+}
+
+function statMtime(p: string): number {
+  try { return fs.statSync(p).mtimeMs; } catch { return 0; }
+}
 
 // ── Main wizard ─────────────────────────────────────────────────────────
 

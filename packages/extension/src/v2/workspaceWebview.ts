@@ -198,6 +198,8 @@ import {
   STRICT_MODE_KEY,
   EPIC_TAGS_KEY,
   normalizeTags,
+  setEpicDescription,
+  EpicDescriptionError,
   commandBodyIsStale,
   resolveEpicIdPrefixChain,
   readUserConfig,
@@ -2601,6 +2603,43 @@ export class WorkspaceWebview {
           return;
         }
         this.refresh();
+        return;
+      }
+      case 'setEpicDescription': {
+        const epicId = String(msg.epicId ?? '');
+        const root = this.getRootOrWarn();
+        if (!root || !epicId) { return; }
+        const doc = readYaml(root);
+        const epicDir = path.join(epicsRoot(root, doc), epicId);
+        let edit;
+        try {
+          // Core owns this: the description lives in state.json *and* in the
+          // lead of <epicId>.md, which is the copy the first phase's skill
+          // reads. Writing only the JSON here would leave every agent on the
+          // sentence the user just replaced.
+          edit = setEpicDescription(epicDir, epicId, String(msg.description ?? ''));
+        } catch (err) {
+          void vscode.window.showWarningMessage(
+            `AIDLC: could not update the description for ${epicId} — ${
+              err instanceof EpicDescriptionError ? err.message : String(err)
+            }`,
+          );
+          return;
+        }
+        this.refresh();
+        // The one outcome worth interrupting for: state.json moved but the
+        // brief did not, because somebody has rewritten it since. Silence here
+        // would read as "both files say the new thing".
+        if (edit.doc === 'kept') {
+          void vscode.window.showInformationMessage(
+            `AIDLC: ${epicId} description updated. Its ${epicId}.md brief was written by hand, so it was left as it is — agents read that file.`,
+            'Open brief',
+          ).then((pick) => {
+            if (pick === 'Open brief') {
+              void vscode.window.showTextDocument(vscode.Uri.file(edit.docFile));
+            }
+          });
+        }
         return;
       }
       case 'startEpicInline': {

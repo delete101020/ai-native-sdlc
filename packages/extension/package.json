@@ -166,6 +166,12 @@
         "category": "AIDLC Native"
       },
       {
+        "command": "aidlcNative.editEpicDescription",
+        "title": "Edit Epic Description",
+        "icon": "$(edit)",
+        "category": "AIDLC Native"
+      },
+      {
         "command": "aidlcNative.analyzeRequirements",
         "title": "Analyze Requirements → Create Tasks",
         "icon": "$(list-tree)",
