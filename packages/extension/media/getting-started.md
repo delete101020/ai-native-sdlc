@@ -162,6 +162,10 @@ From the epic detail panel:
   the modal opens so you can review the feedback before launching.
 - **Mark step done** → tells AIDLC the agent finished. Validates that the
   step's `produces` paths exist, then advances the DAG.
+- **Undo mark done** → for the misclick. Puts the step back to awaiting work
+  at the same revision, no artifact touched, and closes whatever the advance
+  opened. Offered only while nothing downstream has been worked — after that,
+  *Update with feedback* is the honest way back.
 - **Approve / Reject** (after `human_review`) → either advances or rewinds.
   Rewind to any upstream step; downstream steps reset to pending.
 - **Update with feedback** → re-opens an already-approved step with

@@ -142,6 +142,19 @@ export type StepHistoryEntry =
     }
   | {
       /**
+       * A "Mark step done" taken back — see `undoStepDone`. The revision is
+       * unchanged (that is the difference between an undo and a rerun), so
+       * without this entry the timeline would show an approve followed by a
+       * second approve at the same revision and no reason for either.
+       */
+      kind: 'undo';
+      at: string;
+      revision: number;
+      /** The status the step was undone *from*. */
+      from: StepStatus;
+    }
+  | {
+      /**
        * A round of the /annotate-artifact review loop that edited the .md.
        * Sourced from the artifacts folder's `.annotation-history.json` and
        * merged into the owning step's history at read time (never written to

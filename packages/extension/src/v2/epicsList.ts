@@ -14,6 +14,7 @@ import * as path from 'path';
 import {
   RunStateStore,
   deriveRunProgress,
+  canUndoStepDone,
   normalizeStep,
   resolvePath,
   mirrorRunStateToEpic,
@@ -128,6 +129,13 @@ export interface EpicSummary {
     stepHasHumanReview: boolean;
     /** Agent ids this step waits for — DAG edges from the pipeline config. */
     dependsOn: string[];
+    /**
+     * True when a "Mark step done" on this step can still be taken back — see
+     * `canUndoStepDone`. Decided host-side because the answer depends on the
+     * pipeline's shape (which steps the approval opened), which the panel does
+     * not have.
+     */
+    canUndoDone: boolean;
     /** Append-only timeline of significant transitions for this step. */
     history?: StepHistoryEntry[];
     /** Cached count of `reject` entries in `history` — for compact display. */
@@ -403,6 +411,8 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
       // No DAG info from static files — leave empty so the UI renders a
       // straight LinearStepper rather than a DagStepper.
       dependsOn: [] as string[],
+      // No run-state machine behind these steps, so there is no click to undo.
+      canUndoDone: false,
       history,
       rejectCount: history ? history.filter((e) => e.kind === 'reject').length : 0,
     };
@@ -787,6 +797,8 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         stepHasAutoReview: gate.auto,
         stepHasHumanReview: gate.human,
         dependsOn: stepDependsByIdx.get(i) ?? [],
+        canUndoDone: !!runState && !!pipelineCfg
+          && canUndoStepDone({ state: runState, pipeline: pipelineCfg, stepIdx: i }).ok,
         history,
         rejectCount,
         feedback: runFeedbackByIdx.get(i),

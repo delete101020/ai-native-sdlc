@@ -32,6 +32,7 @@ import {
   Gauge,
   Loader2,
   Workflow,
+  Undo2,
   Tag as TagIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -1433,6 +1434,7 @@ function StepDetail({
         otherActivities={otherActivities}
         stepLabel={stepLabel}
       />
+      <UndoDoneAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <RequestUpdateAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <StepHistory step={focused} />
     </div>
@@ -1444,6 +1446,48 @@ function DetailLabel({ icon, text }: { icon: React.ReactNode; text: string }) {
     <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
       {icon}
       <span>{text}</span>
+    </div>
+  );
+}
+
+/**
+ * The way back out of a "Mark step done" that approved this step and moved the
+ * run on — `RunGate` has already gone quiet by then, so the offer has to live
+ * out here beside Request update.
+ *
+ * The two are not the same thing, and the copy says so: Request update is for
+ * a requirement that changed and costs a revision plus every downstream step;
+ * this is for a button pressed by accident and costs nothing. The host decides
+ * whether it is still safe (`canUndoDone`) — the moment a following step has
+ * produced anything, this disappears and Request update is the only honest
+ * option left.
+ */
+function UndoDoneAction({
+  epic,
+  focused,
+  focusedIdx,
+}: {
+  epic: EpicSummary;
+  focused: EpicStepDetailFull;
+  focusedIdx: number;
+}) {
+  if (!epic.runId || focused.runStatus !== 'approved' || !focused.canUndoDone) { return null; }
+  return (
+    <div className="mt-3 flex items-center justify-between rounded-md border border-dashed border-border bg-secondary/20 px-3 py-2 text-[11px]">
+      <div className="text-muted-foreground">
+        Marked done by mistake?{' '}
+        <span className="text-foreground/80">Undo</span> reopens it at the same revision — nothing
+        downstream has started yet.
+      </div>
+      <button
+        type="button"
+        onClick={() =>
+          postMessage({ type: 'undoStepDone', runId: epic.runId!, stepIdx: focusedIdx })
+        }
+        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10.5px] font-semibold text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+      >
+        <Undo2 className="h-2.5 w-2.5" /> Undo mark done
+      </button>
     </div>
   );
 }
@@ -1593,6 +1637,8 @@ function HistoryIcon({ kind }: { kind: StepHistoryEntry['kind'] }) {
       return <Bot className="mt-0.5 h-3 w-3 shrink-0 text-info" />;
     case 'approve':
       return <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" />;
+    case 'undo':
+      return <Undo2 className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />;
     case 'annotate':
       return <Highlighter className="mt-0.5 h-3 w-3 shrink-0 text-primary" />;
   }
@@ -1621,6 +1667,13 @@ function HistoryLabel({ entry }: { entry: StepHistoryEntry }) {
       );
     case 'approve':
       return <span className="font-semibold text-success">Approved</span>;
+    case 'undo':
+      return (
+        <span className="font-semibold text-muted-foreground">
+          Mark done undone
+          <span className="ml-1 font-normal">from {entry.from}</span>
+        </span>
+      );
     case 'annotate':
       return (
         <span className="font-semibold text-primary">
@@ -1648,6 +1701,7 @@ function HistoryBody({ entry }: { entry: StepHistoryEntry }) {
         </div>
       );
     case 'approve':
+    case 'undo':
       return null;
     case 'annotate':
       return (
@@ -1939,6 +1993,18 @@ function RunGate({
             Run auto-review
           </GateButton>
         )}
+        {/* The misclick's way out. Mark done is one button away from Run, and
+            until now the only path back was Request update — which bumps the
+            revision and resets everything downstream to undo a wrong click. */}
+        {focused.canUndoDone && (
+          <GateButton
+            variant="quiet"
+            title="Put this step back to awaiting work — same revision, no artifact touched"
+            onClick={() => postMessage({ type: 'undoStepDone', runId: epic.runId!, stepIdx: focusedIdx })}
+          >
+            <Undo2 className="h-3 w-3" /> Undo mark done
+          </GateButton>
+        )}
         {status === 'awaiting_review' && (
           <>
             <GateButton
@@ -2064,7 +2130,7 @@ function GateButton({
   title,
 }: {
   children: React.ReactNode;
-  variant: 'primary' | 'approve' | 'reject';
+  variant: 'primary' | 'approve' | 'reject' | 'quiet';
   onClick: () => void;
   disabled?: boolean;
   title?: string;
@@ -2084,6 +2150,10 @@ function GateButton({
           'border-success/40 bg-success/15 text-success hover:border-success/60 hover:bg-success/25',
         variant === 'reject' &&
           'border-destructive/40 bg-destructive/15 text-destructive hover:border-destructive/60 hover:bg-destructive/25',
+        // For the way out of a click, not a decision about the work — it sits
+        // beside the gate buttons without competing with them for the eye.
+        variant === 'quiet' &&
+          'border-border bg-transparent text-muted-foreground hover:border-foreground/40 hover:text-foreground',
       )}
     >
       {children}

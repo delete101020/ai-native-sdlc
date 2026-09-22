@@ -61,6 +61,8 @@ function renderHistory(history: StepHistoryEntry[]): string[] {
         return `  - 🤖 auto-review ${h.decision} (rev ${h.revision}): ${h.reason}`;
       case 'approve':
         return `  - ✔ approved (rev ${h.revision})`;
+      case 'undo':
+        return `  - ↶ mark-done undone (rev ${h.revision}, was ${h.from})`;
       default:
         return '  - (unknown event)';
     }

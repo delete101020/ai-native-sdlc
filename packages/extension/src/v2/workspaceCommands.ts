@@ -53,6 +53,7 @@ import { migrateEpicStateFiles } from './epicsList';
 import {
   startPipelineRunCommand,
   markStepDoneCommand,
+  undoStepDoneCommand,
   approveStepCommand,
   rejectStepCommand,
   rerunStepCommand,
@@ -573,6 +574,11 @@ export function registerV2WorkspaceCommands(
     (runId?: unknown, stepIdx?: unknown) =>
       markStepDoneCommand(typeof runId === 'string' ? runId : undefined, toStepIdx(stepIdx)),
   );
+  const undoStepDoneCmd = vscode.commands.registerCommand(
+    'aidlcNative.undoStepDone',
+    (runId?: unknown, stepIdx?: unknown) =>
+      undoStepDoneCommand(typeof runId === 'string' ? runId : undefined, toStepIdx(stepIdx)),
+  );
   const approveStepCmd = vscode.commands.registerCommand(
     'aidlcNative.approveStep',
     (runId?: unknown, stepIdx?: unknown) =>
@@ -667,6 +673,7 @@ export function registerV2WorkspaceCommands(
       loadDemoProjectCmd,
       startRunCmd,
       markStepDoneCmd,
+      undoStepDoneCmd,
       approveStepCmd,
       rejectStepCmd,
       rerunStepCmd,

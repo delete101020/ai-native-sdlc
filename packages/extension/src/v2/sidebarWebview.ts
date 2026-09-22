@@ -782,6 +782,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         return;
       }
       case 'markStepDone':
+      case 'undoStepDone':
       case 'approveStep':
       case 'rejectStep':
       case 'rerunStep':

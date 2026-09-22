@@ -10,6 +10,7 @@
  *   - start: scaffold a fresh RunState from a pipeline + context map
  *   - markStepDone: validate the current step's `produces` exist; transition
  *     to awaiting_review (if human_review) or auto-approve + advance
+ *   - undoStepDone: take back a mark-done nothing downstream has acted on
  *   - approve: human accepts current awaiting_review step → advance
  *   - reject: human rejects current awaiting_review step → step rejected
  *     (in-place) OR cascade to an upstream step with intermediate steps
@@ -25,7 +26,7 @@ import * as path from 'path';
 
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep } from '../schema/WorkspaceSchema';
-import type { RunState, StepRecord, AutoReviewVerdict, StepHistoryEntry } from './RunState';
+import type { RunState, StepRecord, StepStatus, AutoReviewVerdict, StepHistoryEntry } from './RunState';
 import { resolvePath, stepIdentity, RUN_STATE_SCHEMA_VERSION } from './RunState';
 import { isActiveStatus, isRunComplete, isStepOptional } from './runProgress';
 import { reconcileRunSteps, describeDrift, withBackfilledStepNames } from './reconcileRun';
@@ -276,6 +277,149 @@ export function markStepDone(args: {
 
   // Neither gate — auto-approve + advance.
   return advance(next, idx, pipeline);
+}
+
+/** Statuses a step can be undone *from* — the ones `markStepDone` produces. */
+const UNDOABLE_STATUSES: StepStatus[] = ['awaiting_auto_review', 'awaiting_review', 'approved'];
+
+/**
+ * The steps an approval of `idx` would have opened: the next one on a
+ * sequential pipeline, the direct dependents on a DAG.
+ *
+ * Direct dependents are enough for the undo below. A transitive descendant can
+ * only have been opened through one of these, so if they are all still sitting
+ * at `awaiting_work`, nothing further down has been reached.
+ */
+function followersOf(pipeline: PipelineConfig, idx: number): number[] {
+  const normalized = pipeline.steps.map(normalizeStep);
+  const usesDag = normalized.some((s) => s.depends_on.length > 0);
+  if (!usesDag) {
+    return idx + 1 < normalized.length ? [idx + 1] : [];
+  }
+  const dagId = normalized[idx] ? (normalized[idx].name ?? normalized[idx].agent) : undefined;
+  if (dagId === undefined) { return []; }
+  const out: number[] = [];
+  normalized.forEach((s, i) => {
+    if (s.depends_on.includes(dagId)) { out.push(i); }
+  });
+  return out;
+}
+
+/**
+ * Whether a "Mark step done" can still be taken back — and, when it cannot,
+ * the sentence to show the user.
+ *
+ * Undo is for the misclick: the button that advances the run sits next to the
+ * one that starts it, and the only way back used to be `requestStepUpdate`,
+ * which bumps the revision and resets every downstream step. That is the right
+ * tool when requirements changed and the wrong one when nothing happened at
+ * all except the wrong click.
+ *
+ * So the rule is narrow on purpose: the step must still be sitting where
+ * mark-done left it, and nothing it opened may have moved. The moment a
+ * follower has produced anything, this stops being an undo — the run has
+ * history to rewind, and that is `requestStepUpdate`'s job.
+ *
+ * Pure, never throws — the UI calls it to decide whether to offer the button.
+ */
+export function canUndoStepDone(args: {
+  state: RunState;
+  pipeline: PipelineConfig;
+  /** Defaults to the current step. */
+  stepIdx?: number;
+}): { ok: true } | { ok: false; reason: string } {
+  const { state, pipeline } = args;
+  const idx = args.stepIdx ?? state.currentStepIdx;
+  const step = state.steps[idx];
+  if (!step) { return { ok: false, reason: `No step at index ${idx}` }; }
+  if (!reconcileRunSteps(state, pipeline).aligned) {
+    return {
+      ok: false,
+      reason: `Run "${state.runId}" no longer matches pipeline "${pipeline.id}" — ` +
+        'reconcile it before undoing anything.',
+    };
+  }
+  if (!UNDOABLE_STATUSES.includes(step.status)) {
+    return {
+      ok: false,
+      reason: `Step "${stepIdentity(step)}" is "${step.status}" — there is no "mark done" to undo.`,
+    };
+  }
+  if (step.status === 'approved') {
+    for (const i of followersOf(pipeline, idx)) {
+      const follower = state.steps[i];
+      if (!follower || follower.status === 'pending') { continue; }
+      const untouched = follower.status === 'awaiting_work' && follower.artifactsProduced.length === 0;
+      if (!untouched) {
+        return {
+          ok: false,
+          reason: `Step ${i + 1} ("${stepIdentity(follower)}") has already moved on ` +
+            `(${follower.status}) — undo would silently discard it. Use "Request update" instead.`,
+        };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Take back a "Mark step done": the step goes back to `awaiting_work` at the
+ * same revision, and anything the advance opened closes again.
+ *
+ * Deliberately *not* a rerun. The revision stays put, the carried feedback
+ * stays put, and no artifact is touched on disk — the click is undone, not the
+ * work. What it does record is an `undo` history entry, because the timeline is
+ * append-only and an approve that vanished without a trace is worse than one
+ * that is explained.
+ *
+ * Throws {@link PipelineRunError} with {@link canUndoStepDone}'s reason when
+ * the undo is no longer safe.
+ */
+export function undoStepDone(args: {
+  state: RunState;
+  pipeline: PipelineConfig;
+  /** Step to un-mark. Defaults to `state.currentStepIdx`. */
+  stepIdx?: number;
+}): RunState {
+  const { pipeline } = args;
+  const state = alignedOrThrow(args.state, pipeline);
+  const idx = args.stepIdx ?? state.currentStepIdx;
+  const gate = canUndoStepDone({ state, pipeline, stepIdx: idx });
+  if (!gate.ok) { throw new PipelineRunError(gate.reason); }
+
+  const step = state.steps[idx];
+  const now = new Date().toISOString();
+  const next = clone(state);
+
+  if (step.status === 'approved') {
+    for (const i of followersOf(pipeline, idx)) {
+      const follower = next.steps[i];
+      // `pending` followers were never opened; the guard above has already
+      // ruled out anything further along.
+      if (!follower || follower.status !== 'awaiting_work') { continue; }
+      next.steps[i] = { ...follower, status: 'pending', startedAt: undefined };
+    }
+  }
+
+  next.steps[idx] = {
+    ...next.steps[idx],
+    status: 'awaiting_work',
+    finishedAt: undefined,
+    artifactsProduced: [],
+    autoReviewVerdict: undefined,
+    // `startedAt` stays: this is the same attempt at the same step, and the
+    // panel dates the artifact against it to tell "written for this step" from
+    // "inherited from an earlier one".
+    history: pushHistory(step.history, {
+      kind: 'undo',
+      at: now,
+      revision: step.revision,
+      from: step.status,
+    }),
+  };
+  next.currentStepIdx = idx;
+  next.status = 'running';
+  return next;
 }
 
 /**

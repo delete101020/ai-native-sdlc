@@ -563,6 +563,13 @@ export type StepHistoryEntry =
       revision: number;
     }
   | {
+      // A "Mark step done" taken back — same revision, nothing rerun.
+      kind: 'undo';
+      at: string;
+      revision: number;
+      from: StepStatus;
+    }
+  | {
       // A /annotate-artifact round that edited the .md, merged from the
       // artifacts folder's `.annotation-history.json` at read time.
       kind: 'annotate';
@@ -650,6 +657,10 @@ export interface EpicStepDetailFull {
   stepHasHumanReview: boolean;
   /** Agent ids this step waits for (DAG edges) — empty for sequential. */
   dependsOn?: string[];
+  /** Host's verdict on whether this step's "Mark step done" can still be taken
+   *  back. Optional so a host bundle predating the field simply hides the
+   *  button rather than offering an undo the host would refuse. */
+  canUndoDone?: boolean;
   startedAt?: string;
   finishedAt?: string;
   /** Append-only timeline of significant transitions (reject / rerun /

@@ -6,6 +6,8 @@
  *   aidlcNative.markStepDone      — validate the current step's `produces` exist,
  *                             then transition to awaiting_review (or auto-
  *                             approve when human_review=false).
+ *   aidlcNative.undoStepDone      — take that mark-done back, when nothing it
+ *                             opened has been worked yet.
  *   aidlcNative.approveStep       — human approves the awaiting_review step.
  *   aidlcNative.rejectStep        — human rejects with optional reason.
  *   aidlcNative.rerunStep         — retry a rejected step (revision++).
@@ -32,6 +34,8 @@ import {
   startRun,
   canStartStep,
   markStepDone,
+  canUndoStepDone,
+  undoStepDone,
   approveStep,
   rejectStep,
   rerunStep,
@@ -392,6 +396,75 @@ export async function markStepDoneCommand(runIdArg?: string, stepIdxArg?: number
     const next = markStepDone({ state, pipeline, workspaceRoot: root, stepIdx });
     saveRun(root, next, state);
     notifyStepTransition(root, next, stepIdx);
+  } catch (err) {
+    surfaceRunError(err);
+  }
+}
+
+// ── undoStepDone ─────────────────────────────────────────────────────────
+
+/**
+ * Take back a "Mark step done" that was clicked by mistake.
+ *
+ * Confirms first, because the run cursor moves and a DAG can close a sibling
+ * the user is looking at. The prompt names what closes rather than asking a
+ * bare "are you sure" — the whole reason this command exists is that a button
+ * did something the user did not expect.
+ */
+export async function undoStepDoneCommand(runIdArg?: string, stepIdxArg?: number): Promise<void> {
+  const root = requireRoot('Undo Mark Step Done');
+  if (!root) { return; }
+
+  const runId = await resolveRunId(
+    root,
+    runIdArg,
+    (s) => {
+      const p = loadPipeline(root, s.pipelineId);
+      return !!p && canUndoStepDone({ state: s, pipeline: p }).ok;
+    },
+  );
+  if (!runId) { return; }
+
+  const state = RunStateStore.load(root, runId);
+  if (!state) { void vscode.window.showWarningMessage(`Run "${runId}" not found.`); return; }
+
+  const pipeline = loadPipeline(root, state.pipelineId);
+  if (!pipeline) {
+    void vscode.window.showErrorMessage(
+      `Run "${runId}" references pipeline "${state.pipelineId}" which is no longer in workspace.yaml.`,
+    );
+    return;
+  }
+
+  // No single expected status here — mark-done leaves a step in one of three,
+  // depending on the gates the pipeline declares.
+  const stepIdx = typeof stepIdxArg === 'number' && Number.isInteger(stepIdxArg)
+    && stepIdxArg >= 0 && stepIdxArg < state.steps.length
+    ? stepIdxArg
+    : state.currentStepIdx;
+
+  const gate = canUndoStepDone({ state, pipeline, stepIdx });
+  if (!gate.ok) { void vscode.window.showWarningMessage(gate.reason); return; }
+
+  const step = state.steps[stepIdx];
+  const was = step.status === 'approved'
+    ? 'approved and advanced the run'
+    : `moved it to "${step.status}"`;
+  const choice = await vscode.window.showWarningMessage(
+    `Undo "Mark step done" on "${step.agent}"? Marking it done ${was}. ` +
+    'The step reopens at the same revision — no artifact is touched and no rework is recorded.',
+    { modal: true },
+    'Undo mark done',
+  );
+  if (choice !== 'Undo mark done') { return; }
+
+  try {
+    const next = undoStepDone({ state, pipeline, stepIdx });
+    saveRun(root, next, state);
+    void vscode.window.showInformationMessage(
+      `Step "${step.agent}" reopened (revision ${next.steps[stepIdx].revision}, unchanged). ` +
+      'Mark it done again when it really is.',
+    );
   } catch (err) {
     surfaceRunError(err);
   }
