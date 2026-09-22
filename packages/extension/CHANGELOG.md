@@ -1,5 +1,42 @@
 # Changelog
 
+## 4.0.10
+
+An epic no longer reads as failed because of a rejection the run has already
+moved past, and a step can now say out loud that it is skippable.
+
+### Added
+
+- **`optional: true` on a pipeline step.** A side branch whose findings are
+  welcome but not required — a second reviewer's lens, an extra QC pass — can
+  now be declared as one. Rejecting it never marks the epic failed, never
+  parks the run on it, and never keeps the run from completing; until now the
+  only thing making such a step skippable was that nothing happened to
+  `depends_on` it, which the runner could not tell from an oversight. Set it
+  in `.aidlc/workspace.yaml`; the Builder preserves it.
+- **`on_failure: continue` does something.** It has been in the pipeline
+  schema (and on the dashboard) from the start, read by nothing: `aidlc run
+  exec` stopped at every rejection either way. It now steps over a rejection
+  to whatever else is open, and says which step it left behind.
+- **`aidlc run rerun --step <idx>`** names the step to redo, for a run whose
+  cursor has moved on from the rejection.
+
+### Fixed
+
+- **A rejected step made the whole epic look stuck, for good.** Three
+  surfaces each decided "where is this run?" on their own, and all three
+  answered from the rejection: the epic badge went red on *any* rejected step,
+  `advance()` moved the run cursor only when it already pointed at the step
+  being approved — so a run that rejected one branch and approved its sibling
+  left the cursor on the rejection permanently — and `/aidlc <epic>` scanned
+  once by index, offering the rejected step ahead of the work that was
+  actually open. A parallel pipeline could therefore sit at *rejected* on
+  step 2 of 9 with its work four steps further along. One answer now backs all
+  three: `failed` means a rejection with nothing else actionable, the cursor
+  leaves any step that has settled, and the dispatcher offers every open step
+  before any rejection. Runs already parked read past their own cursor, so
+  nothing has to be fixed by hand.
+
 ## 4.0.9
 
 ### Added
