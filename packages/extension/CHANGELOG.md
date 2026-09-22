@@ -1,5 +1,31 @@
 # Changelog
 
+## 4.0.8
+
+A rejected auto-review is no longer a dead end that costs you the artifact,
+and a compliance profile you wrote is finally the one that gets enforced.
+
+### Added
+
+- **Re-verify.** A step its auto-reviewer rejected now offers **Re-verify**
+  beside **Rerun**. It runs the validator again on the artifact as it stands —
+  same revision, same files, same history — for the common case where the
+  artifact was fixed in place, or an agent is still writing it, and only the
+  verdict is stale. **Rerun** keeps its old meaning (discard the artifact,
+  bump the revision), and the panel now says which is which.
+
+### Fixed
+
+- **A custom compliance profile's `mandatory_sections` were ignored.** The
+  traceability validator checked a hard-coded list belonging to the built-in
+  `iso-ieee` profile no matter which profile was active. A custom profile that
+  enabled `mandatory-sections` therefore rejected artifacts for missing
+  headings it never asked for, and passed artifacts missing every heading it
+  did. Section requirements now travel with the active profile, read from its
+  `artifacts.<NAME>.mandatory_sections`. A profile that enables the rule
+  without declaring any sections says so in the verdict instead of passing
+  silently.
+
 ## 4.0.7
 
 Parallel steps are workable again. A pipeline that opens two steps at once now
