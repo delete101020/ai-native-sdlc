@@ -161,6 +161,17 @@ describe('collectWorkspaceRefIssues', () => {
     expect(issues.some((i) => i.code === 'unknown-recipe-step')).toBe(true);
   });
 
+  it('flags a slash command pointing at an agent or pipeline that is gone', () => {
+    const ws = workspace();
+    // The one by-id reference nothing used to check: a command reads as live
+    // in the palette and resolves to nothing when typed.
+    ws.slash_commands.push({ name: '/ghost', agent: 'no-such-agent' });
+    ws.slash_commands.push({ name: '/ghost-pipeline', pipeline: 'no-such-pipeline' });
+    const issues = collectWorkspaceRefIssues(ws);
+    expect(issues.some((i) => i.code === 'unknown-command-agent')).toBe(true);
+    expect(issues.some((i) => i.code === 'unknown-command-pipeline')).toBe(true);
+  });
+
   it('flags a gate override keyed to a step the recipe does not run', () => {
     const ws = workspace();
     ws.recipes.push({ id: 'y', steps: ['plan'], gates: { design: { human_review: false } } });

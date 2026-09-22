@@ -185,6 +185,14 @@ import {
   dropRecipeStep,
   type RecipeRefEdit,
   dropRecipesForPipeline,
+  renameAgentRefs,
+  renameSkillRefs,
+  agentReferences,
+  skillReferences,
+  unusedAfterStepRemoval,
+  type IdRenameEdit,
+  type DanglingRefs,
+  type UnusedAgent,
   assemblePipeline,
   stageEpicPipeline,
   recipePipelineId,
@@ -1534,6 +1542,86 @@ function reportRecipeRefEdits(edits: readonly RecipeRefEdit[]): void {
     );
   }
   void vscode.window.showInformationMessage(`AIDLC: ${parts.join('; ')}.`);
+}
+
+/**
+ * Say what a rename carried along with it.
+ *
+ * An id in this file is a string other strings point at, and renaming one
+ * used to move only its definition: the steps, commands, dependencies and
+ * recipes naming it kept the old spelling and broke at the next `epic start`,
+ * pointing at config the user never opened. Now they move together — and the
+ * user is told, because an edit that quietly touches six other places is worse
+ * than one that says it did.
+ */
+function reportRenameEdit(kind: string, oldId: string, newId: string, edit: IdRenameEdit): void {
+  if (edit.paths.length === 0) { return; }
+  const dagNote = edit.renamedStepIds.length > 0
+    ? ' Its unnamed pipeline step is addressed by the agent id, so dependencies and recipe step lists moved with it.'
+    : '';
+  void vscode.window.showInformationMessage(
+    `AIDLC: renamed ${kind} "${oldId}" → "${newId}" and re-pointed ${edit.paths.length} `
+    + `reference${edit.paths.length === 1 ? '' : 's'}.${dagNote}`,
+    'Show Details',
+  ).then((pick) => {
+    if (pick === 'Show Details') {
+      void vscode.window.showInformationMessage(
+        `References re-pointed to "${newId}"`,
+        { modal: true, detail: edit.paths.map((r) => `• ${r}`).join('\n') },
+      );
+    }
+  });
+}
+
+/**
+ * Ask before deleting something other config still points at.
+ *
+ * Nothing here repairs: a delete has no new id to re-point at, and guessing
+ * one — dropping the steps that ran the agent, pruning the skill out of every
+ * agent that declares it — would reshape pipelines behind the user's back, and
+ * in the skill case can take an agent below the one skill the schema requires
+ * and fail the whole workspace to load. So the user sees exactly what will be
+ * left dangling and decides.
+ *
+ * Returns false when they back out.
+ */
+async function confirmDanglingDelete(
+  kind: string,
+  id: string,
+  refs: DanglingRefs,
+): Promise<boolean> {
+  if (refs.messages.length === 0) { return true; }
+  const answer = await vscode.window.showWarningMessage(
+    `${refs.messages.length} reference${refs.messages.length === 1 ? '' : 's'} to ${kind} "${id}" would be left pointing at nothing.`,
+    {
+      modal: true,
+      detail: refs.messages.map((m) => `• ${m}`).join('\n')
+        + '\n\nThey are not repaired automatically — re-point or remove them yourself after this.',
+    },
+    'Delete anyway',
+  );
+  return answer === 'Delete anyway';
+}
+
+/**
+ * Say what a step removal left behind but did not break.
+ *
+ * The agent, its skills and its slash commands still resolve — they are just
+ * no longer reached from any pipeline. Not an error, and deliberately not
+ * pruned: an agent unused by one pipeline is routinely used by the next epic
+ * or by someone typing its slash command. Naming it is what keeps a workspace
+ * from quietly accumulating wiring nobody decided to keep.
+ */
+function reportUnusedAfterStepRemoval(unused: UnusedAgent): void {
+  if (!unused.agent) { return; }
+  const extras: string[] = [];
+  if (unused.slashCommands.length > 0) { extras.push(unused.slashCommands.join(', ')); }
+  if (unused.skills.length > 0) { extras.push(`skill${unused.skills.length === 1 ? '' : 's'} ${unused.skills.join(', ')}`); }
+  void vscode.window.showInformationMessage(
+    `AIDLC: no pipeline step runs agent "${unused.agent}" any more`
+    + (extras.length > 0 ? ` — it still carries ${extras.join(' and ')}.` : '.')
+    + ' Left in place; remove it if it is done.',
+  );
 }
 
 /** True when the path exists and is a folder. Missing paths are not folders. */
@@ -3041,6 +3129,7 @@ export class WorkspaceWebview {
     if (!pipelineId || idx < 0) { return; }
     if (this.refusePinnedStepEdit(pipelineId, 'remove a step')) { return; }
     let recipeEdits: RecipeRefEdit[] = [];
+    let unused: UnusedAgent = { agent: null, slashCommands: [], skills: [] };
     this.mutateYaml((doc) => {
       const p = doc.pipelines.find((x) => x.id === pipelineId);
       if (!p || !Array.isArray(p.steps)) { return false; }
@@ -3108,8 +3197,17 @@ export class WorkspaceWebview {
           delete obj.depends_on;
         }
       }
+
+      // Nothing dangling here — the agent, its skills and its slash commands
+      // all still resolve. They are simply unreachable from any pipeline now,
+      // which is a decision for the user rather than a repair for us.
+      unused = unusedAfterStepRemoval(
+        doc as unknown as Parameters<typeof unusedAfterStepRemoval>[0],
+        typeof removed === 'string' ? removed : String((removed as { agent?: unknown }).agent ?? ''),
+      );
     });
     reportRecipeRefEdits(recipeEdits);
+    reportUnusedAfterStepRemoval(unused);
   }
 
   private async editStepConfig(
@@ -5625,6 +5723,22 @@ export class WorkspaceWebview {
       );
       if (confirm !== 'Delete') { return; }
     }
+
+    // Pipelines already carry their recipes out with them below. Agents and
+    // skills cannot: what points at them is work — a step in a pipeline, an
+    // agent's skill list — and dropping it to keep the file tidy would edit
+    // something the user did not ask about. Name it and let them decide. Asked
+    // even when the webview already confirmed, because its modal asks whether
+    // to delete the definition, not what else stops working.
+    const beforeRoot = this.getRootOrWarn();
+    const beforeDoc = beforeRoot ? readYaml(beforeRoot) : null;
+    if (beforeDoc && (field === 'agents' || field === 'skills')) {
+      const carrier = beforeDoc as unknown as Parameters<typeof agentReferences>[0];
+      const refs = field === 'agents'
+        ? agentReferences(carrier, id)
+        : skillReferences(carrier, id);
+      if (!await confirmDanglingDelete(field.replace(/s$/, ''), id, refs)) { return; }
+    }
     let droppedRecipes: string[] = [];
     this.mutateYaml((doc) => {
       const arr = doc[field];
@@ -5669,6 +5783,7 @@ export class WorkspaceWebview {
     }
     const trimmed = newId?.trim();
     if (!trimmed || trimmed === id) { return; }
+    let renameEdit: IdRenameEdit = { paths: [], renamedStepIds: [] };
     this.mutateYaml((doc) => {
       const arr = doc[field];
       if (!Array.isArray(arr)) { return false; }
@@ -5676,6 +5791,19 @@ export class WorkspaceWebview {
       if (!item) { return false; }
       if (arr.some((x) => x.id === trimmed)) { return false; }
       item.id = trimmed;
+      // An agent id is written down in more places than any other: every step
+      // that runs it, every slash command that targets it, and — for a step
+      // with no `name` of its own, whose DAG id *is* the agent id — every
+      // `depends_on` entry and recipe step list addressing that step. Core
+      // owns the walk; see `renameRefs`.
+      if (field === 'agents') {
+        renameEdit = renameAgentRefs(doc as unknown as Parameters<typeof renameAgentRefs>[0], id, trimmed);
+      }
+      // A skill id is written down in the agents that declare it and the steps
+      // that narrow to it — including the legacy singular `skill:` form.
+      if (field === 'skills') {
+        renameEdit = renameSkillRefs(doc as unknown as Parameters<typeof renameSkillRefs>[0], id, trimmed);
+      }
       // Renaming a pipeline must carry its live references along — slash
       // commands point at the pipeline by id, so leaving them stale would
       // silently break `/start-epic`-style entry points.
@@ -5692,6 +5820,7 @@ export class WorkspaceWebview {
         }
       }
     });
+    reportRenameEdit(field.replace(/s$/, ''), id, trimmed, renameEdit);
   }
 
   private async duplicateItem(field: 'agents' | 'skills' | 'pipelines', id: string): Promise<void> {

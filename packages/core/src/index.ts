@@ -215,6 +215,20 @@ export {
 export type { RecipeCarrier, RecipeRefEdit } from './loader/recipeRefs';
 
 export {
+  renameAgentRefs,
+  renameSkillRefs,
+  agentReferences,
+  skillReferences,
+  unusedAfterStepRemoval,
+} from './loader/renameRefs';
+export type {
+  WorkspaceRefCarrier,
+  IdRenameEdit,
+  DanglingRefs,
+  UnusedAgent,
+} from './loader/renameRefs';
+
+export {
   EPIC_PIPELINE_FILENAME,
   epicPipelinePath,
   mergeEpicPipelines,

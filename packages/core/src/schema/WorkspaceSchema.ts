@@ -417,6 +417,8 @@ export interface WorkspaceRefIssue {
     | 'unknown-agent'
     | 'unknown-step-skill'
     | 'unknown-agent-skill'
+    | 'unknown-command-agent'
+    | 'unknown-command-pipeline'
     | 'unknown-recipe-source'
     | 'unknown-recipe-step'
     | 'unknown-recipe-gate';
@@ -432,6 +434,7 @@ export interface WorkspaceRefIssue {
  *   - each agent's `skills` exist in `skills:`
  *   - each pipeline step's `agent` exists in `agents:`
  *   - each pipeline step's per-step `skills` exist in `skills:`
+ *   - each slash command's `agent` / `pipeline` exists
  *   - each recipe's `from` exists in `pipelines:` (when set)
  *   - each recipe's `steps` exist in the source pipeline
  *
@@ -478,6 +481,29 @@ export function collectWorkspaceRefIssues(config: WorkspaceConfig): WorkspaceRef
           });
         }
       }
+    }
+  }
+
+  // A slash command is how a person reaches an agent or a pipeline by hand, and
+  // it names its target by id like everything else here. It was the one
+  // by-id reference nothing checked, so renaming or deleting the target left a
+  // command that looks live in the palette and resolves to nothing when typed.
+  const pipelineIds = new Set(config.pipelines.map((p) => p.id));
+  for (const cmd of config.slash_commands ?? []) {
+    const target = cmd as { name: string; agent?: string; pipeline?: string };
+    if (typeof target.agent === 'string' && !agentIds.has(target.agent)) {
+      issues.push({
+        code: 'unknown-command-agent',
+        message: `Slash command "${target.name}" targets agent "${target.agent}" which is not defined in agents:`,
+        path: `slash_commands.${target.name}.agent`,
+      });
+    }
+    if (typeof target.pipeline === 'string' && !pipelineIds.has(target.pipeline)) {
+      issues.push({
+        code: 'unknown-command-pipeline',
+        message: `Slash command "${target.name}" targets pipeline "${target.pipeline}" which is not defined in pipelines:`,
+        path: `slash_commands.${target.name}.pipeline`,
+      });
     }
   }
 
