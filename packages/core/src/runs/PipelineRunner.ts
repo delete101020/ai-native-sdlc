@@ -352,6 +352,72 @@ export function submitAutoReviewVerdict(args: {
   return advance(next, idx, pipeline);
 }
 
+/**
+ * Put an auto-review-rejected step back in front of its validator.
+ *
+ * `rerunStep` is the wrong tool when the verdict is the only thing wrong:
+ * it bumps the revision and drops `artifactsProduced`, which says "redo the
+ * work". Often the work is fine — the artifact was edited by hand since, or
+ * the agent that produced it is still writing, or the validator itself was
+ * fixed — and all that is wanted is the check again. So this rewinds exactly
+ * one transition, `rejected` → `awaiting_auto_review`, keeping the revision,
+ * the artifacts and the history, and clearing only the verdict it is about
+ * to replace.
+ *
+ * Refuses a step a human rejected, or one whose last verdict was a pass:
+ * re-running a validator that already passed cannot advance the run, and a
+ * human's rejection is not a validator's to overturn.
+ */
+export function retryAutoReview(args: {
+  state: RunState;
+  pipeline: PipelineConfig;
+  /** Step to re-verify. Defaults to `state.currentStepIdx`. */
+  stepIdx?: number;
+}): RunState {
+  const { pipeline } = args;
+  const state = alignedOrThrow(args.state, pipeline);
+  const idx = args.stepIdx ?? state.currentStepIdx;
+  const step = state.steps[idx];
+  if (!step) {
+    throw new PipelineRunError(`No step at index ${idx}`);
+  }
+  if (step.status !== 'rejected') {
+    throw new PipelineRunError(
+      `Cannot re-run auto-review for step "${step.agent}": status is "${step.status}", expected "rejected"`,
+    );
+  }
+  if (step.autoReviewVerdict?.decision !== 'reject') {
+    throw new PipelineRunError(
+      `Step "${step.agent}" was not rejected by its auto-reviewer — rerun it instead.`,
+    );
+  }
+  const stepConfig = pipeline.steps[idx];
+  if (!stepConfig) {
+    throw new PipelineRunError(
+      `Pipeline mismatch — step "${stepIdentity(step)}" is at index ${idx}, ` +
+      `which pipeline "${pipeline.id}" does not have.`,
+    );
+  }
+  if (!normalizeStep(stepConfig).auto_review) {
+    throw new PipelineRunError(
+      `Step "${step.agent}" no longer has auto_review enabled in pipeline "${pipeline.id}".`,
+    );
+  }
+
+  const next = clone(state);
+  next.steps[idx] = {
+    ...step,
+    status: 'awaiting_auto_review',
+    rejectReason: undefined,
+    autoReviewVerdict: undefined,
+  };
+  // `currentStepIdx` is deliberately left where it is: on a DAG pipeline the
+  // cursor may sit on a sibling that is still working, and re-verifying this
+  // step is no reason to drag it away.
+  next.status = 'running';
+  return next;
+}
+
 /** Human approved the awaiting_review step → advance to next. */
 export function approveStep(args: {
   state: RunState;

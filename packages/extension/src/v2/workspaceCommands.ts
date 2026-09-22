@@ -57,6 +57,7 @@ import {
   rejectStepCommand,
   rerunStepCommand,
   runAutoReviewCommand,
+  retryAutoReviewCommand,
   verifyRunCommand,
   runReportCommand,
   openRunStateCommand,
@@ -577,6 +578,11 @@ export function registerV2WorkspaceCommands(
     (runId?: unknown, stepIdx?: unknown) =>
       runAutoReviewCommand(typeof runId === 'string' ? runId : undefined, toStepIdx(stepIdx)),
   );
+  const retryAutoReviewCmd = vscode.commands.registerCommand(
+    'aidlcNative.retryAutoReview',
+    (runId?: unknown, stepIdx?: unknown) =>
+      retryAutoReviewCommand(typeof runId === 'string' ? runId : undefined, toStepIdx(stepIdx)),
+  );
   const verifyRunCmd = vscode.commands.registerCommand(
     'aidlcNative.verifyRun',
     (runId?: unknown) => verifyRunCommand(typeof runId === 'string' ? runId : undefined),
@@ -648,6 +654,7 @@ export function registerV2WorkspaceCommands(
       rejectStepCmd,
       rerunStepCmd,
       runAutoReviewCmd,
+      retryAutoReviewCmd,
       verifyRunCmd,
       runReportCmd,
       openRunStateCmd,

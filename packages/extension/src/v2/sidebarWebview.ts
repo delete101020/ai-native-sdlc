@@ -786,6 +786,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'rejectStep':
       case 'rerunStep':
       case 'runAutoReview':
+      case 'retryAutoReview':
       case 'openRunState': {
         const runId = String(msg.runId ?? '');
         // Commands are contributed under the `aidlcNative.` namespace — a bare

@@ -356,6 +356,7 @@ export {
   rerunStep,
   requestStepUpdate,
   submitAutoReviewVerdict,
+  retryAutoReview,
   PipelineRunError,
 } from './runs/PipelineRunner';
 export { checkBudget } from './runs/budget';

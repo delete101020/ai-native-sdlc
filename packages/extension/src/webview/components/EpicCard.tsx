@@ -1703,6 +1703,9 @@ function RunGate({
     awaiting_review:
       'Step is paused for your approval. Approve to advance, reject to send back.',
     rejected: 'This step was rejected. Rerun to bump revision and try again.',
+    rejected_auto:
+      'The auto-reviewer rejected this step. Fix the artifact and re-verify — ' +
+      'rerunning instead discards it and bumps the revision.',
   };
 
   const cls = (() => {
@@ -1717,6 +1720,14 @@ function RunGate({
     }
     return 'bg-muted border-border text-muted-foreground';
   })();
+
+  // A rejection the *validator* produced is one the validator can take back:
+  // fix the artifact, run the check again. A human's rejection is not, and
+  // neither is a step whose auto-review gate has since been turned off.
+  const canReverify =
+    status === 'rejected' &&
+    focused.stepHasAutoReview &&
+    focused.autoReviewVerdict?.decision === 'reject';
 
   const gates: string[] = [];
   if (focused.stepHasAutoReview) { gates.push('🤖 auto-review'); }
@@ -1735,6 +1746,8 @@ function RunGate({
             ? messages.awaiting_work_missing
             : status === 'awaiting_work' && artifactStale
             ? messages.awaiting_work_stale
+            : canReverify
+            ? messages.rejected_auto
             : messages[status]}
         </span>
       </div>
@@ -1878,11 +1891,31 @@ function RunGate({
             </GateButton>
           </>
         )}
+        {canReverify && (
+          <GateButton
+            variant="approve"
+            disabled={busy}
+            title={
+              busy
+                ? busyTitle
+                : 'Run the auto-reviewer again on the artifact as it stands — keeps the revision and the work'
+            }
+            onClick={() => postMessage({ type: 'retryAutoReview', runId: epic.runId!, stepIdx: focusedIdx })}
+          >
+            <ShieldCheck className="h-3 w-3" /> Re-verify
+          </GateButton>
+        )}
         {status === 'rejected' && (
           <GateButton
             variant="primary"
             disabled={busy}
-            title={busy ? busyTitle : undefined}
+            title={
+              busy
+                ? busyTitle
+                : canReverify
+                ? 'Discard this artifact and redo the step from scratch'
+                : undefined
+            }
             onClick={() => setRerunOpen(true)}
           >
             Rerun

@@ -2389,6 +2389,7 @@ export class WorkspaceWebview {
       // Pipeline-run state machine
       case 'markStepDone':
       case 'runAutoReview':
+      case 'retryAutoReview':
       case 'approveStep':
       case 'rejectStep':
       case 'rerunStep':

@@ -12,6 +12,7 @@ import {
   rerunStep,
   requestStepUpdate,
   submitAutoReviewVerdict,
+  retryAutoReview,
   runAutoReview,
   PipelineRunError,
   type PipelineConfig,
@@ -411,6 +412,80 @@ describe('PipelineRunner — state machine', () => {
     s = rerunStep({ state: s, feedback: 'addressed' });
     expect(s.steps[1].status).toBe('awaiting_work');
     expect(s.steps[1].autoReviewVerdict).toBeDefined(); // verdict persists
+  });
+
+  /** Drive PIPELINE_AUTO to an auto-review rejection on step 1. */
+  const rejectedByAutoReview = (runId: string): RunState => {
+    let s = startRun({ runId, pipeline: PIPELINE_AUTO, context: {} });
+    touch(root, 'PRD.md');
+    s = markStepDone({ state: s, pipeline: PIPELINE_AUTO, workspaceRoot: root });
+    touch(root, 'TECH-DESIGN.md');
+    s = markStepDone({ state: s, pipeline: PIPELINE_AUTO, workspaceRoot: root });
+    return submitAutoReviewVerdict({
+      state: s,
+      pipeline: PIPELINE_AUTO,
+      verdict: { decision: 'reject', reason: 'missing Risks section', at: 't', runner: 'r.mjs' },
+    });
+  };
+
+  it('retryAutoReview sends a rejected step back to its validator, keeping the work', () => {
+    const rejected = rejectedByAutoReview('R-12');
+    const artifacts = rejected.steps[1].artifactsProduced;
+    const revision = rejected.steps[1].revision;
+
+    const s = retryAutoReview({ state: rejected, pipeline: PIPELINE_AUTO, stepIdx: 1 });
+    expect(s.steps[1].status).toBe('awaiting_auto_review');
+    // The whole point: no revision bump, no lost artifacts — unlike rerunStep.
+    expect(s.steps[1].revision).toBe(revision);
+    expect(s.steps[1].artifactsProduced).toEqual(artifacts);
+    // Stale verdict cleared so the UI can't show the old reject as current.
+    expect(s.steps[1].autoReviewVerdict).toBeUndefined();
+    expect(s.steps[1].rejectReason).toBeUndefined();
+    // History is evidence, not state — the rejection stays on the record.
+    expect(s.steps[1].history.some((h) => h.kind === 'reject')).toBe(true);
+
+    // And the second verdict applies normally.
+    const passed = submitAutoReviewVerdict({
+      state: s,
+      pipeline: PIPELINE_AUTO,
+      verdict: { decision: 'pass', reason: 'fixed', at: 't2', runner: 'r.mjs' },
+    });
+    expect(passed.steps[1].status).toBe('awaiting_review');
+  });
+
+  it('retryAutoReview refuses a step a human rejected', () => {
+    let s = startRun({ runId: 'R-13', pipeline: PIPELINE_HUMAN, context: {} });
+    touch(root, 'PRD.md');
+    s = markStepDone({ state: s, pipeline: PIPELINE_HUMAN, workspaceRoot: root });
+    s = rejectStep({ state: s, reason: 'not what I asked for' });
+    expect(s.steps[0].status).toBe('rejected');
+    expect(() => retryAutoReview({ state: s, pipeline: PIPELINE_HUMAN, stepIdx: 0 })).toThrow(
+      PipelineRunError,
+    );
+  });
+
+  it('retryAutoReview refuses a step that is not rejected', () => {
+    let s = startRun({ runId: 'R-14', pipeline: PIPELINE_AUTO, context: {} });
+    touch(root, 'PRD.md');
+    s = markStepDone({ state: s, pipeline: PIPELINE_AUTO, workspaceRoot: root });
+    touch(root, 'TECH-DESIGN.md');
+    s = markStepDone({ state: s, pipeline: PIPELINE_AUTO, workspaceRoot: root });
+    expect(s.steps[1].status).toBe('awaiting_auto_review');
+    expect(() => retryAutoReview({ state: s, pipeline: PIPELINE_AUTO, stepIdx: 1 })).toThrow(
+      PipelineRunError,
+    );
+  });
+
+  it('retryAutoReview refuses once the step no longer declares auto_review', () => {
+    const rejected = rejectedByAutoReview('R-15');
+    // The pipeline was edited between the rejection and the retry.
+    const noAuto: PipelineConfig = {
+      ...PIPELINE_AUTO,
+      steps: PIPELINE_AUTO.steps.map((st, i) => (i === 1 ? { ...st, auto_review: false } : st)),
+    };
+    expect(() => retryAutoReview({ state: rejected, pipeline: noAuto, stepIdx: 1 })).toThrow(
+      /no longer has auto_review/,
+    );
   });
 
   it('submitAutoReviewVerdict throws when status is not awaiting_auto_review', () => {

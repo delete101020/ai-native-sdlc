@@ -37,6 +37,7 @@ import {
   rerunStep,
   requestStepUpdate,
   submitAutoReviewVerdict,
+  retryAutoReview,
   runAutoReview,
   commitApprovedArtifacts,
   verifyRun,
@@ -419,6 +420,21 @@ export async function runAutoReviewCommand(runIdArg?: string, stepIdxArg?: numbe
   }
 
   const stepIdx = resolveStepIdx(state, stepIdxArg, 'awaiting_auto_review');
+  await executeAutoReview(root, state, pipeline, stepIdx);
+}
+
+/**
+ * Run the validator for one `awaiting_auto_review` step and apply its verdict.
+ *
+ * Shared by the first-time gate and by {@link retryAutoReviewCommand}, which
+ * only differs in how the step gets back to `awaiting_auto_review`.
+ */
+async function executeAutoReview(
+  root: string,
+  state: RunState,
+  pipeline: PipelineConfig,
+  stepIdx: number,
+): Promise<void> {
   const step = state.steps[stepIdx];
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: `Auto-reviewing "${step.agent}"…`, cancellable: false },
@@ -433,7 +449,7 @@ export async function runAutoReviewCommand(runIdArg?: string, stepIdxArg?: numbe
         const action =
           next.status === 'completed'        ? 'Pipeline completed.' :
           followUp.status === 'awaiting_review' ? 'Awaiting your review — open the epic to approve or reject.' :
-          followUp.status === 'rejected'     ? 'Step rejected — open the epic to rerun it.' :
+          followUp.status === 'rejected'     ? 'Step rejected — fix the artifact and click "Re-verify", or rerun the step.' :
           followUp.status === 'awaiting_work' ? `Advanced to "${followUp.agent}".` :
           'Run state updated.';
         void vscode.window.showInformationMessage(
@@ -448,6 +464,49 @@ export async function runAutoReviewCommand(runIdArg?: string, stepIdxArg?: numbe
       }
     },
   );
+}
+
+// ── retryAutoReview ──────────────────────────────────────────────────────
+
+/**
+ * Re-run the validator on a step its auto-reviewer rejected, without
+ * redoing the work.
+ *
+ * `rerunStep` throws away the artifacts and bumps the revision, which is the
+ * wrong move when the artifact was fixed in place (by hand, or by an agent
+ * still writing it) and only the verdict is stale. This rewinds the single
+ * transition the verdict caused and immediately re-validates.
+ */
+export async function retryAutoReviewCommand(runIdArg?: string, stepIdxArg?: number): Promise<void> {
+  const root = requireRoot('Re-verify Step');
+  if (!root) { return; }
+  const runId = await resolveRunId(root, runIdArg, (s) =>
+    s.steps.some((st) => st.status === 'rejected' && st.autoReviewVerdict?.decision === 'reject'),
+  );
+  if (!runId) { return; }
+
+  const state = RunStateStore.load(root, runId);
+  if (!state) { return; }
+  const pipeline = loadPipeline(root, state.pipelineId);
+  if (!pipeline) {
+    void vscode.window.showErrorMessage(
+      `Pipeline "${state.pipelineId}" missing from workspace.yaml.`,
+    );
+    return;
+  }
+
+  const stepIdx = resolveStepIdx(state, stepIdxArg, 'rejected');
+  let reset: RunState;
+  try {
+    reset = retryAutoReview({ state, pipeline, stepIdx });
+  } catch (err) {
+    surfaceRunError(err);
+    return;
+  }
+  // Persisted before the validator runs so a crash mid-validation leaves the
+  // step visibly awaiting its auto-review rather than silently rejected.
+  saveRun(root, reset, state);
+  await executeAutoReview(root, reset, pipeline, stepIdx);
 }
 
 // ── approveStep ──────────────────────────────────────────────────────────
