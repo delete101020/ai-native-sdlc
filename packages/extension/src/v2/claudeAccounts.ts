@@ -38,6 +38,14 @@ import {
   setClaudeConfigDir,
 } from '@aidlc/core';
 
+import {
+  cachedPlanUsage,
+  onDidChangePlanUsage,
+  planUsage,
+  usageMarkdown,
+  usageSummary,
+} from './claudeUsage';
+
 export const CONFIG_DIR_KEY = 'aidlcNative.claude.configDir';
 export const CONFIG_DIRS_KEY = 'aidlcNative.claude.configDirs';
 export const SWITCH_ACCOUNT_CMD = 'aidlcNative.switchClaudeAccount';
@@ -238,36 +246,81 @@ async function chooseTarget(): Promise<vscode.ConfigurationTarget | undefined> {
   return pick?.target;
 }
 
-async function switchAccount(): Promise<void> {
-  const active = claudeConfigDir();
-  const accounts = savedAccounts();
-
-  const items: Pick[] = accounts.map((a) => {
+/**
+ * Rows for the picker. `usage` is threaded in rather than fetched here so the
+ * same builder serves both the instant paint (from cache) and the repaint once
+ * the network answers.
+ */
+function accountItems(accounts: Account[], active: string): Pick[] {
+  const rows: Pick[] = accounts.map((a) => {
     const email = accountEmail(a.resolved);
     const exists = fs.existsSync(a.resolved);
+    const left = usageSummary(cachedPlanUsage(a.resolved));
+    const where = email
+      ? `Signed in as ${email}`
+      : exists
+        ? 'No Claude login recorded in this folder yet'
+        : 'Folder does not exist yet — Claude will create it on first login';
     return {
       label: a.resolved === active ? `$(check) ${a.label}` : a.label,
-      description: a.declared,
-      detail: email
-        ? `Signed in as ${email}`
-        : exists
-          ? 'No Claude login recorded in this folder yet'
-          : 'Folder does not exist yet — Claude will create it on first login',
+      // The headline of this picker is "which account still has room", so the
+      // percentage goes where the eye lands first.
+      description: left ? `${left} · ${a.declared}` : a.declared,
+      detail: where,
       value: a.declared,
     };
   });
 
-  items.push(
+  rows.push(
     { label: '', kind: vscode.QuickPickItemKind.Separator, value: '' } as Pick,
     { label: '$(edit) Enter path…', value: ENTER_PATH },
     { label: '$(folder-opened) Browse…', value: BROWSE },
   );
+  return rows;
+}
 
-  const picked = await vscode.window.showQuickPick(items, {
-    title: 'Switch Claude account',
-    placeHolder: `Active: ${active}`,
-    ignoreFocusOut: true,
+/**
+ * The picker, painted immediately and refined in place.
+ *
+ * Plan usage is a network round trip per account, and blocking the list on it
+ * would make switching accounts feel broken. So the list opens on whatever is
+ * cached and the percentages fill in behind it; an account that never answers
+ * simply keeps its row without one.
+ */
+function pickAccount(accounts: Account[], active: string): Promise<Pick | undefined> {
+  const qp = vscode.window.createQuickPick<Pick>();
+  qp.title = 'Switch Claude account';
+  qp.placeholder = `Active: ${active}`;
+  qp.ignoreFocusOut = true;
+  qp.items = accountItems(accounts, active);
+  qp.busy = true;
+
+  let settled = false;
+  void Promise.allSettled(
+    accounts.map((a) => planUsage(a.resolved, { timeoutMs: 6000 })),
+  ).then(() => {
+    if (settled) { return; }
+    qp.busy = false;
+    const active_ = qp.activeItems[0];
+    qp.items = accountItems(accounts, active);
+    // Re-anchor the highlight: replacing `items` otherwise drops the user back
+    // to the top mid-keystroke.
+    const again = active_ && qp.items.find((i) => i.value === active_.value);
+    if (again) { qp.activeItems = [again]; }
   });
+
+  return new Promise((resolve) => {
+    qp.onDidAccept(() => { settled = true; resolve(qp.selectedItems[0]); qp.hide(); });
+    qp.onDidHide(() => { settled = true; resolve(undefined); qp.dispose(); });
+    qp.show();
+  });
+}
+
+async function switchAccount(): Promise<void> {
+  const active = claudeConfigDir();
+  const accounts = savedAccounts();
+
+  const picked = await pickAccount(accounts, active);
   if (!picked) { return; }
 
   let declared: string | undefined = picked.value;
@@ -318,6 +371,9 @@ export function registerClaudeAccounts(
 
     const dir = claudeConfigDir();
     const email = accountEmail(dir);
+    // Cache only — the plan-usage item owns the polling, this just borrows the
+    // answer so the account tooltip says what the account has left.
+    const usage = usageMarkdown(cachedPlanUsage(dir));
     status.text = `$(account) ${activeLabel()}`;
     status.tooltip = new vscode.MarkdownString(
       [
@@ -326,6 +382,7 @@ export function registerClaudeAccounts(
         `- Config dir: \`${dir}\``,
         `- Source: ${activeSource()}`,
         `- Signed in as: ${email ?? '_no login recorded_'}`,
+        ...usage,
         '',
         'Click to switch.',
       ].join('\n'),
@@ -341,6 +398,11 @@ export function registerClaudeAccounts(
   apply();
 
   context.subscriptions.push(
+    // The tooltip shows plan usage from cache, which starts empty; repaint it
+    // when the first answer arrives instead of waiting for the next config change.
+    onDidChangePlanUsage((dir) => {
+      if (dir === claudeConfigDir()) { refreshStatus(); }
+    }),
     vscode.commands.registerCommand(SWITCH_ACCOUNT_CMD, () => void switchAccount()),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration(CONFIG_DIRS_KEY)) { refreshStatus(); }

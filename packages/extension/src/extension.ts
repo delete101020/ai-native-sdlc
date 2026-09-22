@@ -27,6 +27,7 @@ import { registerAstGraph } from './v2/astGraph';
 import { registerFollowUpDoneHooks } from './v2/followUpHooks';
 import { installAnnotationTools } from './v2/annotationToolsInstaller';
 import { registerClaudeAccounts } from './v2/claudeAccounts';
+import { registerClaudePlanUsage } from './v2/claudeUsage';
 import { migrateLegacySettings } from './v2/settingsMigration';
 import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './v2/epicsDirSync';
 import {
@@ -71,6 +72,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // window. Must run BEFORE the first thing that touches the folder
   // (installAnnotationTools, immediately below).
   registerClaudeAccounts(context, output);
+
+  // Right after, so the plan-usage poll reads the account that was just
+  // resolved rather than the previous one.
+  registerClaudePlanUsage(context, output);
 
   // Annotation tooling is the exception: a tiny, self-contained footprint
   // (renderer + vendored annotron + one skill) that makes /annotate-artifact

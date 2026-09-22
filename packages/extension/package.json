@@ -124,6 +124,18 @@
         "category": "AIDLC Native"
       },
       {
+        "command": "aidlcNative.showClaudePlanUsage",
+        "title": "Show Claude Plan Usage Left",
+        "icon": "$(pulse)",
+        "category": "AIDLC Native"
+      },
+      {
+        "command": "aidlcNative.refreshClaudePlanUsage",
+        "title": "Refresh Claude Plan Usage",
+        "icon": "$(refresh)",
+        "category": "AIDLC Native"
+      },
+      {
         "command": "aidlcNative.savePreset",
         "title": "Save Workspace as Template",
         "icon": "$(save)",
@@ -373,6 +385,19 @@
               }
             }
           }
+        },
+        "aidlcNative.claude.planUsage.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show how much of the Claude plan the active account has left (5-hour and weekly windows) on the status bar, in the account tooltip, and in **AIDLC: Switch Claude Account**. Read from the signed-in account with the same call Claude Code's own `/usage` makes — that endpoint is not documented, so the indicator hides itself rather than guessing when it stops answering. Turn off to make no network call at all. Distinct from `#aidlcNative.tokenMonitor.enabled#`, which reports spend from local logs, not remaining quota.",
+          "scope": "window"
+        },
+        "aidlcNative.claude.planUsage.refreshSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 60,
+          "markdownDescription": "How often to re-read the remaining plan usage, in seconds. Minimum 60 — the windows move slowly and this is a shared endpoint.",
+          "scope": "window"
         }
       }
     },
