@@ -147,6 +147,10 @@ export async function execRunToCompletion(
             onAutoApproved: (e) => { log(`👤 auto-approved · ${e.agent}`); onChange(); },
             onAwaitingReview: (e) => { log(`⏸ paused for your review · ${e.agent}`); },
             onRejected: (e) => { log(`⏸ step rejected · ${e.agent}`); },
+            onStepSkipped: (e) => {
+              log(`⤳ step rejected but optional · ${e.agent} — moving to step ${e.nextStepIdx + 1}`);
+              onChange();
+            },
             onBudget: (e) => {
               log(`💰 $${e.spent.toFixed(4)} of $${e.limit.toFixed(2)}${e.ok ? '' : ` — ${e.exceeded} ceiling crossed`}`);
             },

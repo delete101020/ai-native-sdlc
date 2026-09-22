@@ -27,6 +27,7 @@ import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep } from '../schema/WorkspaceSchema';
 import type { RunState, StepRecord, AutoReviewVerdict, StepHistoryEntry } from './RunState';
 import { resolvePath, stepIdentity, RUN_STATE_SCHEMA_VERSION } from './RunState';
+import { isActiveStatus, isRunComplete, isStepOptional } from './runProgress';
 import { reconcileRunSteps, describeDrift, withBackfilledStepNames } from './reconcileRun';
 
 export class PipelineRunError extends Error {
@@ -339,6 +340,7 @@ export function submitAutoReviewVerdict(args: {
       sentBackToIdx: idx,
     });
     next.status = 'running';
+    settleOptionalRejection(next, idx, pipeline);
     return next;
   }
 
@@ -574,6 +576,7 @@ export function rejectStep(args: {
     }),
   };
   next.status = 'running';
+  if (pipeline) { settleOptionalRejection(next, idx, pipeline); }
   return next;
 }
 
@@ -728,7 +731,8 @@ export function requestStepUpdate(args: {
  * approving a step unblocks every pending step whose `depends_on` agents
  * are all approved — multiple may open at once.
  *
- * The run transitions to `completed` only when every step is approved.
+ * The run transitions to `completed` once every step is settled — approved,
+ * or an `optional` step the run gave up on (see {@link isRunComplete}).
  */
 function advance(next: RunState, idx: number, pipeline: PipelineConfig): RunState {
   const finishedAt = new Date().toISOString();
@@ -776,7 +780,7 @@ function advance(next: RunState, idx: number, pipeline: PipelineConfig): RunStat
       .filter((s) => s.status === 'approved')
       .map((s) => dagId(s.stepIdx)),
   );
-  let openedAny = false;
+  const opened: number[] = [];
   for (let i = 0; i < normalized.length; i++) {
     const sStep = next.steps[i];
     if (sStep.status !== 'pending') { continue; }
@@ -789,28 +793,75 @@ function advance(next: RunState, idx: number, pipeline: PipelineConfig): RunStat
       status: 'awaiting_work',
       startedAt: finishedAt,
     };
-    openedAny = true;
-    if (next.currentStepIdx === idx) { next.currentStepIdx = i; }
+    opened.push(i);
   }
 
-  const allApproved = next.steps.every((s) => s.status === 'approved');
-  if (allApproved) {
+  if (isRunComplete(next, pipeline)) {
     next.status = 'completed';
     return next;
   }
 
-  // If we didn't open any new step but other steps are still active
-  // elsewhere (e.g. a parallel sibling), the run keeps running. Focus the
-  // primary cursor on the first remaining active step so the UI surfaces
-  // something actionable.
-  if (!openedAny) {
-    const stillActive = next.steps.findIndex(
-      (s) => s.status === 'awaiting_work' || s.status === 'awaiting_auto_review' || s.status === 'awaiting_review',
-    );
-    if (stillActive >= 0) { next.currentStepIdx = stillActive; }
-  }
+  refocusCursor(next, opened);
   next.status = 'running';
   return next;
+}
+
+/**
+ * Point the primary cursor at something actionable when it is sitting on a
+ * step that has settled — the one just approved, or a rejection the run has
+ * already walked around.
+ *
+ * The rejection case is the bug this exists for. The cursor used to move only
+ * when it pointed at the step being approved, so a run that rejected a side
+ * branch and then approved its sibling left the cursor on the rejection for
+ * good: CR-Y01 read as `rejected` at step 2 of 9 while its work had reached
+ * step 6, because every surface reads the cursor for "where is this run".
+ *
+ * `opened` are the steps this advance unblocked — the natural next focus.
+ * Falling back to the first still-active step covers the advance that opened
+ * nothing because a parallel sibling is already carrying the run.
+ */
+function refocusCursor(next: RunState, opened: number[]): void {
+  const cur = next.steps[next.currentStepIdx];
+  if (cur && cur.status !== 'approved' && cur.status !== 'rejected') { return; }
+  const target = opened.length > 0
+    ? Math.min(...opened)
+    : next.steps.findIndex((s) => isActiveStatus(s.status));
+  if (target >= 0) { next.currentStepIdx = target; }
+}
+
+/**
+ * Let the run walk past a rejection on an `optional: true` step.
+ *
+ * The flag says the author is willing to lose this step's output, so the
+ * rejection is an outcome rather than a stop: the cursor moves to whatever is
+ * still open, and the run may complete without it ({@link isRunComplete}).
+ *
+ * On a sequential pipeline the following step is opened here, because nothing
+ * else will open it — advance() only runs on an approval. On a DAG, steps that
+ * declare `depends_on` this one stay `pending` on purpose: they were promised
+ * an artifact that is not coming. Independent branches are already open and
+ * carry the run by themselves.
+ *
+ * No-op for a step that is not optional — a rejection the run needs is worth
+ * keeping the cursor on.
+ */
+function settleOptionalRejection(next: RunState, idx: number, pipeline: PipelineConfig): void {
+  if (!isStepOptional(pipeline, idx)) { return; }
+  const normalized = pipeline.steps.map(normalizeStep);
+  const usesDag = normalized.some((s) => s.depends_on.length > 0);
+  if (!usesDag) {
+    const follower = next.steps[idx + 1];
+    if (follower && follower.status === 'pending') {
+      next.steps[idx + 1] = {
+        ...follower,
+        status: 'awaiting_work',
+        startedAt: new Date().toISOString(),
+      };
+    }
+  }
+  refocusCursor(next, []);
+  if (isRunComplete(next, pipeline)) { next.status = 'completed'; }
 }
 
 function clone<T>(value: T): T {

@@ -176,10 +176,13 @@ export function registerRun(program: Command): void {
     .action((runId: string, opts: { reason: string }, actionCmd: Command) => {
       const root  = resolveWorkspaceRoot(actionCmd);
       const state = requireRun(root, runId);
+      // Passed so an `optional` step's rejection settles instead of parking
+      // the run on it.
+      const pipeline = requirePipelineForRun(root, state);
 
       let next;
       try {
-        next = rejectStep({ state, reason: opts.reason });
+        next = rejectStep({ state, reason: opts.reason, pipeline });
       } catch (err) {
         console.error(chalk.red(err instanceof Error ? err.message : String(err)));
         process.exit(1);
@@ -195,22 +198,31 @@ export function registerRun(program: Command): void {
   // ── rerun ──────────────────────────────────────────────────────────────────
   cmd
     .command('rerun <runId>')
-    .description('Retry the current rejected step (bumps revision, resets to awaiting_work)')
+    .description('Retry a rejected step (bumps revision, resets to awaiting_work)')
     .option('--feedback <text>', 'Notes for the next attempt (stored on the step)')
-    .action((runId: string, opts: { feedback?: string }, actionCmd: Command) => {
+    .option('--step <idx>', '0-based step index (default: the run\'s current step)')
+    .action((runId: string, opts: { feedback?: string; step?: string }, actionCmd: Command) => {
       const root  = resolveWorkspaceRoot(actionCmd);
       const state = requireRun(root, runId);
+      // The cursor is not always on the rejection any more: a run that walked
+      // past an `optional` step's rejection points at the work it moved on to,
+      // so redoing that step has to name it.
+      const stepIdx = opts.step === undefined ? undefined : Number(opts.step);
+      if (stepIdx !== undefined && !Number.isInteger(stepIdx)) {
+        console.error(chalk.red(`--step must be an integer, got "${opts.step}"`));
+        process.exit(1);
+      }
 
       let next;
       try {
-        next = rerunStep({ state, feedback: opts.feedback });
+        next = rerunStep({ state, feedback: opts.feedback, stepIdx });
       } catch (err) {
         console.error(chalk.red(err instanceof Error ? err.message : String(err)));
         process.exit(1);
       }
 
       saveRunState(root, next, state);
-      const step = next.steps[next.currentStepIdx];
+      const step = next.steps[stepIdx ?? next.currentStepIdx];
       console.log(chalk.yellow('↺') + ` Rerunning "${step.agent}" (rev ${step.revision})`);
       if (opts.feedback) { console.log(chalk.dim(`  Feedback: ${opts.feedback}`)); }
       console.log(chalk.dim(`  When done: aidlc run mark-done ${runId}`));
@@ -546,6 +558,11 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
     onRejected: (e) => {
       info(chalk.red(`\n✘  Step "${e.agent}" was rejected.`));
       info(chalk.dim(`  Rerun: aidlc run rerun ${e.runId} [--feedback "..."]`));
+    },
+    onStepSkipped: (e) => {
+      info(chalk.yellow(`\n⤳  Step "${e.agent}" was rejected — carrying on.`) +
+        chalk.dim(` ${e.reason}`));
+      info(chalk.dim(`  Want it back? aidlc run rerun ${e.runId} --step ${e.stepIdx}`));
     },
 
     onAutoReviewStart: (e) => info(chalk.bold(`\n🔍  Auto-review: "${e.agent}"`)),

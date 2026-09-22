@@ -20,6 +20,7 @@ import * as path from 'path';
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import type { RunState, StepStatus } from './RunState';
 import { startRun } from './PipelineRunner';
+import { deriveRunProgress } from './runProgress';
 import { RunStateStore } from './RunStateStore';
 import { EPIC_PIPELINE_FILENAME } from '../loader/EpicPipelineStore';
 import { EPIC_TAGS_KEY, normalizeTags } from '../loader/epicTags';
@@ -76,7 +77,8 @@ export function mapStepStatusToEpic(status: StepStatus): EpicStatus {
 export function mirrorRunStateToEpic(
   workspaceRoot: string,
   runState: RunState,
-  doc: { state?: unknown } | null,
+  /** Workspace doc — `pipelines` is read to tell optional steps apart. */
+  doc: { state?: unknown; pipelines?: unknown } | null,
 ): void {
   const epicDir = path.join(epicsRoot(workspaceRoot, doc), runState.runId);
   const stateFile = path.join(epicDir, 'state.json');
@@ -90,12 +92,12 @@ export function mirrorRunStateToEpic(
     return;
   }
 
-  const epicStatus: EpicStatus =
-    runState.status === 'completed'
-      ? 'done'
-      : runState.steps.some((s) => s.status === 'rejected')
-        ? 'failed'
-        : 'in_progress';
+  // `failed` means the run is stuck on a rejection, not merely that one
+  // happened: a rejected side branch with work still open elsewhere is a
+  // running epic. See {@link deriveRunProgress}.
+  const pipelines = Array.isArray(doc?.pipelines) ? (doc.pipelines as PipelineConfig[]) : [];
+  const pipeline = pipelines.find((p) => p.id === runState.pipelineId);
+  const epicStatus: EpicStatus = deriveRunProgress(runState, pipeline).status;
 
   const stepStates = runState.steps.map((s) => ({
     agent: s.agent,

@@ -33,6 +33,7 @@ import { commandBodyIsStale } from './commandBodyFreshness';
 import type { PipelineConfig, WorkspaceConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, stepDagId } from '../schema/WorkspaceSchema';
 import type { RunState } from '../runs/RunState';
+import { isStepOptional } from '../runs/runProgress';
 
 // ── Canonical phase set (the fixed shortcut layer) ─────────────────
 
@@ -178,10 +179,16 @@ export interface EligiblePhase {
  * The next phase a user should run for an epic, respecting `depends_on` + gate
  * status. Read-only — mirrors the runner's advance logic without mutating.
  *
- * Priority, scanning steps in index order:
+ * Priority — each rule sweeps the whole step list before the next one runs:
  *   1. a step `awaiting_work` (already unblocked, work not yet submitted),
- *   2. a step `rejected` (needs rework),
- *   3. a `pending` step whose every `depends_on` is `approved` (just eligible).
+ *   2. a `rejected` step that is not `optional` (needs rework),
+ *   3. a `pending` step whose every `depends_on` is `approved` (just eligible),
+ *   4. a `rejected` step that *is* `optional` (redo it if you want it).
+ *
+ * The sweeps are separate on purpose. Scanning once and taking whichever came
+ * first by index sent the user back to a rejection that the run had already
+ * moved past — CR-Y01 answered `cr-solo-ba` (rejected, index 1, nothing
+ * downstream waiting on it) while the open work sat at index 5.
  *
  * Steps that are `approved` or paused for review (`awaiting_auto_review` /
  * `awaiting_review`) are not "run a phase" actions, so they're skipped.
@@ -195,12 +202,16 @@ export function nextEligiblePhase(state: RunState, pipeline: PipelineConfig): El
   const statusByDagId = new Map<string, string>();
   state.steps.forEach((s, idx) => statusByDagId.set(dagId(idx), s.status));
 
-  // 1 + 2: an already-open or rejected step, whichever comes first by index.
-  for (let i = 0; i < state.steps.length; i++) {
-    const st = state.steps[i].status;
-    if (st === 'awaiting_work') { return { index: i, phaseId: dagId(i), reason: 'awaiting_work' }; }
-    if (st === 'rejected') { return { index: i, phaseId: dagId(i), reason: 'rejected' }; }
-  }
+  // 1: work already open somewhere — always the answer when it exists.
+  const open = state.steps.findIndex((s) => s.status === 'awaiting_work');
+  if (open >= 0) { return { index: open, phaseId: dagId(open), reason: 'awaiting_work' }; }
+
+  const optional = (i: number): boolean => isStepOptional(pipeline, i);
+
+  // 2: a rejection the run still needs.
+  const blocked = state.steps.findIndex((s, i) => s.status === 'rejected' && !optional(i));
+  if (blocked >= 0) { return { index: blocked, phaseId: dagId(blocked), reason: 'rejected' }; }
+
   // 3: first pending step whose deps are all approved.
   for (let i = 0; i < state.steps.length; i++) {
     if (state.steps[i].status !== 'pending') { continue; }
@@ -209,6 +220,11 @@ export function nextEligiblePhase(state: RunState, pipeline: PipelineConfig): El
     const ready = deps.every((d) => statusByDagId.get(d) === 'approved');
     if (ready) { return { index: i, phaseId: dagId(i), reason: 'unblocked' }; }
   }
+
+  // 4: an optional step the run walked past. Offered last — it is work the
+  // user may want back, never work the run is waiting on.
+  const skipped = state.steps.findIndex((s, i) => s.status === 'rejected' && optional(i));
+  if (skipped >= 0) { return { index: skipped, phaseId: dagId(skipped), reason: 'rejected' }; }
   return null;
 }
 
@@ -269,10 +285,12 @@ The first token is the **epic id**; an optional second token is the **phase**.
 - **If a phase was given**, use it. Validate it is a step in the epic's
   pipeline (see step 3). If it isn't, tell the user which phases the pipeline
   *does* have and stop.
-- **If no phase was given**, pick the **next eligible phase**: the first step
-  that is \`awaiting_work\`, else the first \`rejected\` step, else the first
-  \`pending\` step whose every \`depends_on\` is \`approved\`. If none is
-  actionable (all approved or paused for review), say so and stop.
+- **If no phase was given**, pick the **next eligible phase**, checking each
+  rule against every step before moving to the next rule: any step that is
+  \`awaiting_work\`, else any \`rejected\` step *not* marked \`optional: true\`,
+  else the first \`pending\` step whose every \`depends_on\` is \`approved\`, else
+  a \`rejected\` \`optional\` step. If none is actionable (all approved or
+  paused for review), say so and stop.
 
 ## 3. Resolve composition from the pipeline (never from the command name)
 

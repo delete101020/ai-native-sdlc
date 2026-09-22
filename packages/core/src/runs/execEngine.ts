@@ -24,6 +24,7 @@ import {
 import { runAutoReview } from './AutoReviewer';
 import { commitApprovedArtifacts, resolveArtifactCommitConfig } from './EpicArtifactCommit';
 import { epicsRoot, mirrorRunStateToEpic } from './EpicScaffold';
+import { isActiveStatus, isStepOptional } from './runProgress';
 import { checkBudget, type CostAccounting } from './budget';
 import { estimateCostUsd, ratesFromConfig, providerAliases } from './pricing';
 import { resolveProviderModel } from '../presets/models';
@@ -106,6 +107,13 @@ export interface ExecHooks {
   onAwaitingReview?(e: { agent: string; runId: string }): void;
   /** Loop paused because the current step was rejected. */
   onRejected?(e: { agent: string; runId: string }): void;
+  /**
+   * A rejected step the loop walked past — `optional: true`, or a pipeline
+   * with `on_failure: continue` — naming where it went instead.
+   */
+  onStepSkipped?(e: {
+    stepIdx: number; agent: string; reason: string; nextStepIdx: number; runId: string;
+  }): void;
   /** Auto-review validator is about to run. */
   onAutoReviewStart?(e: { agent: string }): void;
   /** Auto-review verdict landed. */
@@ -217,8 +225,46 @@ export async function runExecLoop(
     }
 
     if (step.status === 'rejected') {
+      // A rejection the pipeline said it can live with — an `optional` step,
+      // or any step under `on_failure: continue` — is not a reason to stop
+      // while other work is open. `on_failure` was declared in the schema and
+      // read by nothing until now; the loop stopped at every rejection either
+      // way. Moving the cursor is all it takes: the rejected step keeps its
+      // status and reason, so a human can still come back and rerun it.
+      const skippable = isStepOptional(initialPipeline, state.currentStepIdx)
+        || initialPipeline.on_failure === 'continue';
+      const openElsewhere = state.steps.findIndex(
+        (s, i) => i !== state.currentStepIdx && isActiveStatus(s.status),
+      );
+      if (skippable && openElsewhere >= 0) {
+        hooks.onStepSkipped?.({
+          stepIdx: state.currentStepIdx,
+          agent: step.agent,
+          reason: step.rejectReason ?? step.autoReviewVerdict?.reason ?? 'rejected',
+          nextStepIdx: openElsewhere,
+          runId,
+        });
+        RunStateStore.save(root, { ...state, currentStepIdx: openElsewhere });
+        continue;
+      }
       hooks.onRejected?.({ agent: step.agent, runId });
       return { kind: 'rejected' };
+    }
+
+    // Cursor on a finished step. Reachable once a rejection can be carried
+    // past: the run is not `completed` (something was skipped), so say where
+    // it actually stands instead of reporting a broken state machine.
+    if (step.status === 'approved') {
+      const openElsewhere = state.steps.findIndex((s) => isActiveStatus(s.status));
+      if (openElsewhere >= 0) {
+        RunStateStore.save(root, { ...state, currentStepIdx: openElsewhere });
+        continue;
+      }
+      const parked = state.steps.find((s) => s.status === 'rejected');
+      if (parked) {
+        hooks.onRejected?.({ agent: parked.agent, runId });
+        return { kind: 'rejected' };
+      }
     }
 
     if (step.status !== 'awaiting_work') {

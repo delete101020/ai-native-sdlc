@@ -125,6 +125,17 @@ const PipelineStepObjectSchema = z
     name: z.string().optional(),
     /** Step is part of the pipeline but skipped at run time when false. Defaults to true. */
     enabled: z.boolean().default(true),
+    /**
+     * A step the run may fail and carry on past. Its rejection never marks the
+     * epic failed, never parks the run cursor, and never keeps the run from
+     * completing; the autopilot loop steps over it to whatever else is open.
+     *
+     * For the side branch whose findings are welcome but not required — a
+     * second reviewer's lens, an optional QC pass. Without the flag the only
+     * thing making such a step skippable is that nothing happens to
+     * `depends_on` it, which the runner cannot tell from an oversight.
+     */
+    optional: z.boolean().default(false),
     /** Artifact paths the step is expected to produce. Checked after work. */
     produces: z.array(z.string().min(1)).default([]),
     /**
@@ -291,6 +302,8 @@ export interface NormalizedStep {
   /** Skill ids this step makes available — overrides the agent's defaults. */
   skills?: string[];
   enabled: boolean;
+  /** Rejecting this step never fails the run — see the schema for semantics. */
+  optional: boolean;
   produces: string[];
   produces_contains: string[];
   requires: string[];
@@ -318,6 +331,7 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
     return {
       agent: step,
       enabled: true,
+      optional: false,
       produces: [],
       produces_contains: [],
       requires: [],
@@ -353,6 +367,7 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
     name: typeof obj.name === 'string' ? obj.name : undefined,
     skills,
     enabled: typeof obj.enabled === 'boolean' ? obj.enabled : true,
+    optional: obj.optional === true,
     produces,
     produces_contains,
     requires,

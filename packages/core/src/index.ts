@@ -359,6 +359,13 @@ export {
   retryAutoReview,
   PipelineRunError,
 } from './runs/PipelineRunner';
+export {
+  deriveRunProgress,
+  isRunComplete,
+  isStepOptional,
+  isActiveStatus,
+} from './runs/runProgress';
+export type { RunProgress } from './runs/runProgress';
 export { checkBudget } from './runs/budget';
 export type { BudgetCheckArgs, BudgetVerdict, CostAccounting, CostConfidence } from './runs/budget';
 export {

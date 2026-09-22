@@ -13,6 +13,7 @@ import * as path from 'path';
 
 import {
   RunStateStore,
+  deriveRunProgress,
   normalizeStep,
   resolvePath,
   mirrorRunStateToEpic,
@@ -553,14 +554,29 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         if (sr.feedback) { runFeedbackByIdx.set(sr.stepIdx, sr.feedback); }
       }
     }
-    const runCurrentStepIdx = runState ? runState.currentStepIdx : undefined;
-
     // Look up the pipeline definition from workspace.yaml so we can surface
-    // each step's configured gates (auto_review / human_review) on the panel.
+    // each step's configured gates (auto_review / human_review) on the panel,
+    // and tell an `optional` step from a required one.
     const pipelineId = typeof parsed.pipeline === 'string' ? parsed.pipeline : null;
     const pipelineCfg = pipelineId
       ? (doc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId)
       : undefined;
+
+    // Where the run stands, read once for both the badge and the cursor.
+    const progress = runState ? deriveRunProgress(runState, pipelineCfg) : null;
+    // A run written before the cursor stopped parking on settled steps still
+    // has `currentStepIdx` pointing at one that is over — a rejected side
+    // branch, or the step whose approval opened the next. Reading past it here
+    // means such a run shows its live step without its state being rewritten:
+    // the run file stays the record of what happened.
+    const cursorStatus = runState?.steps[runState.currentStepIdx]?.status;
+    const cursorSettled = cursorStatus === 'approved' || cursorStatus === 'rejected';
+    const displayCursor = runState
+      ? (cursorSettled && progress && progress.actionable.length > 0
+        ? progress.actionable[0]
+        : runState.currentStepIdx)
+      : undefined;
+    const runCurrentStepIdx = displayCursor;
     const stepGateByIdx = new Map<number, { auto: boolean; human: boolean }>();
     const stepDependsByIdx = new Map<number, string[]>();
     const stepNameByIdx = new Map<number, string>();
@@ -782,18 +798,13 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
 
     // The state.json's overall status doesn't sync from the run-state
     // machine either, so when a runState is present, derive epic status
-    // from it (completed → done; any rejected step → failed; otherwise
-    // in_progress). Falls back to state.json when no runState exists.
-    const epicStatus = runState
-      ? runState.status === 'completed'
-        ? 'done' as const
-        : runState.steps.some((sr) => sr.status === 'rejected')
-        ? 'failed' as const
-        : 'in_progress' as const
-      : asStatus(parsed.status);
-    const currentStep = runState
-      ? runState.currentStepIdx
-      : (typeof parsed.currentStep === 'number' ? parsed.currentStep : 0);
+    // from it. `failed` is reserved for a run actually stuck on a rejection
+    // — a rejected step with work still open elsewhere (a parallel branch,
+    // an `optional` step) leaves the epic `in_progress`, which is what it
+    // is. Falls back to state.json when no runState exists.
+    const epicStatus = progress ? progress.status : asStatus(parsed.status);
+    const currentStep = displayCursor
+      ?? (typeof parsed.currentStep === 'number' ? parsed.currentStep : 0);
 
     epics.push({
       id: epicId,
