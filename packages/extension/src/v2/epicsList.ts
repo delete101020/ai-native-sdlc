@@ -15,6 +15,8 @@ import {
   RunStateStore,
   deriveRunProgress,
   canUndoStepDone,
+  canRerunApprovedStep,
+  dirtyUpstreamOf,
   normalizeStep,
   resolvePath,
   mirrorRunStateToEpic,
@@ -29,6 +31,7 @@ import type {
   PipelineConfig,
   PipelineStepConfig,
   StepHistoryEntry,
+  StepDirtyMark,
 } from '@aidlc/core';
 
 import { readYaml, type YamlDocument } from './yamlIO';
@@ -136,6 +139,25 @@ export interface EpicSummary {
      * not have.
      */
     canUndoDone: boolean;
+    /**
+     * True when this step already passed and can be rerun in place, keeping
+     * the finished work downstream — see `canRerunApprovedStep`. Host-side for
+     * the same reason as `canUndoDone`: the answer is about the run, not the
+     * card.
+     */
+    canRerun: boolean;
+    /**
+     * Set when an upstream step was rerun after this one finished. The step is
+     * still done — this does not change `status` or `runStatus` — it only says
+     * the output was built on an input that has since changed.
+     */
+    dirty?: StepDirtyMark;
+    /**
+     * The dirty steps this one depends on, transitively. Non-empty means
+     * working this step risks building on stale upstream output, which is what
+     * the card warns about before the work starts. Empty in the ordinary case.
+     */
+    dirtyUpstream: Array<{ stepIdx: number; step: string; byStep: string }>;
     /** Append-only timeline of significant transitions for this step. */
     history?: StepHistoryEntry[];
     /** Cached count of `reject` entries in `history` — for compact display. */
@@ -529,8 +551,11 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
       // No DAG info from static files — leave empty so the UI renders a
       // straight LinearStepper rather than a DagStepper.
       dependsOn: [] as string[],
-      // No run-state machine behind these steps, so there is no click to undo.
+      // No run-state machine behind these steps, so there is no click to undo
+      // and nothing that could have been rerun under them.
       canUndoDone: false,
+      canRerun: false,
+      dirtyUpstream: [] as Array<{ stepIdx: number; step: string; byStep: string }>,
       history,
       rejectCount: history ? history.filter((e) => e.kind === 'reject').length : 0,
     };
@@ -920,6 +945,13 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         dependsOn: stepDependsByIdx.get(i) ?? [],
         canUndoDone: !!runState && !!pipelineCfg
           && canUndoStepDone({ state: runState, pipeline: pipelineCfg, stepIdx: i }).ok,
+        canRerun: !!runState && !!pipelineCfg
+          && canRerunApprovedStep({ state: runState, pipeline: pipelineCfg, stepIdx: i }).ok,
+        dirty: runState?.steps[i]?.dirty,
+        dirtyUpstream: runState && pipelineCfg
+          ? dirtyUpstreamOf({ state: runState, pipeline: pipelineCfg, stepIdx: i })
+              .map((d) => ({ stepIdx: d.stepIdx, step: d.step, byStep: d.dirty.byStep }))
+          : [],
         history,
         rejectCount,
         feedback: runFeedbackByIdx.get(i),

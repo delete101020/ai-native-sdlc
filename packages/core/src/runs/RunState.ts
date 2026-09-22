@@ -35,6 +35,23 @@ export type RunStatus =
   | 'completed'         // all steps approved
   | 'failed';           // produces validation failed and not recoverable
 
+/**
+ * Why a step that is already approved is now suspect — see
+ * {@link StepRecord.dirty}. Records the rerun that caused it, so the warning
+ * can name the step the user needs to think about rather than saying only
+ * that something changed.
+ */
+export interface StepDirtyMark {
+  /** ISO timestamp the mark was applied. */
+  since: string;
+  /** Index of the upstream step whose rerun caused this. */
+  byStepIdx: number;
+  /** Identity (`name ?? agent`) of that upstream step, for the message. */
+  byStep: string;
+  /** Revision the upstream step moved to when it was rerun. */
+  byRevision: number;
+}
+
 export interface StepRecord {
   /** Index into pipeline.steps[]. */
   stepIdx: number;
@@ -83,6 +100,18 @@ export interface StepRecord {
    * incomplete.
    */
   model?: string;
+  /**
+   * Set when an upstream step was rerun *after* this one was already
+   * approved: the step is still done, but it was done against an input that
+   * has since changed. Absent means "nothing upstream has moved since".
+   *
+   * Deliberately a mark rather than a {@link StepStatus}. A dirty step is
+   * approved in every sense the run machinery cares about — it does not
+   * block, it does not reopen, and it still counts toward completion. The
+   * only thing it changes is that surfaces downstream of it can warn before
+   * work is built on top of it.
+   */
+  dirty?: StepDirtyMark;
   /** Optional human feedback supplied at rerun time. Carried forward. */
   feedback?: string;
   /** Reason supplied with the most recent rejection. Cleared on rerun. */
@@ -155,6 +184,21 @@ export type StepHistoryEntry =
     }
   | {
       /**
+       * This step was marked dirty because an upstream step was rerun under
+       * it. The status does not change (see {@link StepRecord.dirty}), so
+       * without this entry the timeline would show nothing at all for the
+       * moment the step's input stopped being the one it ran against.
+       */
+      kind: 'dirty';
+      at: string;
+      revision: number;
+      /** Identity of the upstream step that was rerun. */
+      byStep: string;
+      /** Its index, for surfaces that link to it. */
+      byStepIdx: number;
+    }
+  | {
+      /**
        * A round of the /annotate-artifact review loop that edited the .md.
        * Sourced from the artifacts folder's `.annotation-history.json` and
        * merged into the owning step's history at read time (never written to
@@ -221,8 +265,14 @@ export interface RunState {
  * no way to know that and would resolve every index positionally, so it
  * should decline to read the file rather than act on it — which is exactly
  * what a version it does not recognise makes it do.
+ *
+ * 2 → 3 added {@link StepRecord.dirty}. Additive again, and again not
+ * cosmetic: a build that does not know the field reads a dirty step as an
+ * ordinary approval, and the first thing it writes drops the mark for good.
+ * Losing a warning silently is worse than declining to open the file, so an
+ * older build is made to decline.
  */
-export const RUN_STATE_SCHEMA_VERSION = 2;
+export const RUN_STATE_SCHEMA_VERSION = 3;
 
 /**
  * A step's identity: its `name`, falling back to its `agent` id.
@@ -239,11 +289,12 @@ export function stepIdentity(step: Pick<StepRecord, 'agent' | 'name'>): string {
  * Raise a parsed run file to {@link RUN_STATE_SCHEMA_VERSION}, or return null
  * when it is not a run file this build can read.
  *
- * A version-1 file needs no field changes — `name` is optional and its
+ * Neither older version needs field changes — `name` is optional and its
  * absence already means "identified by agent alone", which is what version 1
- * assumed. Migrating is therefore just re-stamping the version, and it
- * happens on read so no separate migration pass has to be run against a
- * workspace. Names are filled in later, from the pipeline, by
+ * assumed, and an absent `dirty` already means "nothing upstream has moved",
+ * which is what version 2 assumed. Migrating is therefore just re-stamping
+ * the version, and it happens on read so no separate migration pass has to be
+ * run against a workspace. Names are filled in later, from the pipeline, by
  * `withBackfilledStepNames`; that needs a pipeline and this does not.
  *
  * Never throws — an unreadable file is a null, the same as a missing one.
@@ -253,8 +304,8 @@ export function migrateRunState(parsed: unknown): RunState | null {
   const obj = parsed as Record<string, unknown>;
   if (typeof obj.runId !== 'string' || !Array.isArray(obj.steps)) { return null; }
   const version = obj.schemaVersion;
-  if (version !== 1 && version !== RUN_STATE_SCHEMA_VERSION) { return null; }
   if (version === RUN_STATE_SCHEMA_VERSION) { return obj as unknown as RunState; }
+  if (version !== 1 && version !== 2) { return null; }
   return { ...obj, schemaVersion: RUN_STATE_SCHEMA_VERSION } as unknown as RunState;
 }
 

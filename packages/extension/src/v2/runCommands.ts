@@ -6,6 +6,8 @@
  *   aidlcNative.markStepDone      — validate the current step's `produces` exist,
  *                             then transition to awaiting_review (or auto-
  *                             approve when human_review=false).
+ *   aidlcNative.rerunStep         — redo a step that already passed, keeping
+ *                                   what was built on top of it
  *   aidlcNative.undoStepDone      — take that mark-done back, when nothing it
  *                             opened has been worked yet.
  *   aidlcNative.approveStep       — human approves the awaiting_review step.
@@ -36,6 +38,8 @@ import {
   markStepDone,
   canUndoStepDone,
   undoStepDone,
+  canRerunApprovedStep,
+  rerunApprovedStep,
   approveStep,
   rejectStep,
   rerunStep,
@@ -467,6 +471,158 @@ export async function undoStepDoneCommand(runIdArg?: string, stepIdxArg?: number
     );
   } catch (err) {
     surfaceRunError(err);
+  }
+}
+
+// ── rerunApprovedStep ────────────────────────────────────────────────────
+
+/**
+ * Redo a step that already passed, keeping what was built on top of it.
+ *
+ * The sibling of "Request update", and the confirmation is where the two have
+ * to be told apart: both reopen an approved step, and the only difference the
+ * user can see afterwards is whether the downstream work is still there. So
+ * the prompt names the steps that will be kept, by name, rather than saying
+ * "downstream steps are preserved" and leaving the user to guess which.
+ */
+export async function rerunApprovedStepCommand(
+  runIdArg?: string,
+  stepIdxArg?: number,
+  feedbackArg?: string,
+): Promise<void> {
+  const root = requireRoot('Rerun Step');
+  if (!root) { return; }
+
+  const runId = await resolveRunId(
+    root,
+    runIdArg,
+    (s) => {
+      const p = loadPipeline(root, s.pipelineId);
+      return !!p && s.steps.some((_, i) => canRerunApprovedStep({ state: s, pipeline: p, stepIdx: i }).ok);
+    },
+  );
+  if (!runId) { return; }
+
+  const state = RunStateStore.load(root, runId);
+  if (!state) { void vscode.window.showWarningMessage(`Run "${runId}" not found.`); return; }
+
+  const pipeline = loadPipeline(root, state.pipelineId);
+  if (!pipeline) {
+    void vscode.window.showErrorMessage(
+      `Run "${runId}" references pipeline "${state.pipelineId}" which is no longer in workspace.yaml.`,
+    );
+    return;
+  }
+
+  const stepIdx = typeof stepIdxArg === 'number' && Number.isInteger(stepIdxArg)
+    && stepIdxArg >= 0 && stepIdxArg < state.steps.length
+    ? stepIdxArg
+    : state.currentStepIdx;
+
+  const gate = canRerunApprovedStep({ state, pipeline, stepIdx });
+  if (!gate.ok) { void vscode.window.showWarningMessage(gate.reason); return; }
+
+  const step = state.steps[stepIdx];
+  // Computed before the transition so the prompt can name them; the real list
+  // comes back off the new state below.
+  const willMark = previewDirtyTargets(state, pipeline, stepIdx);
+  const kept = willMark.length > 0
+    ? `\n\nThese finished steps are kept and marked dirty — still done, but built ` +
+      `on output that is about to change:\n${willMark.map((n) => `  • ${n}`).join('\n')}`
+    : '';
+  const choice = await vscode.window.showWarningMessage(
+    `Rerun "${stepIdentityOf(step)}"? It reopens at revision ${step.revision + 1} and its ` +
+    `artifacts are regenerated.${kept}`,
+    { modal: true },
+    'Rerun step',
+  );
+  if (choice !== 'Rerun step') { return; }
+
+  try {
+    const next = rerunApprovedStep({
+      state,
+      pipeline,
+      stepIdx,
+      feedback: feedbackArg?.trim() || undefined,
+    });
+    saveRun(root, next, state);
+    const marked = next.steps.filter((st) => st.dirty?.byStepIdx === stepIdx);
+    void vscode.window.showInformationMessage(
+      `Step "${stepIdentityOf(step)}" reopened (revision ${next.steps[stepIdx].revision}).` +
+      (marked.length > 0
+        ? ` ${marked.length} finished step(s) downstream kept, marked dirty.`
+        : ''),
+    );
+  } catch (err) {
+    surfaceRunError(err);
+  }
+}
+
+/**
+ * Inline variant driven from the epic card — same transition, no run picker
+ * and no modal, because the card already asked.
+ */
+export async function rerunApprovedStepInlineCommand(
+  runId: string,
+  stepIdx: number,
+  feedback: string,
+): Promise<void> {
+  const root = requireRoot('Rerun Step');
+  if (!root) { return; }
+  const state = RunStateStore.load(root, runId);
+  if (!state) { return; }
+  const pipeline = loadPipeline(root, state.pipelineId);
+  if (!pipeline) {
+    void vscode.window.showErrorMessage(
+      `Run "${runId}" references pipeline "${state.pipelineId}" which is no longer in workspace.yaml.`,
+    );
+    return;
+  }
+  try {
+    const next = rerunApprovedStep({
+      state,
+      pipeline,
+      stepIdx,
+      feedback: feedback.trim() || undefined,
+    });
+    saveRun(root, next, state);
+    const target = next.steps[stepIdx];
+    const marked = next.steps.filter((st) => st.dirty?.byStepIdx === stepIdx);
+    void vscode.window.showInformationMessage(
+      `Step "${stepIdentityOf(target)}" reopened (revision ${target.revision}).` +
+      (marked.length > 0
+        ? ` Kept ${marked.length} finished step(s) downstream — they are marked dirty until redone.`
+        : ''),
+    );
+  } catch (err) {
+    surfaceRunError(err);
+  }
+}
+
+/** A step's display identity — its pipeline `name`, else its agent id. */
+function stepIdentityOf(step: { agent: string; name?: string }): string {
+  return step.name ?? step.agent;
+}
+
+/**
+ * The steps a rerun of `stepIdx` would mark dirty, as labels for the prompt.
+ *
+ * Deliberately re-derived from a dry transition rather than re-implementing
+ * the descendant walk here: the prompt promises what the transition does, and
+ * two separate answers to that would eventually disagree.
+ */
+function previewDirtyTargets(
+  state: Parameters<typeof rerunApprovedStep>[0]['state'],
+  pipeline: Parameters<typeof rerunApprovedStep>[0]['pipeline'],
+  stepIdx: number,
+): string[] {
+  try {
+    const preview = rerunApprovedStep({ state, pipeline, stepIdx });
+    return preview.steps
+      .filter((st) => st.dirty?.byStepIdx === stepIdx)
+      .map((st) => `${st.stepIdx + 1}. ${stepIdentityOf(st)}`);
+  } catch {
+    return [];
   }
 }
 

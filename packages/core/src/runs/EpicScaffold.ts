@@ -111,6 +111,10 @@ export function mirrorRunStateToEpic(
     startedAt: s.startedAt ?? null,
     finishedAt: s.finishedAt ?? null,
     rejectReason: s.rejectReason,
+    // Mirrored because `status` alone reads as a plain `done` here: the whole
+    // point of the mark is that it does not change the status, so a reader of
+    // state.json that only saw `status` would have no way to know.
+    dirty: s.dirty,
     feedback: s.feedback,
     autoReviewVerdict: s.autoReviewVerdict,
     history: s.history ?? [],

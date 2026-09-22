@@ -402,6 +402,9 @@ export {
   rejectStep,
   rerunStep,
   requestStepUpdate,
+  canRerunApprovedStep,
+  rerunApprovedStep,
+  dirtyUpstreamOf,
   submitAutoReviewVerdict,
   retryAutoReview,
   PipelineRunError,
@@ -448,6 +451,7 @@ export type {
   RunStatus,
   AutoReviewVerdict,
   StepHistoryEntry,
+  StepDirtyMark,
 } from './runs/RunState';
 
 // ── Built-in workflow presets (shared by extension + CLI) ──────────

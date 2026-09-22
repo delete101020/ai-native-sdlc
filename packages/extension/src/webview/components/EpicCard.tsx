@@ -24,6 +24,7 @@ import {
   Play,
   History,
   RefreshCw,
+  RotateCcw,
   Zap,
   AlertTriangle,
   ShieldCheck,
@@ -52,6 +53,7 @@ import { RejectModal } from './RejectModal';
 import { RerunModal } from './RerunModal';
 import { RunWithFeedbackModal } from './RunWithFeedbackModal';
 import { RequestUpdateModal } from './RequestUpdateModal';
+import { RerunStepModal } from './RerunStepModal';
 import { DeleteEpicModal } from './DeleteEpicModal';
 import { ConfirmModal } from './ConfirmModal';
 import { AgentRunningBanner } from './AgentRunningBanner';
@@ -1086,11 +1088,11 @@ function StepperNode({
       type="button"
       onClick={onFocus}
       className="group flex flex-col items-center gap-1 px-1"
-      title={`${step.stepName ?? step.agent}${step.stepName && step.stepName !== step.agent ? ` · agent ${step.agent}` : ''} — ${isBusy ? 'agent running' : isAwaitingUpdate ? 'awaiting update' : STEP_LABEL[step.status]}`}
+      title={`${step.stepName ?? step.agent}${step.stepName && step.stepName !== step.agent ? ` · agent ${step.agent}` : ''} — ${isBusy ? 'agent running' : isAwaitingUpdate ? 'awaiting update' : STEP_LABEL[step.status]}${step.dirty ? ` · dirty: ${step.dirty.byStep} was rerun after this finished` : ''}`}
     >
       <div
         className={cn(
-          'flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold transition-all',
+          'relative flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold transition-all',
           step.status === 'done' && 'bg-primary text-primary-foreground',
           step.status === 'in_progress' &&
             'bg-warning text-warning-foreground shadow-[0_0_14px_color-mix(in_oklab,var(--color-warning)_40%,transparent)]',
@@ -1104,6 +1106,14 @@ function StepperNode({
         )}
       >
         {inner}
+        {/* A dirty step is still `done`, so the node keeps its done styling —
+            the mark has to ride on top of it or it would be invisible. */}
+        {step.dirty && (
+          <span
+            aria-hidden
+            className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-warning"
+          />
+        )}
       </div>
       <span
         className={cn(
@@ -1434,7 +1444,9 @@ function StepDetail({
         otherActivities={otherActivities}
         stepLabel={stepLabel}
       />
+      <DirtyUpstreamWarning focused={focused} />
       <UndoDoneAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
+      <RerunStepAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <RequestUpdateAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <StepHistory step={focused} />
     </div>
@@ -1548,6 +1560,141 @@ function RequestUpdateAction({
   );
 }
 
+/**
+ * The risk warning for working a step that sits behind a dirty one.
+ *
+ * This is the whole payoff of the dirty mark: `dirty` deliberately does not
+ * block anything, so the only thing standing between the user and building on
+ * stale input is being told. It renders for any focused step with a dirty
+ * ancestor, done or not — a step already finished behind a dirty one is just
+ * as suspect as one about to start, and its own mark (if it has one) explains
+ * a different fact.
+ */
+function DirtyUpstreamWarning({ focused }: { focused: EpicStepDetailFull }) {
+  const upstream = focused.dirtyUpstream ?? [];
+  if (upstream.length === 0) { return null; }
+  return (
+    <div className="mt-3 rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-[11px]">
+      <div className="flex items-center gap-1.5 font-semibold text-warning">
+        <AlertTriangle className="h-3 w-3 shrink-0" />
+        Risk: this step builds on output that has changed underneath it
+      </div>
+      <ul className="mt-1 space-y-0.5 text-muted-foreground">
+        {upstream.map((u) => (
+          <li key={u.stepIdx}>
+            Step {u.stepIdx + 1} <span className="font-mono text-foreground/80">{u.step}</span> is
+            dirty — <span className="font-mono text-foreground/80">{u.byStep}</span> was rerun after
+            it finished.
+          </li>
+        ))}
+      </ul>
+      <div className="mt-1 text-muted-foreground/80">
+        Nothing is blocked. Rerun the dirty step{upstream.length === 1 ? '' : 's'} first if the
+        change matters here.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Rerun a step that already passed, keeping what was built on top of it.
+ *
+ * Sits beside Request update on purpose, because they answer the same question
+ * differently and the choice is the user's: Request update says the change
+ * invalidates the downstream work, this says it might not. The copy leads with
+ * what survives, since that is the only difference visible after the click.
+ */
+function RerunStepAction({
+  epic,
+  focused,
+  focusedIdx,
+}: {
+  epic: EpicSummary;
+  focused: EpicStepDetailFull;
+  focusedIdx: number;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!epic.runId || !focused.canRerun) { return null; }
+  const kept = keptOnRerun(epic, focusedIdx);
+  return (
+    <div className="mt-3 flex items-center justify-between rounded-md border border-dashed border-border bg-secondary/20 px-3 py-2 text-[11px]">
+      <div className="text-muted-foreground">
+        Updated the prompt?{' '}
+        <span className="text-foreground/80">Rerun this step</span>
+        {kept.length > 0
+          ? <> — the {kept.length} finished step{kept.length === 1 ? '' : 's'} after it stay done, marked dirty.</>
+          : <> and produce its artifacts again.</>}
+      </div>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10.5px] font-semibold text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+      >
+        <RotateCcw className="h-2.5 w-2.5" /> Rerun step
+      </button>
+      {open && (
+        <RerunStepModal
+          agent={focused.stepName ?? focused.agent}
+          runId={epic.runId}
+          stepIdx={focusedIdx}
+          keptSteps={kept}
+          onSubmit={(feedback) =>
+            postMessage({
+              type: 'rerunApprovedStep',
+              runId: epic.runId!,
+              stepIdx: focusedIdx,
+              feedback,
+            })
+          }
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The finished steps a rerun of `stepIdx` would keep and mark dirty, as
+ * labels.
+ *
+ * An approximation of the host's descendant walk: the card has `dependsOn` by
+ * agent id but not the resolved graph, so on a DAG it follows the edges it can
+ * see and falls back to "every later step" when the pipeline declares none —
+ * the same fallback the runner uses. Only approved steps count, because only
+ * those can be marked.
+ */
+function keptOnRerun(epic: EpicSummary, stepIdx: number): string[] {
+  const steps = epic.stepDetails;
+  const usesDag = steps.some((st) => (st.dependsOn ?? []).length > 0);
+  const label = (st: EpicStepDetailFull, i: number) => `${i + 1}. ${st.stepName ?? st.agent}`;
+
+  if (!usesDag) {
+    return steps
+      .map((st, i) => ({ st, i }))
+      .filter(({ st, i }) => i > stepIdx && st.runStatus === 'approved')
+      .map(({ st, i }) => label(st, i));
+  }
+
+  const idOf = (st: EpicStepDetailFull) => st.stepName ?? st.agent;
+  const reached = new Set<number>([stepIdx]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    steps.forEach((st, i) => {
+      if (reached.has(i)) { return; }
+      if ((st.dependsOn ?? []).some((dep) => steps.some((u, j) => reached.has(j) && idOf(u) === dep))) {
+        reached.add(i);
+        changed = true;
+      }
+    });
+  }
+  reached.delete(stepIdx);
+  return steps
+    .map((st, i) => ({ st, i }))
+    .filter(({ st, i }) => reached.has(i) && st.runStatus === 'approved')
+    .map(({ st, i }) => label(st, i));
+}
+
 function StepHistory({ step }: { step: EpicStepDetailFull }) {
   const [open, setOpen] = useState(false);
   const entries = step.history ?? [];
@@ -1556,6 +1703,9 @@ function StepHistory({ step }: { step: EpicStepDetailFull }) {
   const rejectCount = step.rejectCount ?? 0;
   const rerunCount = entries.filter((e) => e.kind === 'rerun').length;
   const annotateCount = entries.filter((e) => e.kind === 'annotate').length;
+  // Reads the live mark, not the history: a step can have been dirtied and
+  // since redone, and the timeline keeps both while only one is still true.
+  const isDirty = !!step.dirty;
   const lastReject = [...entries].reverse().find((e) => e.kind === 'reject') as
     | (StepHistoryEntry & { kind: 'reject' })
     | undefined;
@@ -1565,6 +1715,7 @@ function StepHistory({ step }: { step: EpicStepDetailFull }) {
     rerunCount > 0 && `rerun ${rerunCount}×`,
     annotateCount > 0 && `annotated ${annotateCount}×`,
     !rejectCount && entries.some((e) => e.kind === 'approve') && 'approved',
+    isDirty && 'dirty',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -1639,6 +1790,8 @@ function HistoryIcon({ kind }: { kind: StepHistoryEntry['kind'] }) {
       return <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" />;
     case 'undo':
       return <Undo2 className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />;
+    case 'dirty':
+      return <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-warning" />;
     case 'annotate':
       return <Highlighter className="mt-0.5 h-3 w-3 shrink-0 text-primary" />;
   }
@@ -1674,6 +1827,15 @@ function HistoryLabel({ entry }: { entry: StepHistoryEntry }) {
           <span className="ml-1 font-normal">from {entry.from}</span>
         </span>
       );
+    case 'dirty':
+      return (
+        <span className="font-semibold text-warning">
+          Marked dirty
+          <span className="ml-1 font-normal text-muted-foreground">
+            step {entry.byStepIdx + 1} ({entry.byStep}) was rerun
+          </span>
+        </span>
+      );
     case 'annotate':
       return (
         <span className="font-semibold text-primary">
@@ -1702,6 +1864,7 @@ function HistoryBody({ entry }: { entry: StepHistoryEntry }) {
       );
     case 'approve':
     case 'undo':
+    case 'dirty':
       return null;
     case 'annotate':
       return (

@@ -284,6 +284,7 @@ import {
   rejectStepInlineCommand,
   rerunStepInlineCommand,
   requestStepUpdateInlineCommand,
+  rerunApprovedStepInlineCommand,
   startPipelineRunInlineCommand,
 } from './runCommands';
 import { pickAndReadTextFile } from './pickAndReadTextFile';
@@ -2918,6 +2919,14 @@ export class WorkspaceWebview {
         const feedback = String(msg.feedback ?? '');
         if (!runId || !Number.isInteger(stepIdx)) { return; }
         await requestStepUpdateInlineCommand(runId, stepIdx, feedback);
+        return;
+      }
+      case 'rerunApprovedStep': {
+        const runId = String(msg.runId ?? '');
+        const stepIdx = Number(msg.stepIdx);
+        const feedback = String(msg.feedback ?? '');
+        if (!runId || !Number.isInteger(stepIdx)) { return; }
+        await rerunApprovedStepInlineCommand(runId, stepIdx, feedback);
         return;
       }
       case 'savePresetInline': {

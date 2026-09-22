@@ -16,6 +16,9 @@
  *     (in-place) OR cascade to an upstream step with intermediate steps
  *     reset to pending
  *   - rerun: user retries a rejected step → revision++, back to awaiting_work
+ *   - rerunApprovedStep: redo a step that already passed, without throwing
+ *     away what was built on top of it — downstream approvals are kept and
+ *     marked `dirty` instead
  *
  * Phase 2 will layer in: requires gate-check on advance, hooks (before/after
  * step), automatic worker dispatch.
@@ -26,7 +29,7 @@ import * as path from 'path';
 
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep } from '../schema/WorkspaceSchema';
-import type { RunState, StepRecord, StepStatus, AutoReviewVerdict, StepHistoryEntry } from './RunState';
+import type { RunState, StepRecord, StepStatus, AutoReviewVerdict, StepHistoryEntry, StepDirtyMark } from './RunState';
 import { resolvePath, stepIdentity, RUN_STATE_SCHEMA_VERSION } from './RunState';
 import { isActiveStatus, isRunComplete, isStepOptional } from './runProgress';
 import { reconcileRunSteps, describeDrift, withBackfilledStepNames } from './reconcileRun';
@@ -867,6 +870,227 @@ export function requestStepUpdate(args: {
 }
 
 /**
+ * Every step that transitively depends on `idx`, in ascending order.
+ *
+ * On a DAG these are the steps reachable by following `depends_on` edges
+ * forwards. On a pipeline that declares no `depends_on` anywhere, the graph is
+ * the implicit chain the runner advances along, so "downstream" is simply
+ * every later index — the same reading {@link followersOf} and
+ * {@link requestStepUpdate} already take of a sequential pipeline.
+ *
+ * Excludes `idx` itself.
+ */
+function descendantsOf(pipeline: PipelineConfig, idx: number): number[] {
+  const normalized = pipeline.steps.map(normalizeStep);
+  const usesDag = normalized.some((s) => s.depends_on.length > 0);
+  if (!usesDag) {
+    return sequentialRange(idx + 1, normalized.length - 1);
+  }
+  const idxByDagId = new Map<string, number>();
+  normalized.forEach((s, i) => { idxByDagId.set(s.name ?? s.agent, i); });
+  const found = new Set<number>([idx]);
+  // Fixed point: a step joins the set once any of its deps is in it. O(n²)
+  // at worst, which is nothing at the size real pipelines run to.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    normalized.forEach((s, i) => {
+      if (found.has(i)) { return; }
+      if (s.depends_on.some((dep) => {
+        const di = idxByDagId.get(dep);
+        return di !== undefined && found.has(di);
+      })) {
+        found.add(i);
+        changed = true;
+      }
+    });
+  }
+  found.delete(idx);
+  return Array.from(found).sort((a, b) => a - b);
+}
+
+/**
+ * The mirror of {@link descendantsOf}: every step `idx` transitively depends
+ * on, in ascending order, excluding `idx`.
+ */
+function ancestorsOf(pipeline: PipelineConfig, idx: number): number[] {
+  const normalized = pipeline.steps.map(normalizeStep);
+  const usesDag = normalized.some((s) => s.depends_on.length > 0);
+  if (!usesDag) {
+    return sequentialRange(0, idx - 1);
+  }
+  const idxByDagId = new Map<string, number>();
+  normalized.forEach((s, i) => { idxByDagId.set(s.name ?? s.agent, i); });
+  const found = new Set<number>();
+  const queue = [idx];
+  while (queue.length > 0) {
+    const cur = queue.pop() as number;
+    for (const dep of normalized[cur]?.depends_on ?? []) {
+      const di = idxByDagId.get(dep);
+      if (di === undefined || found.has(di) || di === idx) { continue; }
+      found.add(di);
+      queue.push(di);
+    }
+  }
+  return Array.from(found).sort((a, b) => a - b);
+}
+
+/**
+ * The approved-but-suspect steps upstream of `idx` — what a warning shown
+ * before working on `idx` should name.
+ *
+ * Reads the marks {@link rerunApprovedStep} left; it does not re-derive
+ * staleness from timestamps, because the question "was this step's input
+ * redone under it" is a fact about what the user did, not about file mtimes.
+ *
+ * Pure, never throws — every surface that offers to start a step calls it.
+ */
+export function dirtyUpstreamOf(args: {
+  state: RunState;
+  pipeline: PipelineConfig;
+  stepIdx: number;
+}): Array<{ stepIdx: number; step: string; dirty: StepDirtyMark }> {
+  const { state, pipeline, stepIdx } = args;
+  if (!state.steps[stepIdx]) { return []; }
+  const out: Array<{ stepIdx: number; step: string; dirty: StepDirtyMark }> = [];
+  for (const i of ancestorsOf(pipeline, stepIdx)) {
+    const s = state.steps[i];
+    if (!s?.dirty) { continue; }
+    out.push({ stepIdx: i, step: stepIdentity(s), dirty: s.dirty });
+  }
+  return out;
+}
+
+/**
+ * Whether a step that already passed can be rerun — and, when it cannot, the
+ * sentence to show the user.
+ *
+ * Pure, never throws; the UI calls it to decide whether to offer the button.
+ */
+export function canRerunApprovedStep(args: {
+  state: RunState;
+  pipeline: PipelineConfig;
+  /** Defaults to the current step. */
+  stepIdx?: number;
+}): { ok: true } | { ok: false; reason: string } {
+  const { state, pipeline } = args;
+  const idx = args.stepIdx ?? state.currentStepIdx;
+  const step = state.steps[idx];
+  if (!step) { return { ok: false, reason: `No step at index ${idx}` }; }
+  if (!reconcileRunSteps(state, pipeline).aligned) {
+    return {
+      ok: false,
+      reason: `Run "${state.runId}" no longer matches pipeline "${pipeline.id}" — ` +
+        'reconcile it before rerunning anything.',
+    };
+  }
+  if (step.status !== 'approved') {
+    return {
+      ok: false,
+      reason: step.status === 'awaiting_review' || step.status === 'awaiting_auto_review'
+        ? `Step "${stepIdentity(step)}" has not been approved yet — take the ` +
+          'mark-done back with "Undo" instead.'
+        : `Step "${stepIdentity(step)}" is "${step.status}", not "approved" — ` +
+          'there is nothing to rerun.',
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Redo a step that already passed, keeping everything built on top of it.
+ *
+ * The case this exists for: the step's prompt changed, so its output should be
+ * regenerated — but the steps that consumed that output are done, and some of
+ * them cost real work. {@link requestStepUpdate} answers this by resetting
+ * every descendant to `pending`, which is correct when the change invalidates
+ * them and far too much when the user only wants to see what the new prompt
+ * produces.
+ *
+ * So this rewinds the target alone. Descendants that were already approved
+ * keep their status, their artifacts and their history, and gain a
+ * {@link StepRecord.dirty} mark: still done, but done against an input that
+ * has since moved. Nothing is blocked by the mark — `dirty` means done — it
+ * only gives the surfaces downstream something honest to warn with (see
+ * {@link dirtyUpstreamOf}). Descendants that had not been approved are left
+ * exactly as they were: a step still `awaiting_work` has nothing to
+ * invalidate, and closing it would be the reset this function exists to avoid.
+ *
+ * A dirty mark is cleared only by that step being approved again — redoing the
+ * target does not clear it, because the dirty step still has not seen the new
+ * output.
+ *
+ * Throws {@link PipelineRunError} with {@link canRerunApprovedStep}'s reason
+ * when the rerun is not available.
+ */
+export function rerunApprovedStep(args: {
+  state: RunState;
+  pipeline: PipelineConfig;
+  /** Step to rerun. Defaults to `state.currentStepIdx`. */
+  stepIdx?: number;
+  /** Optional note carried onto the step, as on the other rerun paths. */
+  feedback?: string;
+}): RunState {
+  const { pipeline, feedback } = args;
+  const state = alignedOrThrow(args.state, pipeline);
+  const idx = args.stepIdx ?? state.currentStepIdx;
+  const gate = canRerunApprovedStep({ state, pipeline, stepIdx: idx });
+  if (!gate.ok) { throw new PipelineRunError(gate.reason); }
+
+  const step = state.steps[idx];
+  const now = new Date().toISOString();
+  const next = clone(state);
+  const newRev = step.revision + 1;
+  const carriedFeedback = feedback ?? step.feedback;
+
+  next.steps[idx] = {
+    ...step,
+    status: 'awaiting_work',
+    revision: newRev,
+    feedback: carriedFeedback,
+    rejectReason: undefined,
+    autoReviewVerdict: undefined,
+    // The target is being redone, so whatever made *it* suspect is moot.
+    dirty: undefined,
+    artifactsProduced: [],
+    finishedAt: undefined,
+    startedAt: now,
+    history: pushHistory(step.history, {
+      kind: 'rerun',
+      at: now,
+      revision: newRev,
+      feedback: carriedFeedback,
+    }),
+  };
+
+  const mark: StepDirtyMark = {
+    since: now,
+    byStepIdx: idx,
+    byStep: stepIdentity(step),
+    byRevision: newRev,
+  };
+  for (const i of descendantsOf(pipeline, idx)) {
+    const d = next.steps[i];
+    if (!d || d.status !== 'approved') { continue; }
+    next.steps[i] = {
+      ...d,
+      dirty: mark,
+      history: pushHistory(d.history, {
+        kind: 'dirty',
+        at: now,
+        revision: d.revision,
+        byStep: mark.byStep,
+        byStepIdx: idx,
+      }),
+    };
+  }
+
+  next.currentStepIdx = idx;
+  next.status = 'running';
+  return next;
+}
+
+/**
  * Mark the given step approved, then open every now-unblocked dependent
  * step.
  *
@@ -885,6 +1109,10 @@ function advance(next: RunState, idx: number, pipeline: PipelineConfig): RunStat
     ...approved,
     status: 'approved',
     finishedAt,
+    // The step has now run against whatever its input currently is, so the
+    // mark an upstream rerun left on it no longer describes anything. This is
+    // the only thing that clears it.
+    dirty: undefined,
     history: pushHistory(approved.history, {
       kind: 'approve',
       at: finishedAt,

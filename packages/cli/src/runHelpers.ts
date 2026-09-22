@@ -261,7 +261,13 @@ export function printRunSummary(state: RunState): void {
     const rev       = step.revision > 1 ? chalk.dim(` rev${step.revision}`) : '';
     const feedback  = step.feedback    ? chalk.dim(` [feedback: ${step.feedback.slice(0, 40)}]`) : '';
     const reason    = step.rejectReason ? chalk.red(` ✘ ${step.rejectReason.slice(0, 60)}`) : '';
-    console.log(`  ${marker} ${idxLabel} ${agent.padEnd(20)} ${status}${rev}${feedback}${reason}`);
+    // `dirty` does not change the status — the step is still done — so it has
+    // to be printed alongside it, or the summary would show an approval that
+    // looks exactly like one nothing has happened under.
+    const dirty     = step.dirty
+      ? chalk.yellow(` ⚠ dirty (${step.dirty.byStep} was rerun after this)`)
+      : '';
+    console.log(`  ${marker} ${idxLabel} ${agent.padEnd(20)} ${status}${rev}${dirty}${feedback}${reason}`);
   });
   console.log();
 }

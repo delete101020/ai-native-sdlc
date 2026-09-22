@@ -50,6 +50,7 @@ import {
   rejectStepInlineCommand,
   rerunStepInlineCommand,
   requestStepUpdateInlineCommand,
+  rerunApprovedStepInlineCommand,
   startPipelineRunInlineCommand,
 } from './runCommands';
 import { WorkspaceWebview } from './workspaceWebview';
@@ -753,6 +754,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           feedback,
           stepIdx,
         );
+        return;
+      }
+      case 'rerunApprovedStep': {
+        const runId = String(msg.runId ?? '');
+        const stepIdx = Number(msg.stepIdx);
+        const feedback = String(msg.feedback ?? '');
+        if (!runId || !Number.isInteger(stepIdx)) { return; }
+        await rerunApprovedStepInlineCommand(runId, stepIdx, feedback);
+        this.refresh();
         return;
       }
       case 'requestStepUpdate': {
