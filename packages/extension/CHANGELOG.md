@@ -1,5 +1,44 @@
 # Changelog
 
+## 4.0.12
+
+Two things that were previously only knowable by leaving the editor: how much
+of your Claude plan is left, and whether a step you just marked done can be
+un-marked.
+
+### Added
+
+- **How much of the plan the account has left**, in the status bar and in the
+  account switcher. The token monitor answers "what did this cost"; it reads
+  local logs and cannot answer "can I keep going", because the limit is per
+  plan window and counts every machine on the account. Only the server knows
+  that, so this asks it — the same endpoint Claude Code's own `/usage` uses.
+  The indicator shows the tightest window (`$(pulse) 34%`), turns amber under
+  20% and red under 5%, and its tooltip lists every window with when it rolls
+  over. The account picker shows the same figure per saved account, so the
+  answer to "which one has room" is visible before you switch. Keyed by config
+  dir, refreshed every 5 minutes by default; *AIDLC Native: Show Claude Plan
+  Usage Left* opens the full list, and
+  `aidlcNative.claude.planUsage.enabled` turns the whole thing off.
+
+  It never writes, refreshes or logs a credential, and every failure is a
+  shrug rather than a wrong number: no sign-in, an expired token, an endpoint
+  that changed shape — the indicator hides instead of guessing. The endpoint
+  is undocumented and may go quiet without warning.
+
+- **A mis-clicked "Mark step done" can be taken back.** *Mark step done* sits
+  one button away from *Run with Claude*, and on a pipeline with no review
+  gates it also approves the step and advances the run — so a slip used to
+  cost several steps of rework, because the only way back was *Request
+  update*, which bumps the revision and resets everything downstream. *Undo
+  mark done* is the cheap transition instead: the step returns to awaiting
+  work at the same revision, its carried feedback intact, no artifact touched,
+  and whatever the advance opened closes again. It is offered only while
+  nothing downstream has been worked — the moment a following step has
+  produced anything, it disappears and says so, because from there it would
+  no longer be an undo. The approval it reverses stays in the step's timeline
+  with the undo recorded after it.
+
 ## 4.0.11
 
 An epic's brief and its workflow stopped being decided once and for all at the
