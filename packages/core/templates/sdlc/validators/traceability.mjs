@@ -23,32 +23,44 @@
  * which can't resolve the package). Built-in profile rules are embedded; a
  * custom profile is read from .aidlc/profiles/<id>.yaml when js-yaml is
  * importable, else it is treated as enforce-nothing with a logged note.
+ *
+ * A profile carries its own section requirements: the built-ins embed theirs
+ * below, a custom profile declares them as `artifacts.<NAME>.mandatory_sections`
+ * in its manifest. The `mandatory-sections` rule checks the ACTIVE profile's
+ * list — never another profile's.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+// Sections the built-in `iso-ieee` profile requires, keyed by artifact file —
+// mirrors its `artifacts:` block in StandardProfile.ts. No other built-in turns
+// `mandatory-sections` on, so no other built-in needs a list.
+const ISO_IEEE_SECTIONS = {
+  'PRD.md': ['Problem & Goal', 'User Flow', 'Acceptance Criteria', 'Non-Functional Requirements', 'Dependencies'],
+  'TECH-DESIGN.md': ['Architecture', 'API', 'Data Model'],
+  'TEST-CASES.md': ['Test Cases'],
+};
+
 // Built-in profile traceability config — mirrors
 // packages/core/src/profiles/StandardProfile.ts. Keep in sync.
 const BUILTIN_TRACE = {
-  none: { enforce: false, rules: [] },
-  'agile-lite': { enforce: true, rules: ['ac-testable', 'ac-has-test'] },
-  hybrid: { enforce: true, rules: ['ac-testable', 'ac-has-test', 'tc-has-result', 'rtm-no-dangling'] },
+  none: { enforce: false, rules: [], sections: {} },
+  'agile-lite': { enforce: true, rules: ['ac-testable', 'ac-has-test'], sections: {} },
+  hybrid: {
+    enforce: true,
+    rules: ['ac-testable', 'ac-has-test', 'tc-has-result', 'rtm-no-dangling'],
+    sections: {},
+  },
   'iso-ieee': {
     enforce: true,
     rules: ['ac-testable', 'ac-has-test', 'tc-has-result', 'rtm-no-dangling', 'mandatory-sections'],
+    sections: ISO_IEEE_SECTIONS,
   },
 };
 
 // Vague phrases that make an acceptance criterion untestable (ac-testable).
 const VAGUE = [/should work well/i, /good ux/i, /feels fast/i, /as expected/i, /etc\.?$/im];
-
-// Mandatory sections checked under `mandatory-sections`, keyed by artifact file.
-const MANDATORY_SECTIONS = {
-  'PRD.md': ['Problem & Goal', 'User Flow', 'Acceptance Criteria', 'Non-Functional Requirements', 'Dependencies'],
-  'TECH-DESIGN.md': ['Architecture', 'API', 'Data Model'],
-  'TEST-CASES.md': ['Test Cases'],
-};
 
 // ── helpers ────────────────────────────────────────────────────────
 
@@ -83,6 +95,24 @@ function resolveStandardId(workspaceRoot, state) {
   return 'none';
 }
 
+/**
+ * A manifest's `artifacts:` block as this validator wants it — keyed by the
+ * artifact FILE name, since that is what we look for on disk. Manifests name
+ * artifacts without the extension (`PRD`, `TECH-DESIGN`), so add it; a key
+ * that already carries `.md` is left alone. An entry with no sections is
+ * dropped so an empty declaration can't masquerade as a real one.
+ */
+function sectionsFromManifest(doc) {
+  const artifacts = doc && typeof doc.artifacts === 'object' && doc.artifacts ? doc.artifacts : {};
+  const out = {};
+  for (const [name, rule] of Object.entries(artifacts)) {
+    const sections = rule && Array.isArray(rule.mandatory_sections) ? rule.mandatory_sections : [];
+    if (sections.length === 0) { continue; }
+    out[/\.md$/i.test(name) ? name : `${name}.md`] = sections;
+  }
+  return out;
+}
+
 /** Traceability config for an id — built-in embedded, custom via optional js-yaml read. */
 async function traceConfigFor(id, workspaceRoot, notes) {
   if (Object.prototype.hasOwnProperty.call(BUILTIN_TRACE, id)) { return BUILTIN_TRACE[id]; }
@@ -90,16 +120,29 @@ async function traceConfigFor(id, workspaceRoot, notes) {
   const text = readIfExists(manifest);
   if (!text) {
     notes.push(`custom profile "${id}" has no manifest at ${manifest} — enforcing nothing`);
-    return { enforce: false, rules: [] };
+    return { enforce: false, rules: [], sections: {} };
   }
   try {
     const yaml = await import('js-yaml');
     const doc = yaml.load(text) || {};
     const t = doc.traceability || {};
-    return { enforce: t.enforce === true, rules: Array.isArray(t.rules) ? t.rules : [] };
+    const cfg = {
+      enforce: t.enforce === true,
+      rules: Array.isArray(t.rules) ? t.rules : [],
+      sections: sectionsFromManifest(doc),
+    };
+    // Turning the rule on with nothing to check is silently vacuous — say so
+    // rather than let the profile look enforced when it isn't.
+    if (cfg.rules.includes('mandatory-sections') && Object.keys(cfg.sections).length === 0) {
+      notes.push(
+        `custom profile "${id}" enables mandatory-sections but declares no ` +
+          'artifacts.<NAME>.mandatory_sections — no sections checked',
+      );
+    }
+    return cfg;
   } catch {
     notes.push(`custom profile "${id}" present but js-yaml unavailable — enforcing nothing`);
-    return { enforce: false, rules: [] };
+    return { enforce: false, rules: [], sections: {} };
   }
 }
 
@@ -218,7 +261,7 @@ export default async function traceability(ctx) {
 
   // mandatory-sections — each present artifact carries the profile's required headings.
   if (trace.rules.includes('mandatory-sections')) {
-    for (const [file, sections] of Object.entries(MANDATORY_SECTIONS)) {
+    for (const [file, sections] of Object.entries(trace.sections || {})) {
       const found = firstExisting(artifactsDir, [file]);
       if (!found) { continue; }
       for (const s of sections) {

@@ -36,6 +36,10 @@ describe('traceability validator (GH-69 P1)', () => {
   const setStandard = (v: string) =>
     fs.writeFileSync(path.join(root, '.aidlc', 'workspace.yaml'), `version: "1.0"\nname: t\nstandard: ${v}\n`);
   const write = (file: string, text: string) => fs.writeFileSync(path.join(artifactsDir, file), text);
+  const writeProfile = (id: string, yaml: string) => {
+    fs.mkdirSync(path.join(root, '.aidlc', 'profiles'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aidlc', 'profiles', `${id}.yaml`), yaml);
+  };
   const ctx = () => ({
     workspaceRoot: root,
     state: { context: { epic: 'GH-1' } },
@@ -112,6 +116,68 @@ describe('traceability validator (GH-69 P1)', () => {
     const v = await runner(ctx());
     expect(v.decision).toBe('reject');
     expect(v.reason).toContain('mandatory section');
+  });
+
+  it('a custom profile enforces its OWN mandatory sections, not iso-ieee\'s', async () => {
+    setStandard('stos');
+    writeProfile(
+      'stos',
+      [
+        'id: stos',
+        'name: STOS',
+        'traceability:',
+        '  enforce: true',
+        '  rules: [mandatory-sections]',
+        'artifacts:',
+        '  PRD:',
+        '    mandatory_sections:',
+        '      - Boi canh',
+        '      - Pham vi',
+        '',
+      ].join('\n'),
+    );
+    // Carries iso-ieee's sections but none of the custom profile's.
+    write(
+      'PRD.md',
+      '## Problem & Goal\n## User Flow\n## Acceptance Criteria\n## Non-Functional Requirements\n## Dependencies',
+    );
+    const v = await runner(ctx());
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toContain('Boi canh');
+    expect(v.reason).toContain('Pham vi');
+    expect(v.reason).not.toContain('Problem & Goal');
+  });
+
+  it('a custom profile passes when its own sections are present, though iso-ieee\'s are absent', async () => {
+    setStandard('stos');
+    writeProfile(
+      'stos',
+      [
+        'id: stos',
+        'traceability:',
+        '  enforce: true',
+        '  rules: [mandatory-sections]',
+        'artifacts:',
+        '  PRD:',
+        '    mandatory_sections: [Boi canh]',
+        '  TEST-CASES.md:', // an explicit .md key is honored as-is
+        '    mandatory_sections: [Ket qua mong doi]',
+        '',
+      ].join('\n'),
+    );
+    write('PRD.md', '## Boi canh\n- GH-1-AC01 x');
+    write('TEST-CASES.md', '## Ket qua mong doi\n- GH-1-TC01 x');
+    const v = await runner(ctx());
+    expect(v.decision).toBe('pass');
+  });
+
+  it('notes — not silently passes — a custom profile that enables mandatory-sections with no artifacts', async () => {
+    setStandard('stos');
+    writeProfile('stos', 'id: stos\ntraceability:\n  enforce: true\n  rules: [mandatory-sections]\n');
+    write('PRD.md', '- GH-1-AC01 x'); // would fail iso-ieee's list
+    const v = await runner(ctx());
+    expect(v.decision).toBe('pass');
+    expect(v.reason).toContain('declares no');
   });
 
   it('per-epic override in state.context.standard beats workspace.yaml', async () => {
