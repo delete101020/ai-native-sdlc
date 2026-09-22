@@ -199,6 +199,13 @@ export type {
 } from './loader/WorkspaceLoader';
 
 export {
+  recipesDrawingFrom,
+  dropRecipeStep,
+  dropRecipesForPipeline,
+} from './loader/recipeRefs';
+export type { RecipeCarrier, RecipeRefEdit } from './loader/recipeRefs';
+
+export {
   EPIC_PIPELINE_FILENAME,
   epicPipelinePath,
   mergeEpicPipelines,

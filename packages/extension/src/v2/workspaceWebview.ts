@@ -181,6 +181,10 @@ import {
   startRun,
   targetPath,
   validateWorkspace,
+  collectWorkspaceRefIssues,
+  dropRecipeStep,
+  type RecipeRefEdit,
+  dropRecipesForPipeline,
   assemblePipeline,
   stageEpicPipeline,
   recipePipelineId,
@@ -1485,6 +1489,49 @@ function artifactAbsPath(epicDir: string, filename: string, rel: unknown): strin
     if (root) { return path.join(root, rel); }
   }
   return path.join(epicDir, 'artifacts', filename);
+}
+
+/**
+ * Every dangling id-by-reference the workspace currently carries, as the
+ * messages `collectWorkspaceRefIssues` writes them.
+ *
+ * A Set of messages, not the issue objects: the only question asked of it is
+ * "was this one already here before the edit", and the message is both the
+ * identity and what the user gets shown. A document too malformed to validate
+ * has no answer to give, so it reports none — a broken-schema workspace is a
+ * different complaint, raised elsewhere.
+ */
+function refIssueMessages(doc: YamlDocument): Set<string> {
+  try {
+    const config = validateWorkspace(doc, '.aidlc/workspace.yaml');
+    return new Set(collectWorkspaceRefIssues(config).map((i) => i.message));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Say what a pipeline edit changed in `recipes:` on the user's behalf.
+ *
+ * Silence would be worse than the bug it fixes: the user removed a step from
+ * one pipeline and three recipes they never opened now run a different set of
+ * steps. A recipe *dropped* — the edit took its last step — is named on its
+ * own line, because that is config disappearing, not shrinking.
+ */
+function reportRecipeRefEdits(edits: readonly RecipeRefEdit[]): void {
+  if (edits.length === 0) { return; }
+  const removed = edits.filter((e) => e.removed).map((e) => e.recipeId);
+  const changed = edits.filter((e) => !e.removed).map((e) => e.recipeId);
+  const parts: string[] = [];
+  if (changed.length > 0) {
+    parts.push(`updated recipe${changed.length === 1 ? '' : 's'} ${changed.join(', ')}`);
+  }
+  if (removed.length > 0) {
+    parts.push(
+      `removed recipe${removed.length === 1 ? '' : 's'} ${removed.join(', ')} (no steps left)`,
+    );
+  }
+  void vscode.window.showInformationMessage(`AIDLC: ${parts.join('; ')}.`);
 }
 
 /** True when the path exists and is a folder. Missing paths are not folders. */
@@ -2883,11 +2930,37 @@ export class WorkspaceWebview {
       void vscode.window.showWarningMessage('AIDLC: no workspace.yaml — initialize first.');
       return;
     }
+    const before = refIssueMessages(doc);
     const dirty = fn(doc);
     if (dirty !== false) {
       writeYaml(root, doc);
+      this.warnNewRefIssues(before, refIssueMessages(doc));
       this.refresh();
     }
+  }
+
+  /**
+   * Tell the user, at the moment of the edit, which id-by-reference it broke.
+   *
+   * Dangling references used to surface only when something assembled a
+   * pipeline — so a step removed here failed at `epic start`, days later,
+   * naming a recipe the user never touched. Only *newly* introduced issues are
+   * reported: a workspace that was already carrying one should not nag on
+   * every unrelated edit, and the diff is what this edit is answerable for.
+   */
+  private warnNewRefIssues(before: Set<string>, after: Set<string>): void {
+    const added = [...after].filter((m) => !before.has(m));
+    if (added.length === 0) { return; }
+    const summary = added.length === 1
+      ? added[0]
+      : `${added.length} broken references in workspace.yaml.`;
+    void vscode.window.showWarningMessage(`AIDLC: ${summary}`, 'Show Details').then((choice) => {
+      if (choice !== 'Show Details') { return; }
+      void vscode.window.showWarningMessage(
+        'Broken references left by this edit:',
+        { modal: true, detail: added.map((m) => `• ${m}`).join('\n\n') },
+      );
+    });
   }
 
   /**
@@ -2928,6 +3001,7 @@ export class WorkspaceWebview {
   private async deleteStep(pipelineId: string, idx: number): Promise<void> {
     if (!pipelineId || idx < 0) { return; }
     if (this.refusePinnedStepEdit(pipelineId, 'remove a step')) { return; }
+    let recipeEdits: RecipeRefEdit[] = [];
     this.mutateYaml((doc) => {
       const p = doc.pipelines.find((x) => x.id === pipelineId);
       if (!p || !Array.isArray(p.steps)) { return false; }
@@ -2942,22 +3016,31 @@ export class WorkspaceWebview {
       // set), so the child ends up at the same level. Fall back to the
       // deleted step's own deps when no sibling exists.
       const removed = steps[idx];
-      const stepAgent = (s: PipelineStepConfig): string =>
-        typeof s === 'string'
-          ? s
-          : typeof (s as { agent?: unknown }).agent === 'string'
-            ? (s as { agent: string }).agent
-            : '';
+      // `depends_on` and `recipes[].steps` both address a step by its DAG id
+      // — its `name`, falling back to its `agent`. Matching on the agent id
+      // alone left every named step's children pointing at a step that was no
+      // longer there, which is the same dangling reference the recipes had.
       const stepDeps = (s: PipelineStepConfig): string[] => {
         if (typeof s === 'string') { return []; }
         const d = (s as { depends_on?: unknown }).depends_on;
         return Array.isArray(d) ? d.map(String) : [];
       };
-      const removedAgent = stepAgent(removed);
+      const removedId = stepDagId(removed);
       const removedDeps = stepDeps(removed);
 
       steps.splice(idx, 1);
-      if (!removedAgent) { return; }
+
+      // A recipe is a subset of this pipeline's steps, addressed by the same
+      // id, and nothing links the two lists: without this the removal is clean
+      // here and fails at `epic start` with "Recipe X references step(s) not
+      // in pipeline Y".
+      recipeEdits = dropRecipeStep(
+        doc as unknown as { pipelines: Array<Record<string, unknown>>; recipes?: unknown },
+        pipelineId,
+        removedId,
+      );
+
+      if (!removedId) { return; }
 
       const setsEqual = (a: string[], b: string[]): boolean => {
         if (a.length !== b.length) { return false; }
@@ -2967,8 +3050,8 @@ export class WorkspaceWebview {
       };
       const siblings = steps
         .filter((s) => setsEqual(stepDeps(s), removedDeps))
-        .map(stepAgent)
-        .filter((a) => a && a !== removedAgent);
+        .map(stepDagId)
+        .filter((a) => a && a !== removedId);
       const replacement = siblings.length > 0 ? siblings.slice(0, 1) : removedDeps;
 
       for (let i = 0; i < steps.length; i++) {
@@ -2976,9 +3059,9 @@ export class WorkspaceWebview {
         if (typeof s === 'string') { continue; }
         const obj = s as { depends_on?: unknown };
         const deps = Array.isArray(obj.depends_on) ? obj.depends_on.map(String) : [];
-        if (!deps.includes(removedAgent)) { continue; }
+        if (!deps.includes(removedId)) { continue; }
         const rewired = Array.from(new Set(
-          deps.flatMap((d) => (d === removedAgent ? replacement : [d])),
+          deps.flatMap((d) => (d === removedId ? replacement : [d])),
         ));
         if (rewired.length > 0) {
           obj.depends_on = rewired;
@@ -2987,6 +3070,7 @@ export class WorkspaceWebview {
         }
       }
     });
+    reportRecipeRefEdits(recipeEdits);
   }
 
   private async editStepConfig(
@@ -5502,13 +5586,30 @@ export class WorkspaceWebview {
       );
       if (confirm !== 'Delete') { return; }
     }
+    let droppedRecipes: string[] = [];
     this.mutateYaml((doc) => {
       const arr = doc[field];
       if (!Array.isArray(arr)) { return false; }
       const idx = arr.findIndex((x) => x.id === id);
       if (idx < 0) { return false; }
       arr.splice(idx, 1);
+      // A recipe draws its steps from one pipeline. With that pipeline gone
+      // the recipe has no source to draw from and cannot assemble at all, so
+      // it goes with it rather than sitting there as an option that fails the
+      // moment anyone picks it.
+      if (field === 'pipelines') {
+        droppedRecipes = dropRecipesForPipeline(
+          doc as unknown as { pipelines: Array<Record<string, unknown>>; recipes?: unknown },
+          id,
+        );
+      }
     });
+    if (droppedRecipes.length > 0) {
+      void vscode.window.showInformationMessage(
+        `AIDLC: also removed recipe${droppedRecipes.length === 1 ? '' : 's'} `
+        + `${droppedRecipes.join(', ')} — they drew their steps from "${id}".`,
+      );
+    }
   }
 
   private async renameItem(
@@ -5542,6 +5643,13 @@ export class WorkspaceWebview {
       if (field === 'pipelines' && Array.isArray(doc.slash_commands)) {
         for (const cmd of doc.slash_commands as Array<{ pipeline?: unknown }>) {
           if (cmd.pipeline === id) { cmd.pipeline = trimmed; }
+        }
+      }
+      // …and so do the recipes drawn from it: `from` is the same kind of
+      // by-id reference, and a stale one only surfaces at `epic start`.
+      if (field === 'pipelines' && Array.isArray(doc.recipes)) {
+        for (const recipe of doc.recipes as Array<{ from?: unknown }>) {
+          if (recipe.from === id) { recipe.from = trimmed; }
         }
       }
     });
