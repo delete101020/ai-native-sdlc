@@ -192,6 +192,38 @@ export interface ScaffoldEpicResult {
 }
 
 /**
+ * An epic dir that `existsSync` reports but the OS then refuses to open.
+ *
+ * On Windows a directory whose deletion is still pending — the name is gone
+ * as far as the user is concerned, but some process (an editor's file watcher,
+ * a shell sitting inside it, a virus scanner) still holds a handle — keeps its
+ * entry in the parent and fails every open with EPERM. The plain "already
+ * exists. Delete it first." is then actively misleading: the user *did* delete
+ * it, and deleting it again cannot work. Say what is really holding the epic
+ * id, and what makes it let go.
+ */
+export function lockedEpicDirError(
+  workspaceRoot: string,
+  epicDir: string,
+  err: unknown,
+  action: 'read' | 'create',
+): EpicScaffoldError {
+  const rel = path.relative(workspaceRoot, epicDir) || epicDir;
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  const detail = err instanceof Error ? err.message : String(err);
+  if (code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') {
+    return new EpicScaffoldError(
+      `Epic dir ${rel} exists but cannot be ${action === 'read' ? 'read' : 'created'} (${code}). `
+      + 'It was most likely deleted while another process still held it open — on Windows the name '
+      + 'survives until the last handle closes. Close whatever points at it (editor window, a terminal '
+      + 'sitting in that folder, file explorer) or reboot, then start the epic again. Deleting it again '
+      + `will not help. Underlying error: ${detail}`,
+    );
+  }
+  return new EpicScaffoldError(`Cannot ${action} epic dir ${rel}: ${detail}`);
+}
+
+/**
  * Create the on-disk epic. Throws {@link EpicScaffoldError} when the epic dir
  * already exists or required inputs are missing — callers surface the message
  * however suits them (toast / stderr).
@@ -216,7 +248,12 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   // directory. Anything else in here — an empty leftover included — is not
   // ours to interpret, and still stops us.
   if (fs.existsSync(epicDir)) {
-    const entries = fs.readdirSync(epicDir);
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(epicDir);
+    } catch (err) {
+      throw lockedEpicDirError(workspaceRoot, epicDir, err, 'read');
+    }
     if (entries.length !== 1 || entries[0] !== EPIC_PIPELINE_FILENAME) {
       throw new EpicScaffoldError(
         `Epic dir already exists at ${path.relative(workspaceRoot, epicDir) || epicDir}. Delete it first.`,
@@ -224,7 +261,11 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     }
   }
 
-  fs.mkdirSync(epicDir, { recursive: true });
+  try {
+    fs.mkdirSync(epicDir, { recursive: true });
+  } catch (err) {
+    throw lockedEpicDirError(workspaceRoot, epicDir, err, 'create');
+  }
   const artifactsDir = path.join(epicDir, 'artifacts');
   fs.mkdirSync(artifactsDir, { recursive: true });
 

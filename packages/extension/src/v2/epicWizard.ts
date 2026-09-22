@@ -43,6 +43,7 @@ import {
   resolveEpicIdPrefixChain,
   readUserConfig,
   suggestEpicId,
+  lockedEpicDirError,
 } from '@aidlc/core';
 import type { PipelineConfig } from '@aidlc/core';
 
@@ -177,6 +178,17 @@ export async function startEpicCommand(): Promise<void> {
 
   const epicDir = path.resolve(root, epicRoot, epicId);
   if (fs.existsSync(epicDir)) {
+    // A dir that exists but will not open is not an epic anyone can overwrite:
+    // on Windows it is usually a folder deleted while some process still held
+    // it, and "already exists" sends the user off to delete it a second time.
+    try {
+      fs.readdirSync(epicDir);
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        `AIDLC: ${lockedEpicDirError(root, epicDir, err, 'read').message}`,
+      );
+      return;
+    }
     const overwrite = await vscode.window.showWarningMessage(
       `${path.relative(root, epicDir)} already exists. Overwrite the state files?`,
       'Overwrite', 'Cancel',
@@ -184,8 +196,15 @@ export async function startEpicCommand(): Promise<void> {
     if (overwrite !== 'Overwrite') { return; }
   }
 
-  fs.mkdirSync(epicDir, { recursive: true });
-  fs.mkdirSync(path.join(epicDir, 'artifacts'), { recursive: true });
+  try {
+    fs.mkdirSync(epicDir, { recursive: true });
+    fs.mkdirSync(path.join(epicDir, 'artifacts'), { recursive: true });
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      `AIDLC: ${lockedEpicDirError(root, epicDir, err, 'create').message}`,
+    );
+    return;
+  }
 
   const state: EpicState = {
     id: epicId,

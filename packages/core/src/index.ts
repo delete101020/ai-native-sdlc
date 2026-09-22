@@ -73,6 +73,7 @@ export {
   mapStepStatusToEpic,
   epicsRoot,
   EpicScaffoldError,
+  lockedEpicDirError,
 } from './runs/EpicScaffold';
 export type {
   EpicStatus,

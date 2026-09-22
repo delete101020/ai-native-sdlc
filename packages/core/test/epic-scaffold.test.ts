@@ -7,6 +7,7 @@ import {
   scaffoldEpic,
   recipePipelineId,
   slugEpicId,
+  lockedEpicDirError,
   RunStateStore,
   type PipelineConfig,
 } from '../src';
@@ -23,6 +24,31 @@ const PIPELINE: PipelineConfig = {
     { agent: 'developer', name: 'implement', requires: ['PRD.md'], produces: ['CODE.md'], depends_on: ['plan'], human_review: true, auto_review: false, enabled: true },
   ],
 };
+
+describe('lockedEpicDirError — a dir that exists but will not open', () => {
+  function errno(code: string): NodeJS.ErrnoException {
+    const err: NodeJS.ErrnoException = new Error(`EPERM: operation not permitted, scandir 'x'`);
+    err.code = code;
+    return err;
+  }
+
+  it.each(['EPERM', 'EACCES', 'EBUSY'])('explains a %s as a still-held folder, not one to delete again', (code) => {
+    const msg = lockedEpicDirError('/ws', '/ws/docs/epics/CR-G02', errno(code), 'read').message;
+    expect(msg).toContain(path.join('docs', 'epics', 'CR-G02'));
+    expect(msg).toContain(code);
+    expect(msg).toMatch(/still held it open/);
+    // The point of the whole branch: do not send the user back to rm -rf.
+    expect(msg).toMatch(/Deleting it again will not help/);
+    expect(msg).not.toMatch(/Delete it first/);
+  });
+
+  it('falls back to the raw error for anything else', () => {
+    const msg = lockedEpicDirError('/ws', '/ws/docs/epics/CR-G02', errno('ENOSPC'), 'create').message;
+    expect(msg).toMatch(/^Cannot create epic dir /);
+    expect(msg).toContain('EPERM: operation not permitted');
+    expect(msg).not.toMatch(/still held it open/);
+  });
+});
 
 describe('recipePipelineId — shared CLI/extension naming', () => {
   it('names after the epic when given one', () => {
