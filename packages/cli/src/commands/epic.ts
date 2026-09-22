@@ -16,6 +16,11 @@ import {
   EpicScaffoldError,
   setEpicDescription,
   EpicDescriptionError,
+  planEpicWorkflowSwitch,
+  stageEpicWorkflowSwitch,
+  applyEpicWorkflowSwitch,
+  epicWorkflowLock,
+  EpicWorkflowSwitchError,
   epicsRoot,
   readGitUserName,
   readUserConfig,
@@ -445,6 +450,103 @@ export function registerEpic(program: Command): void {
       } catch (err) {
         console.error(chalk.red(err instanceof EpicDescriptionError ? err.message : String(err)));
         process.exit(1);
+      }
+    });
+
+  // ── workflow ───────────────────────────────────────────────────────────────
+  //
+  // The recipe is picked from a one-line brief, before anyone has read the
+  // epic properly. This is the way to change that choice — but only while the
+  // run has nothing worth keeping, because a switch throws its step records
+  // away and lays out new ones. `epic step add/remove` is what a started epic
+  // gets instead.
+  cmd
+    .command('workflow <id>')
+    .description("Show or change the workflow an epic runs. Only before its first step moves.")
+    .option('--recipe <recipeId>', "rebuild the epic's own pipeline from this recipe")
+    .option('--pipeline <pipelineId>', 'point the epic at a pipeline that already exists')
+    .option('--json', 'Output the result as JSON')
+    .action((id: string, opts: { recipe?: string; pipeline?: string; json?: boolean }, actionCmd: Command) => {
+      const root = resolveWorkspaceRoot(actionCmd);
+      const doc = requireYaml(root);
+      const stateFile = path.join(epicsRoot(root, doc), id, 'state.json');
+      if (!fs.existsSync(stateFile)) {
+        const all = listEpics(root, doc).map((e) => e.id);
+        console.error(chalk.red(`Epic "${id}" not found.`));
+        if (all.length > 0) { console.error(chalk.dim(`Available: ${all.join(', ')}`)); }
+        process.exit(1);
+      }
+
+      if (opts.recipe && opts.pipeline) {
+        console.error(chalk.red('Pass --recipe or --pipeline, not both.'));
+        process.exit(1);
+      }
+
+      const lock = epicWorkflowLock(RunStateStore.load(root, id));
+
+      // Bare form: what it runs now, and whether that can still change.
+      if (!opts.recipe && !opts.pipeline) {
+        const state = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as Record<string, unknown>;
+        const current = typeof state.pipeline === 'string' && state.pipeline
+          ? { kind: 'pipeline', id: state.pipeline }
+          : typeof state.agent === 'string' && state.agent
+            ? { kind: 'agent', id: state.agent }
+            : { kind: 'none', id: null };
+        const recipes = Array.isArray((doc as { recipes?: unknown }).recipes)
+          ? ((doc as { recipes?: unknown }).recipes as Array<{ id?: unknown }>).map((r) => String(r.id ?? ''))
+          : [];
+        if (opts.json) {
+          console.log(JSON.stringify({ id, current, canChange: lock === null, lock, recipes }, null, 2));
+          return;
+        }
+        console.log(`${chalk.bold(id)} runs ${current.id ? chalk.cyan(`${current.kind} ${current.id}`) : chalk.dim('(nothing)')}`);
+        if (lock) {
+          console.log(chalk.dim(`  locked: ${lock} — use \`aidlc epic step add/remove\` instead`));
+        } else {
+          console.log(chalk.dim('  not started yet, so the workflow can still be changed:'));
+          console.log(chalk.dim(`    aidlc epic workflow ${id} --recipe <${recipes.join('|') || 'recipe'}>`));
+        }
+        return;
+      }
+
+      let config;
+      try {
+        config = validateWorkspace(doc, '.aidlc/workspace.yaml');
+      } catch (err) {
+        console.error(chalk.red('workspace.yaml is invalid — not changing anything:'));
+        console.error(chalk.dim(err instanceof Error ? err.message : String(err)));
+        process.exit(1);
+      }
+
+      const target = opts.recipe
+        ? ({ kind: 'recipe', id: opts.recipe } as const)
+        : ({ kind: 'pipeline', id: opts.pipeline! } as const);
+
+      try {
+        const plan = planEpicWorkflowSwitch({ workspaceRoot: root, doc, config, epicId: id, target });
+        stageEpicWorkflowSwitch(doc, plan);
+        // Validate the document as a whole before it reaches disk: a switch
+        // that leaves the workspace unloadable is worse than no switch.
+        validateWorkspace(doc, '.aidlc/workspace.yaml');
+        writeYaml(root, doc);
+        const result = applyEpicWorkflowSwitch(root, doc, plan);
+
+        if (opts.json) { console.log(JSON.stringify(result, null, 2)); return; }
+        console.log(chalk.green('✔') + ` ${chalk.bold(id)} now runs ${chalk.cyan(result.pipelineId)}` +
+          (target.kind === 'recipe' ? chalk.dim(` (from recipe ${target.id})`) : ''));
+        console.log(chalk.dim(`  steps: ${result.agents.join(' → ')}`));
+        if (result.previousPipelineId && result.previousPipelineId !== result.pipelineId) {
+          console.log(chalk.dim(`  was: ${result.previousPipelineId}`));
+        }
+        if (result.removedPipelineFile) {
+          console.log(chalk.dim(`  removed ${path.relative(root, result.removedPipelineFile)} — the shared pipeline takes over`));
+        }
+      } catch (err) {
+        if (err instanceof EpicWorkflowSwitchError || err instanceof PipelineAssembleError) {
+          console.error(chalk.red(err.message));
+          process.exit(1);
+        }
+        throw err;
       }
     });
 

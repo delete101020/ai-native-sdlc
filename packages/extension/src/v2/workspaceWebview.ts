@@ -292,6 +292,7 @@ import { writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
 import { agentActivity, type AgentActivityMap } from './agentActivity';
 import { execRunToCompletion } from './execRun';
 import { runFollowUpsOpened, syncFollowUps, onDidRecordFollowUpHook } from './followUpHooks';
+import { changeEpicWorkflowCommand } from './epicWizard';
 import { guardMessages } from './webviewMessageGuard';
 
 // ── Shared helper: open/reuse the Claude terminal and send a slash command ───
@@ -2728,6 +2729,16 @@ export class WorkspaceWebview {
             }
           });
         }
+        return;
+      }
+      // Changing the workflow is the epic wizard's job — the same picker, the
+      // same confirmation, the same refusals — so the panel hands it the epic
+      // id rather than growing a second copy of that flow.
+      case 'changeEpicWorkflow': {
+        const epicId = String(msg.epicId ?? '');
+        if (!this.getRootOrWarn() || !epicId) { return; }
+        await changeEpicWorkflowCommand(epicId);
+        this.refresh();
         return;
       }
       case 'startEpicInline': {

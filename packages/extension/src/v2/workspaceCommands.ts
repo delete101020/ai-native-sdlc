@@ -44,7 +44,7 @@ import { uninstallWorkflowGlobalsCommand } from './uninstallWorkflowGlobalsComma
 import { readYaml } from './yamlIO';
 import { agentActivity } from './agentActivity';
 import { StandardPickerWebview } from './standardPickerWebview';
-import { startEpicCommand, editEpicDescriptionCommand } from './epicWizard';
+import { startEpicCommand, editEpicDescriptionCommand, changeEpicWorkflowCommand } from './epicWizard';
 import { analyzeRequirementsCommand } from './requirementWizard';
 import { registerAskCommand } from './askCommand';
 import { insertDemoEpicCommand } from './demoEpic';
@@ -329,6 +329,13 @@ export function registerV2WorkspaceCommands(
     (epicId?: string) => editEpicDescriptionCommand(typeof epicId === 'string' ? epicId : undefined),
   );
 
+  // Swapping the whole workflow, as opposed to editing one step. Core refuses
+  // the moment a step has moved, so this is a no-op on anything but a freshly
+  // created epic — which is exactly when the recipe usually turns out wrong.
+  const changeEpicWorkflowCmd = vscode.commands.registerCommand(
+    'aidlcNative.changeEpicWorkflow',
+    (epicId?: string) => changeEpicWorkflowCommand(typeof epicId === 'string' ? epicId : undefined),
+  );
   const analyzeRequirementsCmd = vscode.commands.registerCommand(
     'aidlcNative.analyzeRequirements',
     () => analyzeRequirementsCommand(context.extensionPath),
@@ -651,6 +658,7 @@ export function registerV2WorkspaceCommands(
       migrateEpicsCmd,
       startEpicCmd,
       editEpicDescriptionCmd,
+      changeEpicWorkflowCmd,
       analyzeRequirementsCmd,
       selectStandardCmd,
       openEpicsListCmd,

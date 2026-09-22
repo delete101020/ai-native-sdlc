@@ -172,6 +172,12 @@
         "category": "AIDLC Native"
       },
       {
+        "command": "aidlcNative.changeEpicWorkflow",
+        "title": "Change Epic Workflow",
+        "icon": "$(repo-forked)",
+        "category": "AIDLC Native"
+      },
+      {
         "command": "aidlcNative.analyzeRequirements",
         "title": "Analyze Requirements → Create Tasks",
         "icon": "$(list-tree)",

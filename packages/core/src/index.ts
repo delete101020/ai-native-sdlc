@@ -91,6 +91,20 @@ export type {
 } from './runs/EpicDescription';
 
 export {
+  planEpicWorkflowSwitch,
+  stageEpicWorkflowSwitch,
+  applyEpicWorkflowSwitch,
+  epicWorkflowLock,
+  canSwitchEpicWorkflow,
+  EpicWorkflowSwitchError,
+} from './runs/EpicWorkflowSwitch';
+export type {
+  EpicWorkflowTarget,
+  EpicWorkflowSwitchPlan,
+  EpicWorkflowSwitchResult,
+} from './runs/EpicWorkflowSwitch';
+
+export {
   planAddEpicStep,
   planRemoveEpicStep,
   planSetEpicStepGates,

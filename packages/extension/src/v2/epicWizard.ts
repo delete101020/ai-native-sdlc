@@ -46,6 +46,13 @@ import {
   lockedEpicDirError,
   setEpicDescription,
   EpicDescriptionError,
+  planEpicWorkflowSwitch,
+  stageEpicWorkflowSwitch,
+  applyEpicWorkflowSwitch,
+  epicWorkflowLock,
+  epicOwningPipeline,
+  EpicWorkflowSwitchError,
+  type EpicWorkflowTarget,
 } from '@aidlc/core';
 import type { PipelineConfig } from '@aidlc/core';
 
@@ -172,6 +179,136 @@ export async function editEpicDescriptionCommand(explicitEpicId?: string): Promi
       void vscode.window.showTextDocument(vscode.Uri.file(edit.docFile));
     }
   });
+}
+
+/**
+ * `aidlcNative.changeEpicWorkflow` — re-point an epic at another recipe or an
+ * existing pipeline.
+ *
+ * Offered only while the run has nothing worth keeping: the switch lays out
+ * fresh step records, so core refuses the moment one has been worked on and
+ * this command says so rather than opening a picker that cannot be used. The
+ * confirmation spells out both step lists, because "change workflow" reads
+ * like a setting and is in fact the whole shape of the epic.
+ */
+export async function changeEpicWorkflowCommand(explicitEpicId?: string): Promise<void> {
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) {
+    void vscode.window.showWarningMessage('AIDLC: Open a project first.');
+    return;
+  }
+  const doc = readYaml(root);
+  if (!doc) {
+    void vscode.window.showWarningMessage('AIDLC: no .aidlc/workspace.yaml in this project.');
+    return;
+  }
+  const epicsDir = path.resolve(root, readEpicRoot(doc));
+  const epicId = explicitEpicId ?? await pickExistingEpic(epicsDir);
+  if (!epicId) { return; }
+
+  const lock = epicWorkflowLock(RunStateStore.load(root, epicId));
+  if (lock) {
+    void vscode.window.showWarningMessage(
+      `AIDLC: ${epicId} has already started — ${lock}. Add or remove individual steps instead; `
+      + 'the workflow as a whole can only be swapped before the first step moves.',
+    );
+    return;
+  }
+
+  let config;
+  try {
+    config = validateWorkspace(doc, `.aidlc/${WORKSPACE_FILENAME}`);
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      `AIDLC: workspace.yaml is invalid — cannot change the workflow: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return;
+  }
+
+  const currentPipelineId = readEpicPipelineId(path.join(epicsDir, epicId));
+  const items: Array<vscode.QuickPickItem & { target: EpicWorkflowTarget }> = [];
+  for (const r of readRecipes(doc)) {
+    items.push({
+      label: `$(beaker) ${r.id}`,
+      description: r.description ?? 'recipe',
+      detail: r.steps.join(' → '),
+      target: { kind: 'recipe', id: r.id },
+    });
+  }
+  for (const p of doc.pipelines) {
+    const id = String(p.id);
+    // A pipeline another epic owns lives in that epic's folder — running it
+    // here would make one epic's edits reshape the other's.
+    const owner = epicOwningPipeline(doc, id);
+    if (id === currentPipelineId || (owner && owner !== epicId)) { continue; }
+    const steps = Array.isArray(p.steps) ? (p.steps as unknown[]).map(stepAgentId) : [];
+    items.push({
+      label: `$(list-ordered) ${id}`,
+      description: `shared pipeline · ${steps.length} steps`,
+      detail: steps.join(' → '),
+      target: { kind: 'pipeline', id },
+    });
+  }
+  if (items.length === 0) {
+    void vscode.window.showInformationMessage('AIDLC: no other recipe or pipeline to switch to.');
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(items, {
+    placeHolder: `Workflow for ${epicId} — currently ${currentPipelineId ?? '(none)'}`,
+    matchOnDetail: true,
+    ignoreFocusOut: true,
+  });
+  if (!picked) { return; }
+
+  let plan;
+  try {
+    plan = planEpicWorkflowSwitch({ workspaceRoot: root, doc, config, epicId, target: picked.target });
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      `AIDLC: ${err instanceof EpicWorkflowSwitchError || err instanceof PipelineAssembleError ? err.message : String(err)}`,
+    );
+    return;
+  }
+
+  const confirm = await vscode.window.showWarningMessage(
+    `Change ${epicId}'s workflow to ${plan.pipeline.id}?`,
+    {
+      modal: true,
+      detail:
+        `New steps: ${plan.agents.join(' → ')}\n\n`
+        + 'The run is laid out again from scratch. Nothing has been worked on yet, so nothing is lost — '
+        + 'but any step you added or removed by hand goes with it.',
+    },
+    'Change workflow',
+  );
+  if (confirm !== 'Change workflow') { return; }
+
+  try {
+    stageEpicWorkflowSwitch(doc, plan);
+    // The whole document, not just the assembled pipeline: a switch that
+    // leaves the workspace unloadable is worse than no switch.
+    validateWorkspace(doc, `.aidlc/${WORKSPACE_FILENAME}`);
+    writeYaml(root, doc);
+    const result = applyEpicWorkflowSwitch(root, doc, plan);
+    void vscode.window.showInformationMessage(
+      `AIDLC: ${epicId} now runs ${result.pipelineId} — ${result.agents.join(' → ')}`,
+    );
+  } catch (err) {
+    void vscode.window.showErrorMessage(
+      `AIDLC: ${err instanceof EpicWorkflowSwitchError ? err.message : String(err)}`,
+    );
+  }
+}
+
+/** The pipeline id an epic's `state.json` names, or null. */
+function readEpicPipelineId(epicDir: string): string | null {
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(epicDir, 'state.json'), 'utf8'));
+    return typeof state?.pipeline === 'string' && state.pipeline ? state.pipeline : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Quick-pick over the epic folders on disk — newest first, by mtime. */

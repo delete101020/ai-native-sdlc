@@ -2091,6 +2091,24 @@ function GateButton({
   );
 }
 
+/**
+ * Can this epic's workflow still be swapped wholesale?
+ *
+ * The host refuses once any step has moved — core's `epicWorkflowLock` is the
+ * real decision — so this only decides whether to offer the button. It reads
+ * the same signals: a step past `awaiting_work`, a history entry, or a
+ * rejection means work happened and the new step list would have nowhere to
+ * put its record.
+ */
+function workflowStillSwappable(epic: EpicSummary): boolean {
+  if (epic.artifactsOnly || epic.status === 'done' || epic.status === 'failed') { return false; }
+  return epic.stepDetails.every((s) =>
+    (s.runStatus === null || s.runStatus === 'pending' || s.runStatus === 'awaiting_work')
+    && (s.history?.length ?? 0) === 0
+    && (s.rejectCount ?? 0) === 0,
+  );
+}
+
 function EpicActions({
   epic,
   hasInputs,
@@ -2204,6 +2222,20 @@ function EpicActions({
         >
           <Workflow className="h-3 w-3" />
           Edit workflow
+        </button>
+      )}
+      {/* Editing the steps is one thing; picking a different recipe altogether
+          is another, and only possible while the run has nothing to lose. The
+          host opens the same picker the Start Epic wizard uses. */}
+      {workflowStillSwappable(epic) && (
+        <button
+          type="button"
+          onClick={() => postMessage({ type: 'changeEpicWorkflow', epicId: epic.id })}
+          title="Swap the recipe or pipeline this epic runs. Offered only until its first step moves — after that, add or remove steps instead."
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <GitBranchPlus className="h-3 w-3" />
+          Change workflow
         </button>
       )}
       {hasInputs && (
