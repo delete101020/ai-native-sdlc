@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.0.9
+
+### Added
+
+- **Re-verify is in the Command Palette** as *AIDLC Native: Re-verify Step*.
+  It shipped in 4.0.8 as a panel button only — the command existed but was
+  never declared, so nothing outside the epic panel could reach it. Invoked
+  without a step it picks the first step whose own validator rejected it, and
+  says so when the run has none, rather than acting on a step a human
+  rejected.
+
 ## 4.0.8
 
 A rejected auto-review is no longer a dead end that costs you the artifact,
