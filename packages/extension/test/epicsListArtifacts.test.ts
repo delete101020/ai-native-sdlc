@@ -126,3 +126,114 @@ describe('listEpics per-step artifact list', () => {
     expect(step.artifacts).toHaveLength(4);
   });
 });
+
+/**
+ * A pipeline that cannot know its filenames in advance declares the folder
+ * (`docs/cr/{epic}/diagrams/`). Listing only the folder left the documents
+ * inside it reachable only through the explorer — the panel can open an
+ * `.html` artifact itself, it just never had the path.
+ */
+describe('listEpics expands a produced folder', () => {
+  let root: string;
+  const epicId = 'CR-2';
+  const doc = {
+    state: { root: 'docs/epics' },
+    slash_commands: [],
+    pipelines: [{
+      id: 'cr',
+      steps: [{
+        agent: 'dev',
+        name: 'cr-build-spec',
+        produces: ['docs/cr/{epic}/build-spec.md', 'docs/cr/{epic}/diagrams/'],
+      }],
+    }],
+  } as unknown as Parameters<typeof listEpics>[1];
+
+  const crDir = () => path.join(root, 'docs', 'cr', epicId);
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-diagrams-'));
+    const epicDir = path.join(root, 'docs', 'epics', epicId);
+    fs.mkdirSync(epicDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(epicDir, 'state.json'),
+      JSON.stringify({
+        id: epicId,
+        title: 'CR',
+        pipeline: 'cr',
+        currentStep: 0,
+        status: 'in_progress',
+        stepStates: [{ agent: 'dev', name: 'cr-build-spec', status: 'in_progress' }],
+      }),
+    );
+    fs.mkdirSync(path.join(crDir(), 'diagrams'), { recursive: true });
+    fs.writeFileSync(path.join(crDir(), 'build-spec.md'), '# Spec\n');
+    fs.writeFileSync(path.join(crDir(), 'diagrams', 'overview.html'), '<html></html>');
+    fs.writeFileSync(path.join(crDir(), 'diagrams', 'build-spec.html'), '<html></html>');
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('lists the files inside, keeping the folder itself first', () => {
+    const step = listEpics(root, doc)[0].stepDetails[0];
+
+    expect(step.artifacts.map((a) => a.label)).toEqual([
+      'build-spec.md',
+      'diagrams/',
+      'diagrams/build-spec.html',
+      'diagrams/overview.html',
+    ]);
+    const child = step.artifacts.find((a) => a.label === 'diagrams/overview.html')!;
+    expect(child.path).toBe(`docs/cr/${epicId}/diagrams/overview.html`);
+    expect(child.exists).toBe(true);
+    expect(child.isDirectory).toBe(false);
+  });
+
+  it('leaves a folder that is not there yet alone', () => {
+    fs.rmSync(path.join(crDir(), 'diagrams'), { recursive: true, force: true });
+
+    const step = listEpics(root, doc)[0].stepDetails[0];
+
+    expect(step.artifacts.map((a) => a.label)).toEqual(['build-spec.md', 'diagrams/']);
+    expect(step.artifacts[1].exists).toBe(false);
+  });
+
+  it('skips dotfiles and sub-folders — one level, real files only', () => {
+    fs.mkdirSync(path.join(crDir(), 'diagrams', 'src'));
+    fs.writeFileSync(path.join(crDir(), 'diagrams', 'src', 'overview.mmd'), 'graph TD;');
+    fs.writeFileSync(path.join(crDir(), 'diagrams', '.gitkeep'), '');
+
+    const step = listEpics(root, doc)[0].stepDetails[0];
+
+    expect(step.artifacts.map((a) => a.label)).toEqual([
+      'build-spec.md',
+      'diagrams/',
+      'diagrams/build-spec.html',
+      'diagrams/overview.html',
+    ]);
+  });
+
+  it('does not list a file twice when it is also declared on its own', () => {
+    const withBoth = {
+      ...(doc as object),
+      pipelines: [{
+        id: 'cr',
+        steps: [{
+          agent: 'dev',
+          name: 'cr-build-spec',
+          produces: [
+            'docs/cr/{epic}/build-spec.md',
+            'docs/cr/{epic}/diagrams/',
+            'docs/cr/{epic}/diagrams/overview.html',
+          ],
+        }],
+      }],
+    } as unknown as Parameters<typeof listEpics>[1];
+
+    const step = listEpics(root, withBoth)[0].stepDetails[0];
+
+    expect(step.artifacts.filter((a) => a.label.endsWith('overview.html'))).toHaveLength(1);
+  });
+});

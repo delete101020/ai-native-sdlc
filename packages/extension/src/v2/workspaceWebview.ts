@@ -276,6 +276,7 @@ import {
   epicPinningPipeline,
   enrichEpicsWithUsage,
   mirrorRunStateToEpic,
+  producesWatchGlobs,
   type EpicSummary as CoreEpicSummary,
 } from './epicsList';
 import { themeManager } from './themeManager';
@@ -1651,6 +1652,17 @@ export class WorkspaceWebview {
   private pendingFocusEpic: string | null = null;
   private booted = false;
 
+  /**
+   * Watchers over the directories the workspace's pipelines write into.
+   * Kept apart from `disposables` because they are rebuilt whenever
+   * workspace.yaml changes — a pipeline added mid-session brings its own
+   * output directories, and a panel that has been open since before it
+   * existed would otherwise never see them.
+   */
+  private producesWatchers: vscode.Disposable[] = [];
+  private producesGlobs: string[] = [];
+  private refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
   static show(extensionUri: vscode.Uri, initialView: WorkspaceView = 'builder'): void {
     const column = vscode.ViewColumn.One;
     if (WorkspaceWebview.current) {
@@ -1748,10 +1760,13 @@ export class WorkspaceWebview {
         vscode.Uri.file(path.join(root, WORKSPACE_DIR)),
         WORKSPACE_FILENAME,
       );
+      // An edited workspace.yaml can move where the pipelines write, so the
+      // output watchers are re-derived alongside the refresh.
+      const yamlChanged = () => { this.syncProducesWatchers(root); this.refresh(); };
       const yamlWatcher = vscode.workspace.createFileSystemWatcher(yamlPattern);
-      yamlWatcher.onDidChange(refresh, null, this.disposables);
-      yamlWatcher.onDidCreate(refresh, null, this.disposables);
-      yamlWatcher.onDidDelete(refresh, null, this.disposables);
+      yamlWatcher.onDidChange(yamlChanged, null, this.disposables);
+      yamlWatcher.onDidCreate(yamlChanged, null, this.disposables);
+      yamlWatcher.onDidDelete(yamlChanged, null, this.disposables);
       this.disposables.push(yamlWatcher);
 
       const statePattern = new vscode.RelativePattern(vscode.Uri.file(root), '**/state.json');
@@ -1790,6 +1805,13 @@ export class WorkspaceWebview {
       breakdownWatcher.onDidCreate(refresh, null, this.disposables);
       breakdownWatcher.onDidDelete(refresh, null, this.disposables);
       this.disposables.push(breakdownWatcher);
+
+      // Everywhere the pipelines themselves write (`docs/cr/**` and friends).
+      // The watchers above cover the run's bookkeeping and the built-in
+      // `artifacts/` layout only, so a workflow with its own output directory
+      // left every artifact reading "not produced yet" until an unrelated
+      // write to state.json happened to refresh the panel.
+      this.syncProducesWatchers(root);
     }
 
     // Not a file change, but the same kind of event as far as the panel is
@@ -1803,6 +1825,48 @@ export class WorkspaceWebview {
 
   refresh(): void {
     void this.refreshAsync();
+  }
+
+  /**
+   * Re-create the output watchers from the workspace's current `produces:`
+   * paths. A no-op when the glob set is unchanged, so the workspace.yaml
+   * watcher can call it on every edit.
+   */
+  private syncProducesWatchers(root: string): void {
+    let globs: string[] = [];
+    try { globs = producesWatchGlobs(readYaml(root)); } catch { globs = []; }
+    const unchanged = globs.length === this.producesGlobs.length
+      && globs.every((g, i) => g === this.producesGlobs[i]);
+    if (unchanged && this.producesWatchers.length > 0) { return; }
+
+    while (this.producesWatchers.length) { this.producesWatchers.pop()?.dispose(); }
+    this.producesGlobs = globs;
+    const refresh = () => this.refreshSoon();
+    for (const glob of globs) {
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(vscode.Uri.file(root), glob),
+      );
+      this.producesWatchers.push(
+        watcher,
+        watcher.onDidChange(refresh),
+        watcher.onDidCreate(refresh),
+        watcher.onDidDelete(refresh),
+      );
+    }
+  }
+
+  /**
+   * Refresh once the writing stops. An agent finishing a step writes a
+   * document, its diagrams and its index within a second or two; one rebuild
+   * of the whole panel state per file would be pure waste, and the user only
+   * ever sees the last one.
+   */
+  private refreshSoon(): void {
+    if (this.refreshTimer) { clearTimeout(this.refreshTimer); }
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = undefined;
+      this.refresh();
+    }, 400);
   }
 
   private async refreshAsync(): Promise<void> {
@@ -1832,6 +1896,8 @@ export class WorkspaceWebview {
 
   private dispose(): void {
     WorkspaceWebview.current = undefined;
+    if (this.refreshTimer) { clearTimeout(this.refreshTimer); this.refreshTimer = undefined; }
+    while (this.producesWatchers.length) { this.producesWatchers.pop()?.dispose(); }
     while (this.disposables.length) {
       const d = this.disposables.pop();
       if (d) { d.dispose(); }

@@ -258,6 +258,124 @@ function describeArtifact(workspaceRoot: string, rel: string): StepArtifact {
 }
 
 /**
+ * How many files of a produced folder are listed. A `produces` folder holds a
+ * handful of generated documents; a step that writes hundreds is not something
+ * the panel should try to render inline, and the folder entry itself stays
+ * there to reveal the rest.
+ */
+const DIR_ARTIFACT_LIMIT = 25;
+
+/**
+ * At most this many output globs are watched. A workspace with more distinct
+ * output roots than this is watching most of the repo anyway, and every
+ * watcher costs a file-system subscription.
+ */
+const PRODUCES_WATCH_LIMIT = 12;
+
+/**
+ * The directory of one `produces:` entry, as a glob relative to the workspace
+ * folder — or null when it cannot be expressed as one.
+ *
+ * Placeholders are the reason this cuts rather than resolves: the panel wants
+ * a watcher covering *every* epic's outputs, not the one it happens to be
+ * showing, so `docs/cr/{epic}/build-spec.md` becomes `docs/cr/**`. An absolute
+ * path is dropped (a `RelativePattern` cannot leave the folder), and so is a
+ * path whose first segment is a placeholder — that would watch the whole repo.
+ */
+function watchGlobFor(produce: string): string | null {
+  const rel = produce.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!rel || rel.startsWith('/') || /^[a-zA-Z]:/.test(rel)) { return null; }
+  const brace = rel.indexOf('{');
+  if (brace === -1) { return rel.endsWith('/') ? `${rel}**` : rel; }
+  const dir = rel.slice(0, brace).replace(/[^/]*$/, '').replace(/\/+$/, '');
+  return dir ? `${dir}/**` : null;
+}
+
+/**
+ * Glob patterns covering everywhere this workspace's pipelines write.
+ *
+ * The panel reports each step's artifacts by looking at disk, so it has to be
+ * told when disk changes. Its other watchers cover the run's bookkeeping
+ * (`state.json`, `.aidlc/runs/*.json`) and the built-in `artifacts/` layout —
+ * a pipeline that writes to `docs/cr/<id>/` matched none of them, so a step's
+ * outputs read "not produced yet" until something unrelated forced a refresh.
+ *
+ * Derived from `produces:` rather than hard-coded: the paths are the
+ * workspace's own, and a new pipeline brings its own directories.
+ */
+export function producesWatchGlobs(doc: YamlDocument | null): string[] {
+  const pipelines = (doc?.pipelines as PipelineConfig[] | undefined) ?? [];
+  const globs = new Set<string>();
+  for (const pipeline of pipelines) {
+    if (!Array.isArray(pipeline?.steps)) { continue; }
+    for (const raw of pipeline.steps) {
+      let produces: string[];
+      try { produces = normalizeStep(raw as PipelineStepConfig).produces; }
+      catch { continue; }
+      for (const produce of produces) {
+        if (typeof produce !== 'string') { continue; }
+        const glob = watchGlobFor(produce);
+        if (glob) { globs.add(glob); }
+      }
+    }
+  }
+  return [...globs].sort((a, b) => a.localeCompare(b)).slice(0, PRODUCES_WATCH_LIMIT);
+}
+
+/**
+ * Drop entries that name the same path twice — a step can declare a folder and
+ * one file inside it, and the expansion would otherwise list that file both as
+ * its own entry and as a child.
+ */
+function dedupeArtifacts(entries: StepArtifact[]): StepArtifact[] {
+  const seen = new Set<string>();
+  return entries.filter((a) => {
+    const key = a.path.replace(/[/\\]+$/, '').replace(/\\/g, '/');
+    if (seen.has(key)) { return false; }
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Expand a produced *folder* into the files inside it.
+ *
+ * A pipeline declares a folder (`docs/cr/{epic}/diagrams/`) when it does not
+ * know the filenames in advance. Listing only the folder left the generated
+ * documents — the diagrams themselves — reachable only through the explorer,
+ * even though the panel can open an `.html` artifact directly. The folder
+ * entry is kept first: it is what the step declared, and it is still the way
+ * to reach anything below the one level listed here.
+ */
+function expandDirectoryArtifact(workspaceRoot: string, entry: StepArtifact): StepArtifact[] {
+  if (!entry.isDirectory || !entry.exists) { return [entry]; }
+  const abs = path.isAbsolute(entry.path) ? entry.path : path.join(workspaceRoot, entry.path);
+  let names: string[];
+  try {
+    names = fs.readdirSync(abs, { withFileTypes: true })
+      .filter((d) => d.isFile() && !d.name.startsWith('.'))
+      .map((d) => d.name)
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [entry];
+  }
+  // Keep the separator the declaration used, so the path the webview sends
+  // back is the one the host would have built itself.
+  const sep = /\\/.test(entry.path) ? '\\' : '/';
+  const base = entry.path.replace(/[/\\]+$/, '');
+  const label = entry.label.replace(/\/$/, '');
+  return [
+    entry,
+    ...names.slice(0, DIR_ARTIFACT_LIMIT).map((name) => ({
+      path: `${base}${sep}${name}`,
+      label: `${label}/${name}`,
+      exists: true,
+      isDirectory: false,
+    })),
+  ];
+}
+
+/**
  * Resolve the directory holding epic folders. Honours
  * workspace.yaml's `state.root` field; falls back to `docs/epics`.
  */
@@ -775,8 +893,11 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       // that has finished knows its own output, while the declaration is only
       // a promise until then.
       const artifactPaths = runArtifactsByIdx.get(i) ?? stepProducesByIdx.get(i) ?? [];
-      const artifacts = [...new Set(artifactPaths)]
-        .map((rel) => describeArtifact(workspaceRoot, rel));
+      const artifacts = dedupeArtifacts(
+        [...new Set(artifactPaths)]
+          .map((rel) => describeArtifact(workspaceRoot, rel))
+          .flatMap((a) => expandDirectoryArtifact(workspaceRoot, a)),
+      );
 
       return {
         agent,
