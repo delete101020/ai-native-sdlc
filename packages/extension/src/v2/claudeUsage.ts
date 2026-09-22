@@ -44,12 +44,33 @@ export const REFRESH_USAGE_CMD = 'aidlcNative.refreshClaudePlanUsage';
 const ENABLED_KEY = 'aidlcNative.claude.planUsage.enabled';
 const REFRESH_KEY = 'aidlcNative.claude.planUsage.refreshSeconds';
 const STATUS_BAR_KEY = 'aidlcNative.claude.planUsage.statusBar';
+const RESET_IN_KEY = 'aidlcNative.claude.planUsage.showResetIn';
+const WARN_KEY = 'aidlcNative.claude.planUsage.warnBelowPercent';
+const CRITICAL_KEY = 'aidlcNative.claude.planUsage.criticalBelowPercent';
 
-/** Read fresh on every render, so flipping the setting takes effect with the next tick. */
+/** All read fresh on every render, so changing a setting lands on the next tick. */
 function statusBarStyle(): StatusBarStyle {
   return vscode.workspace.getConfiguration().get<string>(STATUS_BAR_KEY, 'windows') === 'tightest'
     ? 'tightest'
     : 'windows';
+}
+
+function showResetIn(): boolean {
+  return vscode.workspace.getConfiguration().get<boolean>(RESET_IN_KEY, true);
+}
+
+/**
+ * Amber and red, from settings. Clamped to 0–100 and kept in order: a critical
+ * threshold above the warning one would mean red never fires, and a typo in a
+ * settings file should not quietly disable the alarm.
+ */
+function thresholds(): AlertThresholds {
+  const cfg = vscode.workspace.getConfiguration();
+  const clamp = (n: number, fallback: number): number =>
+    Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : fallback;
+  const warnBelow = clamp(cfg.get<number>(WARN_KEY, 20), 20);
+  const criticalBelow = Math.min(warnBelow, clamp(cfg.get<number>(CRITICAL_KEY, 5), 5));
+  return { warnBelow, criticalBelow };
 }
 
 const API_HOST = 'api.anthropic.com';
@@ -133,6 +154,22 @@ export interface UsageWindow {
   resetsAt: number;
   /** The server's own read on how alarming this is — `normal` unless it says otherwise. */
   severity: string;
+  /** How fast it is going, once there is enough history to say. See {@link estimateBurn}. */
+  burn?: BurnRate;
+}
+
+/** How fast a window is being spent, and where that lands. */
+export interface BurnRate {
+  /** Percentage points of the window consumed per hour. */
+  pctPerHour: number;
+  /** Epoch ms the window is projected to run out; absent when it resets first. */
+  exhaustsAt?: number;
+}
+
+/** One reading of a window, kept so the next one can be compared against it. */
+export interface UsageSample {
+  at: number;
+  usedPct: number;
 }
 
 export type UsageState =
@@ -338,6 +375,79 @@ async function fetchState(configDir: string, timeoutMs: number): Promise<UsageSt
   return { kind: 'ok', windows, tightest, fetchedAt: Date.now() };
 }
 
+// ── Burn rate ────────────────────────────────────────────────────────────────
+
+/** Readings older than this say nothing about the pace of the last hour. */
+const BURN_WINDOW_MS = 3 * 60 * 60_000;
+/** Two readings a minute apart are noise; the poll is five minutes by default. */
+const BURN_MIN_SPAN_MS = 10 * 60_000;
+/** Below this the projection is further out than the window's own reset. */
+const BURN_MIN_RATE = 0.5;
+const BURN_MAX_SAMPLES = 64;
+
+/**
+ * How fast this window is going, from readings taken while it was running.
+ *
+ * The percentages are the only history there is — this extension polls a
+ * server that reports a level, not a rate — so the pace is the slope between
+ * the oldest reading still worth trusting and the newest. A drop means the
+ * window rolled over, and readings from the previous window say nothing about
+ * this one, so the slope is measured from the roll-over onwards.
+ *
+ * Deliberately refuses to answer rather than guess: too few readings, too
+ * short a span, or a pace slow enough to be rounding all yield `undefined`.
+ * "Out in about an hour" is worth reading; "out in about nine days, probably,
+ * from two samples" is worth nothing and costs the rest its credibility.
+ */
+export function estimateBurn(
+  samples: readonly UsageSample[],
+  opts: { now?: number; resetsAt?: number } = {},
+): BurnRate | undefined {
+  const now = opts.now ?? Date.now();
+  const latest = samples[samples.length - 1];
+  if (!latest) { return undefined; }
+
+  // Only the readings since the last roll-over, and only recent ones.
+  let from = 0;
+  for (let i = samples.length - 1; i > 0; i--) {
+    if (samples[i].usedPct < samples[i - 1].usedPct || now - samples[i - 1].at > BURN_WINDOW_MS) {
+      from = i;
+      break;
+    }
+  }
+  const first = samples[from];
+  const spanMs = latest.at - first.at;
+  if (spanMs < BURN_MIN_SPAN_MS) { return undefined; }
+
+  const pctPerHour = ((latest.usedPct - first.usedPct) / spanMs) * 3600_000;
+  if (pctPerHour < BURN_MIN_RATE) { return undefined; }
+
+  const remaining = Math.max(0, 100 - latest.usedPct);
+  const exhaustsAt = now + (remaining / pctPerHour) * 3600_000;
+  return {
+    pctPerHour: Math.round(pctPerHour * 10) / 10,
+    // A window that resets before it runs out is not going to run out. Saying
+    // so anyway is the kind of alarm that gets the whole tooltip ignored.
+    exhaustsAt: opts.resetsAt && exhaustsAt >= opts.resetsAt ? undefined : exhaustsAt,
+  };
+}
+
+/** Readings per config dir and window key. In memory only: a reload starts over. */
+const history = new Map<string, UsageSample[]>();
+
+/** Record this answer's levels and hang the resulting pace off each window. */
+function annotateBurn(configDir: string, state: UsageState, now = Date.now()): void {
+  if (state.kind !== 'ok') { return; }
+  for (const w of state.windows) {
+    const key = `${configDir}\u0000${w.key}`;
+    const samples = history.get(key) ?? [];
+    samples.push({ at: now, usedPct: w.usedPct });
+    if (samples.length > BURN_MAX_SAMPLES) { samples.splice(0, samples.length - BURN_MAX_SAMPLES); }
+    history.set(key, samples);
+    w.burn = estimateBurn(samples, { now, resetsAt: w.resetsAt || undefined });
+  }
+}
+
 // ── Cache ────────────────────────────────────────────────────────────────────
 
 interface Entry {
@@ -353,6 +463,7 @@ const changed = new vscode.EventEmitter<string>();
 export const onDidChangePlanUsage = changed.event;
 
 function remember(key: string, state: UsageState): void {
+  annotateBurn(key, state);
   cache.set(key, { state, at: Date.now() });
   changed.fire(key);
 }
@@ -454,14 +565,31 @@ export function statusBarWindows(windows: readonly UsageWindow[]): UsageWindow[]
  */
 export function usageStatusText(
   state: UsageState | undefined,
-  style: StatusBarStyle = 'windows',
+  opts: { style?: StatusBarStyle; resetIn?: boolean } = {},
 ): string | undefined {
   if (state?.kind !== 'ok') { return undefined; }
-  if (style === 'tightest') { return `${state.tightest.remainingPct}% left`; }
+  if (opts.style === 'tightest') { return `${state.tightest.remainingPct}% left`; }
   const picked = statusBarWindows(state.windows);
   if (!picked.length) { return `${state.tightest.remainingPct}% left`; }
-  return picked.map((w) => `${w.shortLabel} ${w.remainingPct}%`).join(' · ');
+  return picked
+    .map((w) => {
+      // Only the session window gets a countdown. It is the one people plan
+      // the next hour around, and it is the only one short enough for the
+      // answer to change anything — a weekly window resetting "in 3d 3h" is
+      // three characters of bar spent on a fact nobody acts on.
+      const countdown = opts.resetIn && w.group === 'session' ? fmtCountdown(w.resetsAt) : '';
+      return `${w.shortLabel} ${w.remainingPct}%${countdown ? ` ${countdown}` : ''}`;
+    })
+    .join(' · ');
 }
+
+/** Where amber and red begin, as percentages *left*. Both settings, both here. */
+export interface AlertThresholds {
+  warnBelow: number;
+  criticalBelow: number;
+}
+
+export const DEFAULT_THRESHOLDS: AlertThresholds = { warnBelow: 20, criticalBelow: 5 };
 
 /** How loudly the status bar should say it, and which window is saying it. */
 export interface UsageAlert {
@@ -489,8 +617,12 @@ function blocksEverything(w: UsageWindow): boolean {
  * The server's own `severity` wins where it has an opinion: it knows about
  * overage and locks, which no percentage here can tell us about.
  */
-export function usageAlert(state: UsageState | undefined): UsageAlert {
+export function usageAlert(
+  state: UsageState | undefined,
+  thresholds: AlertThresholds = DEFAULT_THRESHOLDS,
+): UsageAlert {
   if (state?.kind !== 'ok' || !state.windows.length) { return { level: 'none' }; }
+  const { warnBelow, criticalBelow } = thresholds;
 
   const severe = (w: UsageWindow): boolean => w.severity === 'critical';
   const flagged = (w: UsageWindow): boolean => w.severity !== 'normal' && w.severity !== 'none';
@@ -501,14 +633,29 @@ export function usageAlert(state: UsageState | undefined): UsageAlert {
   const primary = (gating.length ? gating : state.windows)
     .reduce((a, b) => (b.usedPct > a.usedPct ? b : a));
 
-  if (severe(primary) || primary.remainingPct <= 5) { return { level: 'critical', window: primary }; }
-  if (flagged(primary) || primary.remainingPct <= 20) { return { level: 'warning', window: primary }; }
+  if (severe(primary) || primary.remainingPct <= criticalBelow) {
+    return { level: 'critical', window: primary };
+  }
+  if (flagged(primary) || primary.remainingPct <= warnBelow) {
+    return { level: 'warning', window: primary };
+  }
 
   // Nothing gating is close, but a model window may be: amber, capped there.
   const model = state.windows
-    .filter((w) => !blocksEverything(w) && (severe(w) || flagged(w) || w.remainingPct <= 20))
+    .filter((w) => !blocksEverything(w) && (severe(w) || flagged(w) || w.remainingPct <= warnBelow))
     .reduce<UsageWindow | undefined>((a, b) => (!a || b.usedPct > a.usedPct ? b : a), undefined);
   return model ? { level: 'warning', window: model } : { level: 'none' };
+}
+
+/** The same span as {@link fmtReset}, in as few characters as the bar can spare. */
+function fmtCountdown(at: number): string {
+  if (!at) { return ''; }
+  const mins = Math.round((at - Date.now()) / 60_000);
+  if (mins <= 0) { return 'now'; }
+  if (mins < 60) { return `${mins}m`; }
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) { return `${hours}h${String(mins % 60).padStart(2, '0')}m`; }
+  return `${Math.floor(hours / 24)}d${hours % 24}h`;
 }
 
 /** One line for a status bar or a QuickPick row. `undefined` = say nothing. */
@@ -521,13 +668,34 @@ export function usageSummary(state: UsageState | undefined): string | undefined 
   }
 }
 
+/**
+ * The pace, as a tooltip suffix. Empty when there is no reading worth showing —
+ * this is an estimate off a handful of samples, and it has to read like one.
+ */
+function fmtBurn(burn: BurnRate | undefined): string {
+  if (!burn) { return ''; }
+  const rate = `${burn.pctPerHour}%/hr`;
+  if (burn.exhaustsAt === undefined) { return ` — ${rate}, resets before it runs out`; }
+  // A clock time alone reads as "today"; a weekly window projected three days
+  // out would then look like it goes this morning.
+  const when = new Date(burn.exhaustsAt);
+  const sameDay = when.toDateString() === new Date().toDateString();
+  const at = when.toLocaleString(undefined, {
+    ...(sameDay ? {} : { weekday: 'short' }),
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return ` — ${rate}, out ~${at}`;
+}
+
 /** Markdown bullets for a tooltip. Empty when there is nothing worth saying. */
 export function usageMarkdown(state: UsageState | undefined): string[] {
   switch (state?.kind) {
     case 'ok':
       return [
         ...state.windows.map(
-          (w) => `- ${w.label}: **${w.remainingPct}% left** (${w.usedPct}% used, resets ${fmtReset(w.resetsAt)})`,
+          (w) => `- ${w.label}: **${w.remainingPct}% left** (${w.usedPct}% used, resets ${fmtReset(w.resetsAt)})`
+            + fmtBurn(w.burn),
         ),
         '',
         '_Plan limits read from the Claude account — undocumented endpoint, may go quiet._',
@@ -569,11 +737,11 @@ export function registerClaudePlanUsage(
 
   const render = (state: UsageState): void => {
     if (state.kind === 'ok') {
-      item.text = `$(pulse) ${usageStatusText(state, statusBarStyle())}`;
+      item.text = `$(pulse) ${usageStatusText(state, { style: statusBarStyle(), resetIn: showResetIn() })}`;
       // Red at the wall, amber in the last fifth — the point is to be noticed
       // before a run is refused, not after. Which window gets to say it is
       // {@link usageAlert}'s call.
-      const alert = usageAlert(state);
+      const alert = usageAlert(state, thresholds());
       item.backgroundColor =
         alert.level === 'critical'
           ? new vscode.ThemeColor('statusBarItem.errorBackground')

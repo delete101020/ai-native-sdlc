@@ -406,6 +406,28 @@
           "markdownDescription": "How much the plan-usage status bar item says. Percentages are what is **left**, matching the tooltip. Requires `#aidlcNative.claude.planUsage.enabled#`.",
           "scope": "window"
         },
+        "aidlcNative.claude.planUsage.showResetIn": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show when the 5-hour window rolls over next to its percentage on the status bar \u2014 `5h 51% 2h12m`. Only that window: a weekly one resets days out, which is a fact nobody plans the next hour around. The tooltip always lists every window's reset time.",
+          "scope": "window"
+        },
+        "aidlcNative.claude.planUsage.warnBelowPercent": {
+          "type": "number",
+          "default": 20,
+          "minimum": 0,
+          "maximum": 100,
+          "markdownDescription": "Turn the status bar amber when the window that gates every model \u2014 the 5-hour or all-models weekly one \u2014 drops below this much **left**. A weekly window for a single model can also raise amber, but never red: the fix there is to run the next step on another model.",
+          "scope": "window"
+        },
+        "aidlcNative.claude.planUsage.criticalBelowPercent": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "maximum": 100,
+          "markdownDescription": "Turn the status bar red when a gating window drops below this much **left**. Clamped to at most `#aidlcNative.claude.planUsage.warnBelowPercent#`, since a critical threshold above the warning one would mean red never fires. The server's own severity \u2014 overage, a locked window \u2014 still goes red whatever this says.",
+          "scope": "window"
+        },
         "aidlcNative.claude.planUsage.refreshSeconds": {
           "type": "number",
           "default": 300,
