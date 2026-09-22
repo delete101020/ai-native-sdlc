@@ -1,5 +1,57 @@
 # Changelog
 
+## 4.0.11
+
+An epic's brief and its workflow stopped being decided once and for all at the
+moment it was created, and renaming an agent or a skill no longer leaves the
+rest of the workspace pointing at the old name.
+
+### Added
+
+- **The description can be edited at any time**, from the epic card in the
+  Epics panel, *AIDLC Native: Edit Epic Description*, or `aidlc epic describe
+  <id> [text]`. It moves both copies — `state.json` and the lead paragraph of
+  `<id>.md`, which is the file the first phase's skill actually reads — so the
+  agents work from the sentence you meant. A brief someone has since rewritten
+  by hand is left alone and said so, and sections an agent appended below the
+  lead always survive.
+- **The workflow can be swapped until the first step moves**, from the
+  *Change workflow* button on the epic card, *AIDLC Native: Change Epic
+  Workflow*, or `aidlc epic workflow <id> --recipe <id>` (also
+  `--pipeline <id>`, and a bare `aidlc epic workflow <id>` to see what it runs
+  now). The recipe is picked from a one-line brief before anyone has read the
+  epic properly; this is the way to change that choice. It is offered only
+  while the run has nothing to lose — every step still pending, no history, no
+  artifacts — and once a step has been approved, rejected or rerun it refuses
+  and names the step, because the new step list would have nowhere to put that
+  record. `aidlc epic step add` / `remove` remains the way to reshape a
+  running epic.
+
+### Fixed
+
+- **Renaming an agent or a skill now carries its references along.** Renaming
+  an agent left every `steps[].agent` and slash command pointing at a name
+  that no longer existed, and the epic failed to start minutes or days later
+  on a reference nobody had touched. Both renames now re-point what names
+  them — including, for a step with no `name` of its own, the DAG id it is
+  addressed by in `depends_on`, in a recipe's `steps`, and in its `gates` —
+  and the panel lists what it changed. Deleting is deliberately different: it
+  tells you what would be left dangling and lets you decide, since a delete
+  has no new name to re-point at.
+- **A removed step no longer leaves recipes pointing at it.** A recipe drawn
+  from an edited pipeline kept the step in its `steps` and `gates`, and the
+  breakage surfaced at `epic start`. The edit now carries the recipes with it
+  and reports what it dropped.
+- **Slash commands are checked like everything else.** `aidlc validate` and
+  the edit-time check now report a `/command` whose agent or pipeline does not
+  exist — the one reference by id that nothing verified. Existing workspaces
+  may start reporting issues that were always there.
+- **A locked epic directory no longer reads as one to delete again.** On
+  Windows a folder whose deletion is still pending keeps its name until the
+  last handle closes; starting the epic said "already exists. Delete it
+  first.", which is exactly what the user had just done. It now says what is
+  really holding the name and what makes it let go.
+
 ## 4.0.10
 
 An epic no longer reads as failed because of a rejection the run has already
