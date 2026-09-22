@@ -43,6 +43,14 @@ export const REFRESH_USAGE_CMD = 'aidlcNative.refreshClaudePlanUsage';
 
 const ENABLED_KEY = 'aidlcNative.claude.planUsage.enabled';
 const REFRESH_KEY = 'aidlcNative.claude.planUsage.refreshSeconds';
+const STATUS_BAR_KEY = 'aidlcNative.claude.planUsage.statusBar';
+
+/** Read fresh on every render, so flipping the setting takes effect with the next tick. */
+function statusBarStyle(): StatusBarStyle {
+  return vscode.workspace.getConfiguration().get<string>(STATUS_BAR_KEY, 'windows') === 'tightest'
+    ? 'tightest'
+    : 'windows';
+}
 
 const API_HOST = 'api.anthropic.com';
 const API_PATH = '/api/oauth/usage';
@@ -63,15 +71,61 @@ const LABELS: Record<string, string> = {
   seven_day_opus: 'Weekly (Opus)',
   weekly_sonnet: 'Weekly (Sonnet)',
   seven_day_sonnet: 'Weekly (Sonnet)',
+  weekly_fable: 'Weekly (Fable)',
+  seven_day_fable: 'Weekly (Fable)',
+  weekly_haiku: 'Weekly (Haiku)',
+  seven_day_haiku: 'Weekly (Haiku)',
 };
 
 function labelFor(key: string): string {
   return LABELS[key] ?? key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 }
 
+/**
+ * The status bar has room for a couple of characters per window, not a label —
+ * `5h 51% · wk 34%` has to fit next to everything else the user keeps down
+ * there. Unknown keys get their first word, which is still better than a bare
+ * number whose window nobody can name.
+ */
+const SHORT_LABELS: Record<string, string> = {
+  session: '5h',
+  five_hour: '5h',
+  weekly_all: 'wk',
+  seven_day: 'wk',
+  weekly_opus: 'opus',
+  seven_day_opus: 'opus',
+  weekly_sonnet: 'sonnet',
+  seven_day_sonnet: 'sonnet',
+  weekly_fable: 'fable',
+  seven_day_fable: 'fable',
+  weekly_haiku: 'haiku',
+  seven_day_haiku: 'haiku',
+};
+
+function shortLabelFor(key: string): string {
+  return SHORT_LABELS[key] ?? key.split('_')[0];
+}
+
+/**
+ * Which clock a window is on. The server says so in `limits[].group`; the named
+ * windows do not, so the key answers for them. Everything else is its own
+ * group, so a window we have never seen is never silently folded into one of
+ * these two and hidden behind a tighter sibling.
+ */
+function groupFor(key: string, declared: unknown): string {
+  if (typeof declared === 'string' && declared) { return declared; }
+  if (key === 'session' || key === 'five_hour') { return 'session'; }
+  if (key.startsWith('weekly') || key.startsWith('seven_day')) { return 'weekly'; }
+  return key;
+}
+
 export interface UsageWindow {
   key: string;
   label: string;
+  /** Two or three characters for the status bar — `5h`, `wk`, `opus`. */
+  shortLabel: string;
+  /** Which clock this window is on: `session`, `weekly`, or its own key. */
+  group: string;
   /** 0–100 percent of the window consumed. */
   usedPct: number;
   remainingPct: number;
@@ -156,6 +210,7 @@ async function readCredentials(configDir: string): Promise<OAuthCredentials | un
  */
 interface RawLimit {
   kind?: unknown;
+  group?: unknown;
   percent?: unknown;
   severity?: unknown;
   resets_at?: unknown;
@@ -180,12 +235,15 @@ function toWindow(
   percent: unknown,
   resetsAt: unknown,
   severity: unknown,
+  group?: unknown,
 ): UsageWindow | undefined {
   if (typeof percent !== 'number' || !Number.isFinite(percent)) { return undefined; }
   const usedPct = Math.min(100, Math.max(0, Math.round(percent)));
   return {
     key,
     label: labelFor(key),
+    shortLabel: shortLabelFor(key),
+    group: groupFor(key, group),
     usedPct,
     remainingPct: 100 - usedPct,
     resetsAt: toEpochMs(resetsAt),
@@ -199,7 +257,13 @@ export function parseUsageWindows(body: Record<string, unknown>): UsageWindow[] 
   const limits = Array.isArray(body.limits) ? (body.limits as RawLimit[]) : undefined;
   if (limits?.length) {
     const parsed = limits
-      .map((l) => toWindow(typeof l.kind === 'string' ? l.kind : 'limit', l.percent, l.resets_at, l.severity))
+      .map((l) => toWindow(
+        typeof l.kind === 'string' ? l.kind : 'limit',
+        l.percent,
+        l.resets_at,
+        l.severity,
+        l.group,
+      ))
       .filter((w): w is UsageWindow => w !== undefined);
     if (parsed.length) { return parsed; }
   }
@@ -347,6 +411,58 @@ function fmtReset(at: number): string {
   return `in ${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
+/** How much the status bar item says. */
+export type StatusBarStyle = 'windows' | 'tightest';
+
+/** Groups get a slot in this order; anything else follows, in the server's order. */
+const GROUP_ORDER = ['session', 'weekly'];
+
+/** The all-models weekly window leads its group — the model-specific ones qualify it. */
+const WEEKLY_ALL = new Set(['weekly_all', 'seven_day']);
+
+/**
+ * The windows that earn a slot on the status bar, in reading order.
+ *
+ * Every window gets its own number. Headlining only the single tightest one
+ * answered a question nobody asked: on a plan that reports a weekly window per
+ * model, the bar showed one percentage — whichever model the user happened to
+ * lean on — and the 5-hour window, the one that bites first, was nowhere to be
+ * seen. The order is the order they run out in: the session window, then the
+ * all-models week, then the per-model weeks that qualify it, tightest first —
+ * a plan with more model windows than fit loses the roomiest, not a random one.
+ *
+ * Capped at four, because the status bar is shared with everything else.
+ */
+export function statusBarWindows(windows: readonly UsageWindow[]): UsageWindow[] {
+  const rank = (w: UsageWindow): number => {
+    const i = GROUP_ORDER.indexOf(w.group);
+    const group = i >= 0 ? i : GROUP_ORDER.length;
+    // Only breaks ties inside a group, so the server's order survives elsewhere.
+    return group * 2 + (WEEKLY_ALL.has(w.key) ? 0 : 1);
+  };
+  return [...windows]
+    .map((w, i) => ({ w, i }))
+    .sort((a, b) => rank(a.w) - rank(b.w) || b.w.usedPct - a.w.usedPct || a.i - b.i)
+    .map(({ w }) => w)
+    .slice(0, 4);
+}
+
+/**
+ * The status bar text: `5h 51% · wk 34%`, percentages *left*, same as the
+ * tooltip. `tightest` keeps the older one-number form for anyone who wants the
+ * bar back the way it was.
+ */
+export function usageStatusText(
+  state: UsageState | undefined,
+  style: StatusBarStyle = 'windows',
+): string | undefined {
+  if (state?.kind !== 'ok') { return undefined; }
+  if (style === 'tightest') { return `${state.tightest.remainingPct}% left`; }
+  const picked = statusBarWindows(state.windows);
+  if (!picked.length) { return `${state.tightest.remainingPct}% left`; }
+  return picked.map((w) => `${w.shortLabel} ${w.remainingPct}%`).join(' · ');
+}
+
 /** One line for a status bar or a QuickPick row. `undefined` = say nothing. */
 export function usageSummary(state: UsageState | undefined): string | undefined {
   switch (state?.kind) {
@@ -405,7 +521,7 @@ export function registerClaudePlanUsage(
 
   const render = (state: UsageState): void => {
     if (state.kind === 'ok') {
-      item.text = `$(pulse) ${state.tightest.remainingPct}%`;
+      item.text = `$(pulse) ${usageStatusText(state, statusBarStyle())}`;
       // Red at the wall, yellow in the last fifth — the point is to be noticed
       // before a run is refused, not after. The server's own `severity` wins
       // where it has an opinion, since it knows about overage and locks.

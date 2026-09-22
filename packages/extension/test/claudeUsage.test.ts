@@ -13,7 +13,13 @@ import * as path from 'path';
 
 import { describe, expect, it } from 'vitest';
 
-import { parseUsageWindows, usageMarkdown, usageSummary } from '../src/v2/claudeUsage';
+import {
+  parseUsageWindows,
+  statusBarWindows,
+  usageMarkdown,
+  usageStatusText,
+  usageSummary,
+} from '../src/v2/claudeUsage';
 
 /** Captured live, 2026-09-22. Unused sibling keys trimmed. */
 const LIVE = {
@@ -89,6 +95,40 @@ describe('plan usage rendering', () => {
     expect(usageSummary(state)).toBe('34% left');
   });
 
+  it('puts one percentage per window on the status bar', () => {
+    expect(usageStatusText(state)).toBe('5h 51% · wk 34%');
+    expect(usageStatusText(state, 'tightest')).toBe('34% left');
+    expect(usageStatusText({ kind: 'no-plan' })).toBeUndefined();
+  });
+
+  it('gives every window its own slot, session first', () => {
+    // A plan with a per-model weekly limit: headlining one number is how the
+    // bar ended up reporting only Fable, with the session window — the one
+    // that bites first — nowhere to be seen.
+    const perModel = parseUsageWindows({
+      limits: [
+        { kind: 'weekly_fable', group: 'weekly', percent: 88, severity: 'normal', resets_at: null },
+        { kind: 'session', group: 'session', percent: 20, severity: 'normal', resets_at: null },
+        { kind: 'weekly_all', group: 'weekly', percent: 40, severity: 'normal', resets_at: null },
+      ],
+    });
+    expect(statusBarWindows(perModel).map((w) => w.key))
+      .toEqual(['session', 'weekly_all', 'weekly_fable']);
+    expect(usageStatusText({
+      kind: 'ok', windows: perModel, tightest: perModel[0], fetchedAt: Date.now(),
+    })).toBe('5h 80% · wk 60% · fable 12%');
+  });
+
+  it('keeps a window it has never seen, after the ones it knows', () => {
+    const windows = parseUsageWindows({
+      limits: [
+        { kind: 'monthly_something', percent: 90, severity: 'normal', resets_at: null },
+        { kind: 'session', group: 'session', percent: 10, severity: 'normal', resets_at: null },
+      ],
+    });
+    expect(statusBarWindows(windows).map((w) => w.shortLabel)).toEqual(['5h', 'monthly']);
+  });
+
   it('says nothing at all when there is nothing trustworthy to say', () => {
     expect(usageSummary({ kind: 'no-plan' })).toBeUndefined();
     expect(usageSummary({ kind: 'error', message: 'HTTP 500' })).toBeUndefined();
@@ -120,5 +160,6 @@ describe('plan usage contributions', () => {
     const props = pkg.contributes.configuration.properties;
     expect(props['aidlcNative.claude.planUsage.enabled']?.default).toBe(true);
     expect(props['aidlcNative.claude.planUsage.refreshSeconds']?.default).toBe(300);
+    expect(props['aidlcNative.claude.planUsage.statusBar']?.default).toBe('windows');
   });
 });
