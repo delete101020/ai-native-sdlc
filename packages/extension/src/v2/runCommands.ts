@@ -495,7 +495,23 @@ export async function retryAutoReviewCommand(runIdArg?: string, stepIdxArg?: num
     return;
   }
 
-  const stepIdx = resolveStepIdx(state, stepIdxArg, 'rejected');
+  // Not `resolveStepIdx(…, 'rejected')`: that matches on status alone, and
+  // from the command palette — where no stepIdx is passed — it would happily
+  // land on a step a human rejected while the auto-rejected one sits further
+  // down. Only a validator's own rejection is re-verifiable.
+  const stepIdx =
+    typeof stepIdxArg === 'number' && Number.isInteger(stepIdxArg)
+      && stepIdxArg >= 0 && stepIdxArg < state.steps.length
+      ? stepIdxArg
+      : state.steps.findIndex(
+          (s) => s.status === 'rejected' && s.autoReviewVerdict?.decision === 'reject',
+        );
+  if (stepIdx < 0) {
+    void vscode.window.showInformationMessage(
+      `Run "${runId}" has no step waiting on a second auto-review.`,
+    );
+    return;
+  }
   let reset: RunState;
   try {
     reset = retryAutoReview({ state, pipeline, stepIdx });

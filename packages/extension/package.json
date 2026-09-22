@@ -232,6 +232,12 @@
         "category": "AIDLC Native"
       },
       {
+        "command": "aidlcNative.retryAutoReview",
+        "title": "Re-verify Step (run auto-review again)",
+        "icon": "$(shield)",
+        "category": "AIDLC Native"
+      },
+      {
         "command": "aidlcNative.selectStandard",
         "title": "Select SDLC Standard",
         "icon": "$(law)",
