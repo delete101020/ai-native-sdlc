@@ -1,5 +1,53 @@
 # Changelog
 
+## 4.0.14
+
+Rerunning a step no longer costs you the work that came after it, a fan-out
+round counts as one round of work rather than three, and the plan-usage
+indicator says how long you have got rather than only how much is left.
+
+### Added
+
+- **Rerun a step that already passed, without discarding what came after.**
+  Until now the only way to re-run an approved step was Request update, which
+  rewinds it and resets every downstream step to pending — real, finished work
+  thrown away to regenerate one document. Rerun reopens the target alone:
+  approved steps downstream keep their status, their artifacts and their
+  history, and gain a `dirty` mark — still done, but done against an input that
+  has since changed. Steps nobody had finished are left exactly as they were.
+  The epic card, `run exec` and `mark-done` name the suspect ancestors before
+  the work is built rather than after, and the mark clears only when that step
+  is approved again. The run-state schema goes to 3 for the new field.
+- **A reset countdown, settable thresholds, and a burn rate** for the plan
+  usage indicator. The 5-hour window carries its countdown on the bar —
+  `5h 51% 2h12m` (off with `planUsage.showResetIn`). Amber and red are
+  settings now (`warnBelowPercent`, 20, and `criticalBelowPercent`, 5, as
+  percent *left*). The tooltip says how fast each window is going and where
+  that lands — `13%/hr, out ~11:47 PM` — or "resets before it runs out". The
+  pace is measured between readings taken while the window ran, kept in memory
+  only, and it declines to answer rather than guess from too little span.
+- **One percentage per plan window on the status bar** —
+  `5h 80% · wk 60% · fable 12%`, in the order they run out in, four at most.
+  `aidlcNative.claude.planUsage.statusBar` = `tightest` puts the single number
+  back.
+
+### Fixed
+
+- **Progress counts in stages, so a fan-out is one round of work.** Three
+  review steps running off the same intake and back into the same merge were
+  counted as three of the pipeline's nine steps, so finishing that round
+  claimed a third of the epic. Steps are now grouped by rank through
+  `depends_on`, peers split their rank's single unit, and the total is the
+  number of ranks. A pipeline that declares no `depends_on` is untouched. The
+  arithmetic lives in core so the card, `aidlc epic list` and the dashboard
+  cannot drift.
+- **The status bar is coloured by the window that gates every model.** A
+  nearly-spent per-model week looked exactly like a spent account, although
+  the next step only had to run on another model. Only the 5-hour and
+  all-models weekly windows decide the colour now; a per-model week can raise
+  amber and never more. The tooltip names the window the colour is about.
+
+
 ## 4.0.13
 
 The artifacts a step produced are now visible without leaving the epic panel,
