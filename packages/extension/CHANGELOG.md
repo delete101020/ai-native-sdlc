@@ -1,5 +1,51 @@
 # Changelog
 
+## 4.0.20
+
+A pipeline step can now say what it does. When one agent runs several steps,
+such as a dev agent that writes the spec and then builds it, the Epics panel
+no longer shows the same agent text under each of them.
+
+### Added
+
+- **Step `description`.** It works the same in `workspace.yaml` and in an
+  epic's own `pipeline.yaml`:
+
+  ```yaml
+  steps:
+    - agent: cr-dev
+      name: cr-build-spec
+      skills: [cr-build-spec]
+      description: Write the build spec from the approved business analysis.
+    - agent: cr-dev
+      name: cr-build
+      skills: [cr-build]
+      description: Build against the approved spec.
+  ```
+
+  The step card uses the first of these that exists:
+
+  1. The step's `description`.
+  2. The frontmatter `description` of the step's skill, when `skills:` names
+     exactly one.
+  3. The agent's description.
+
+  The text is shown on the panel only. It is never sent to the agent.
+- **Description field in the step config modal**, so you can edit it from the
+  Builder.
+
+### Changed
+
+- A step with exactly one skill now shows that skill's description instead of
+  the agent's, including on built-in pipelines.
+
+### Fixed
+
+- Saving a pipeline from the Builder's edit modal no longer turns optional
+  `produces` entries back into required ones.
+- Saving from that modal no longer swaps the settings of two steps that share
+  an agent when you reorder them. Steps are now matched by name.
+
 ## 4.0.19
 
 A step can now declare an output it writes only sometimes, such as a diagram
