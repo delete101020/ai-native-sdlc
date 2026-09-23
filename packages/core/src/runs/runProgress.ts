@@ -117,7 +117,12 @@ export function deriveRunProgress(
   });
 
   const stuck = blocking.length > 0 && actionable.length === 0;
-  const status = state.status === 'completed'
+  // Completion is written only when a step is approved or rejected, so a run
+  // settled under an older rule (CR-Y01, before dead-end peers were excused)
+  // would never be re-judged. Read it here too, so no one has to touch it.
+  const complete = state.status === 'completed'
+    || (pipeline != null && state.steps.length > 0 && isRunComplete(state, pipeline));
+  const status = complete
     ? 'done' as const
     : stuck
       ? 'failed' as const
@@ -131,14 +136,55 @@ export function deriveRunProgress(
  *
  * Approved counts, and so does an optional step the run gave up on — a
  * `rejected` or never-opened `pending` optional step is a branch the author
- * said was skippable. Anything else still owes the run something.
+ * said was skippable.
+ *
+ * On a DAG, so does a dead-end peer of an approved step: nothing declares
+ * `depends_on` it, and a step at the same stage (see {@link weighStepProgress})
+ * is approved. That is the rule the progress bar already counts by — CR-Y01
+ * read 100% with `cr-solo-ba` rejected and `cr-solo-qc` still open, because
+ * `cr-merge` only waits on `cr-solo-dev`, yet stayed `in_progress` forever
+ * after `cr-close` was approved. A peer something does wait on is never
+ * excused: its dependent has not run against its current output.
+ *
+ * Anything else still owes the run something.
  */
 export function isRunComplete(state: RunState, pipeline: PipelineConfig): boolean {
+  const excused = usesDag(pipeline) ? deadEndPeersOfApproved(state, pipeline) : new Set<number>();
   return state.steps.every((s, i) => {
     if (s.status === 'approved') { return true; }
+    if (excused.has(i)) { return true; }
     if (!isStepOptional(pipeline, i)) { return false; }
     return s.status === 'rejected' || s.status === 'pending';
   });
+}
+
+/**
+ * Unapproved steps nothing depends on whose stage an approved peer has
+ * already settled. Ranks come from {@link weighStepProgress}, so completion
+ * and the percentage can never disagree about what a stage is.
+ */
+function deadEndPeersOfApproved(state: RunState, pipeline: PipelineConfig): Set<number> {
+  const normalized = state.steps.map((s, i) => normalizeStep(pipeline.steps[i] ?? { agent: s.agent }));
+  const ids = normalized.map((n) => n.name ?? n.agent);
+  const { ranks } = weighStepProgress(normalized.map((n, i) => ({
+    id: ids[i],
+    dependsOn: n.depends_on,
+    done: state.steps[i].status === 'approved',
+  })));
+
+  const dependedOn = new Set<string>();
+  for (const n of normalized) { for (const d of n.depends_on) { dependedOn.add(d); } }
+
+  const approvedRanks = new Set<number>();
+  state.steps.forEach((s, i) => { if (s.status === 'approved') { approvedRanks.add(ranks[i]); } });
+
+  const excused = new Set<number>();
+  state.steps.forEach((s, i) => {
+    if (s.status === 'approved') { return; }
+    if (dependedOn.has(ids[i])) { return; }
+    if (approvedRanks.has(ranks[i])) { excused.add(i); }
+  });
+  return excused;
 }
 
 /** One step, as the progress weighting needs to see it. */

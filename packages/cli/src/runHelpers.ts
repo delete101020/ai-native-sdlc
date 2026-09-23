@@ -161,6 +161,18 @@ export function requirePipelineForRun(root: string, state: RunState): PipelineCo
   return requirePipeline(root, state.pipelineId).pipeline;
 }
 
+/**
+ * The run's pipeline, or null when it cannot be found — for the `aidlc step`
+ * escape hatches, which must keep working on a run whose pipeline is gone.
+ */
+export function findPipelineForRun(root: string, state: RunState): PipelineConfig | null {
+  try {
+    return WorkspaceLoader.load(root).config.pipelines.find(p => p.id === state.pipelineId) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Step resolution ───────────────────────────────────────────────────────────
 
 /**

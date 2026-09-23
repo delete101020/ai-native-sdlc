@@ -98,7 +98,8 @@ describe('runProgress — is this rejection holding the run back?', () => {
     );
     expect(p.rejected).toEqual([1]);
     expect(p.blocking).toEqual([]);
-    expect(p.status).toBe('in_progress');
+    // Every step is settled, so the run reads done before the runner writes it.
+    expect(p.status).toBe('done');
   });
 
   it('counts a non-optional rejection as blocking', () => {
@@ -123,6 +124,55 @@ describe('runProgress — is this rejection holding the run back?', () => {
       stateFor(SQUAD, ['approved', 'approved', 'rejected', 'approved']),
       SQUAD,
     )).toBe(false);
+  });
+});
+
+/**
+ * CR-Y01 as it really is: three solo lenses, the merge waits on solo-dev only,
+ * and a close runs off the merge. Nothing is optional.
+ */
+const CR: PipelineConfig = {
+  id: 'cr-squad',
+  on_failure: 'stop',
+  steps: [
+    { agent: 'ba', name: 'intake' },
+    { agent: 'solo-ba', name: 'solo-ba', depends_on: ['intake'] },
+    { agent: 'solo-dev', name: 'solo-dev', depends_on: ['intake'] },
+    { agent: 'solo-qc', name: 'solo-qc', depends_on: ['intake'] },
+    { agent: 'facilitator', name: 'merge', depends_on: ['solo-dev'] },
+    { agent: 'ba', name: 'close', depends_on: ['merge'] },
+  ] as unknown as PipelineConfig['steps'],
+};
+
+describe('runProgress — completion agrees with the stage-weighted percentage', () => {
+  it('completes CR-Y01 with dead-end peers rejected or still open', () => {
+    const s = stateFor(CR, ['approved', 'rejected', 'approved', 'awaiting_work', 'approved', 'approved'], 3);
+    expect(isRunComplete(s, CR)).toBe(true);
+    // The stored status was never rewritten; reading it settles it anyway.
+    expect(deriveRunProgress(s, CR).status).toBe('done');
+  });
+
+  it('does not complete while the last stage is still open', () => {
+    const s = stateFor(CR, ['approved', 'rejected', 'approved', 'awaiting_work', 'approved', 'awaiting_review'], 5);
+    expect(isRunComplete(s, CR)).toBe(false);
+    expect(deriveRunProgress(s, CR).status).toBe('in_progress');
+  });
+
+  it('never excuses a peer something depends on', () => {
+    // solo-dev reopened: merge waits on it, so approved peers do not stand in.
+    const s = stateFor(CR, ['approved', 'approved', 'awaiting_work', 'approved', 'approved', 'approved'], 2);
+    expect(isRunComplete(s, CR)).toBe(false);
+  });
+
+  it('never excuses a step on a sequential pipeline', () => {
+    const s = stateFor(SEQUENTIAL, ['approved', 'approved', 'rejected'], 2);
+    expect(isRunComplete(s, SEQUENTIAL)).toBe(false);
+  });
+
+  it('marks the run completed when the last step is approved', () => {
+    let s = stateFor(CR, ['approved', 'rejected', 'approved', 'awaiting_work', 'approved', 'awaiting_review'], 5);
+    s = approveStep({ state: s, pipeline: CR, stepIdx: 5 });
+    expect(s.status).toBe('completed');
   });
 });
 

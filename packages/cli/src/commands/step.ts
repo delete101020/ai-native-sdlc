@@ -1,9 +1,10 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { RunStateStore, type StepStatus } from '@aidlc/core';
+import { RunStateStore, isRunComplete, type RunState, type StepStatus } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import {
   mirrorEpicState,
+  findPipelineForRun,
   requireRun,
   requireStepIdx,
   printRunSummary,
@@ -92,12 +93,8 @@ export function registerStep(program: Command): void {
         }
       }
 
-      // Run is complete when every step is approved (regardless of pointer).
-      if (state.steps.every(s => s.status === 'approved')) {
-        state.status = 'completed';
-      } else {
-        state.status = 'running';
-      }
+      // Complete by the same rule the runner uses (regardless of pointer).
+      state.status = runIsComplete(root, state) ? 'completed' : 'running';
 
       RunStateStore.save(root, state);
       mirrorEpicState(root, state);
@@ -132,11 +129,7 @@ export function registerStep(program: Command): void {
         }
       }
 
-      if (state.steps.every(s => s.status === 'approved')) {
-        state.status = 'completed';
-      } else {
-        state.status = 'running';
-      }
+      state.status = runIsComplete(root, state) ? 'completed' : 'running';
 
       RunStateStore.save(root, state);
       mirrorEpicState(root, state);
@@ -240,4 +233,16 @@ export function registerStep(program: Command): void {
       }
       printRunSummary(state);
     });
+}
+
+/**
+ * Is the run finished? Judged by the runner's own rule when the pipeline can
+ * be found — so an epic whose dead-end peers are still open completes here as
+ * it does in the extension — and by "every step approved" when it cannot.
+ */
+function runIsComplete(root: string, state: RunState): boolean {
+  const pipeline = findPipelineForRun(root, state);
+  return pipeline
+    ? isRunComplete(state, pipeline)
+    : state.steps.every(s => s.status === 'approved');
 }
