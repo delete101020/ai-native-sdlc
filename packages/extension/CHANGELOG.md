@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.0.16
+
+Plan usage now reads as used, the way `/usage` does, an epic with a fan-out
+counts a round of review done once one of its peers is, and Rerun with Claude
+steps back behind Request update.
+
+### Changed
+
+- **Plan usage shows how much is used, not how much is left** — in the status
+  bar, the hover tooltip and the Switch Claude account picker, matching
+  Claude Code's `/usage`. Model names are capitalised: `5h 2% · 1w 38% ·
+  Fable 61%`.
+- **Rerun with Claude sits under Request update**, in a row of its own and in
+  a quieter style, since Request update is the usual answer to a step that
+  needs another pass.
+
+### Fixed
+
+- **An epic with parallel steps under-reported its progress.** Peers that
+  share a stage (`cr-solo-ba`, `cr-solo-dev`, `cr-solo-qc`) are takes on the
+  same round, so one finished peer now completes the stage.
+
 ## 4.0.15
 
 The Rerun and Undo buttons added in 4.0.14 now actually show up, a passed step
