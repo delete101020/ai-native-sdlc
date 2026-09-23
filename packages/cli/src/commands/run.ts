@@ -9,6 +9,8 @@ import {
   approveStep,
   rejectStep,
   rerunStep,
+  rerunApprovedStep,
+  dirtyUpstreamOf,
   requestStepUpdate,
   checkBudget,
   verifyRun,
@@ -107,6 +109,14 @@ export function registerRun(program: Command): void {
           console.error(chalk.red(err instanceof Error ? err.message : String(err)));
         }
         process.exit(1);
+      }
+
+      const stale = dirtyUpstreamOf({ state, pipeline, stepIdx: state.currentStepIdx });
+      for (const d of stale) {
+        console.log(chalk.yellow(
+          `⚠ upstream step ${d.stepIdx} ("${d.step}") is dirty — "${d.dirty.byStep}" ` +
+          'was rerun after it finished. This step\'s input may be out of date.',
+        ));
       }
 
       saveRunState(root, next, state);
@@ -254,6 +264,48 @@ export function registerRun(program: Command): void {
       const target = next.steps[stepIdx];
       console.log(chalk.yellow('↻') + ` Reopened "${target.agent}" for update (rev ${target.revision})`);
       if (opts.feedback) { console.log(chalk.dim(`  Feedback: ${opts.feedback}`)); }
+      console.log(chalk.dim(`  When done: aidlc run mark-done ${runId}`));
+      printRunSummary(next);
+    });
+
+  // ── redo ───────────────────────────────────────────────────────────────────
+  cmd
+    .command('redo <runId> <step>')
+    .description(
+      'Rerun an already-approved step, KEEPING what was built on top of it.\n' +
+      '  Approved steps downstream stay approved and are marked dirty — still done,\n' +
+      '  but done against an input that has since changed. Use request-update instead\n' +
+      '  when the change invalidates them and they must be redone from scratch.\n' +
+      '  <step> can be a 0-based index or an agent id.',
+    )
+    .option('--feedback <text>', 'Notes for the next attempt (stored on the step)')
+    .action((runId: string, step: string, opts: { feedback?: string }, actionCmd: Command) => {
+      const root     = resolveWorkspaceRoot(actionCmd);
+      const state    = requireRun(root, runId);
+      const pipeline = requirePipelineForRun(root, state);
+      const stepIdx  = requireStepIdx(state, step);
+
+      let next;
+      try {
+        next = rerunApprovedStep({ state, pipeline, stepIdx, feedback: opts.feedback });
+      } catch (err) {
+        console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+        process.exit(1);
+      }
+
+      saveRunState(root, next, state);
+      const target = next.steps[stepIdx];
+      console.log(chalk.yellow('↺') + ` Rerunning "${target.agent}" (rev ${target.revision})`);
+      if (opts.feedback) { console.log(chalk.dim(`  Feedback: ${opts.feedback}`)); }
+
+      const marked = next.steps.filter((st) => st.dirty?.byStepIdx === stepIdx);
+      if (marked.length > 0) {
+        console.log(chalk.yellow(`  ⚠ ${marked.length} approved step(s) downstream kept and marked dirty:`));
+        for (const m of marked) {
+          console.log(chalk.dim(`      ${m.stepIdx}. ${m.name ?? m.agent}`));
+        }
+        console.log(chalk.dim('    They still count as done. Redo each one to clear its mark.'));
+      }
       console.log(chalk.dim(`  When done: aidlc run mark-done ${runId}`));
       printRunSummary(next);
     });
@@ -526,6 +578,15 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
       info(chalk.bold(`\n▶  Step ${e.stepIdx}: ${e.agent}`) + chalk.dim(` (rev ${e.revision})`));
       info(chalk.dim(`   skills: ${e.skills.join(', ')}  model: ${e.model ?? CODING_MODEL}`));
       if (e.context) { info(chalk.dim(`   context: ${e.context}`)); }
+      // A dirty upstream does not stop the step — `dirty` means done — so the
+      // only thing left to do about it is say so before the work is built.
+      for (const d of e.dirtyUpstream ?? []) {
+        info(chalk.yellow(
+          `   ⚠ upstream step ${d.stepIdx} ("${d.step}") is dirty: ` +
+          `"${d.byStep}" was rerun after it finished, so this step may be ` +
+          'building on output that is out of date.',
+        ));
+      }
       sep();
     },
     onStepResult: (e) => {

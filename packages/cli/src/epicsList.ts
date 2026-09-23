@@ -8,16 +8,25 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { readEpicTags } from '@aidlc/core';
+import { normalizeStep, readEpicTags, weighStepProgress } from '@aidlc/core';
+import type { ProgressWeighting } from '@aidlc/core';
 import type { YamlDocument } from './yamlIO';
 
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
 
 export interface EpicStepDetail {
   agent: string;
+  /** The step's `name`, when its pipeline entry has one. */
+  name?: string;
   status: EpicStatus;
   startedAt: string | null;
   finishedAt: string | null;
+  /**
+   * Step ids this one waits on, resolved from the pipeline this epic runs.
+   * Empty for a sequential pipeline, and empty when the pipeline is gone —
+   * both read as "no peers", which is the answer that changes nothing.
+   */
+  dependsOn: string[];
 }
 
 export interface EpicSummary {
@@ -51,6 +60,31 @@ export function epicsRoot(workspaceRoot: string, doc: YamlDocument | null): stri
   return path.resolve(workspaceRoot, stateRoot);
 }
 
+/**
+ * The normalized steps of one pipeline in the workspace doc, or `[]` when the
+ * doc has no such pipeline. Never throws: a malformed pipeline entry is a
+ * reason to show the epic without its dependency graph, not to drop the epic.
+ */
+function pipelineStepsOf(
+  doc: YamlDocument | null,
+  pipelineId: string,
+): Array<{ name?: string; depends_on: string[] }> {
+  const pipelines = Array.isArray(doc?.pipelines) ? (doc.pipelines as unknown[]) : [];
+  const match = pipelines.find(
+    (p): p is Record<string, unknown> =>
+      !!p && typeof p === 'object' && String((p as Record<string, unknown>).id) === pipelineId,
+  );
+  const steps = Array.isArray(match?.steps) ? (match.steps as unknown[]) : [];
+  return steps.map((raw) => {
+    try {
+      const n = normalizeStep(raw as never);
+      return { name: n.name, depends_on: n.depends_on };
+    } catch {
+      return { depends_on: [] };
+    }
+  });
+}
+
 export function listEpics(workspaceRoot: string, doc: YamlDocument | null): EpicSummary[] {
   const dir = epicsRoot(workspaceRoot, doc);
   if (!fs.existsSync(dir)) { return []; }
@@ -74,12 +108,22 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const stepStatesRaw = Array.isArray(parsed.stepStates)
       ? (parsed.stepStates as Array<Record<string, unknown>>)
       : [];
-    const stepDetails: EpicStepDetail[] = stepStatesRaw.map(s => ({
-      agent: typeof s.agent === 'string' ? s.agent : '',
-      status: asStatus(s.status),
-      startedAt:  typeof s.startedAt  === 'string' ? s.startedAt  : null,
-      finishedAt: typeof s.finishedAt === 'string' ? s.finishedAt : null,
-    }));
+    // `doc.pipelines` already carries each epic's own pipeline.yaml — see
+    // `mergeEpicPipelines` in readYaml — so a fan-out declared per epic is
+    // visible here without reopening the file.
+    const pipelineId = typeof parsed.pipeline === 'string' ? parsed.pipeline : null;
+    const pipelineSteps = pipelineId ? pipelineStepsOf(doc, pipelineId) : [];
+    const stepDetails: EpicStepDetail[] = stepStatesRaw.map((s, i) => {
+      const cfg = pipelineSteps[i];
+      return {
+        agent: typeof s.agent === 'string' ? s.agent : '',
+        name: typeof s.name === 'string' ? s.name : cfg?.name,
+        status: asStatus(s.status),
+        startedAt:  typeof s.startedAt  === 'string' ? s.startedAt  : null,
+        finishedAt: typeof s.finishedAt === 'string' ? s.finishedAt : null,
+        dependsOn: cfg?.depends_on ?? [],
+      };
+    });
 
     epics.push({
       id:           typeof parsed.id === 'string' ? parsed.id : folder,
@@ -88,7 +132,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       status:       asStatus(parsed.status),
       createdAt:    typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
       tags:         readEpicTags(parsed),
-      pipeline:     typeof parsed.pipeline === 'string' ? parsed.pipeline : null,
+      pipeline:     pipelineId,
       agents:       Array.isArray(parsed.agents) ? (parsed.agents as unknown[]).map(String) : [],
       currentStep:  typeof parsed.currentStep === 'number' ? parsed.currentStep : 0,
       stepDetails,
@@ -122,4 +166,22 @@ function readInputs(epicDir: string): Record<string, string> {
     }
     return out;
   } catch { return {}; }
+}
+
+/**
+ * How far an epic has come, measured in stages rather than steps.
+ *
+ * Peers — steps that share a rank in the pipeline's dependency graph — split
+ * one stage between them, so a pipeline that fans three reviewers out of one
+ * intake does not report a third of itself done when that round finishes. A
+ * sequential pipeline has one step per stage, which is the plain count.
+ */
+export function epicProgress(epic: Pick<EpicSummary, 'stepDetails'>): ProgressWeighting {
+  return weighStepProgress(
+    epic.stepDetails.map(s => ({
+      id: s.name ?? s.agent,
+      dependsOn: s.dependsOn,
+      done: s.status === 'done',
+    })),
+  );
 }

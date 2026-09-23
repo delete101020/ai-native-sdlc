@@ -13,7 +13,15 @@ import * as path from 'path';
 
 import { describe, expect, it } from 'vitest';
 
-import { parseUsageWindows, usageMarkdown, usageSummary } from '../src/v2/claudeUsage';
+import {
+  estimateBurn,
+  parseUsageWindows,
+  usageAlert,
+  statusBarWindows,
+  usageMarkdown,
+  usageStatusText,
+  usageSummary,
+} from '../src/v2/claudeUsage';
 
 /** Captured live, 2026-09-22. Unused sibling keys trimmed. */
 const LIVE = {
@@ -89,6 +97,107 @@ describe('plan usage rendering', () => {
     expect(usageSummary(state)).toBe('34% left');
   });
 
+  it('puts one percentage per window on the status bar', () => {
+    expect(usageStatusText(state)).toBe('5h 51% · wk 34%');
+    expect(usageStatusText(state, { style: 'tightest' })).toBe('34% left');
+    expect(usageStatusText({ kind: 'no-plan' })).toBeUndefined();
+  });
+
+  it('gives every window its own slot, session first', () => {
+    // A plan with a per-model weekly limit: headlining one number is how the
+    // bar ended up reporting only Fable, with the session window — the one
+    // that bites first — nowhere to be seen.
+    const perModel = parseUsageWindows({
+      limits: [
+        { kind: 'weekly_fable', group: 'weekly', percent: 88, severity: 'normal', resets_at: null },
+        { kind: 'session', group: 'session', percent: 20, severity: 'normal', resets_at: null },
+        { kind: 'weekly_all', group: 'weekly', percent: 40, severity: 'normal', resets_at: null },
+      ],
+    });
+    expect(statusBarWindows(perModel).map((w) => w.key))
+      .toEqual(['session', 'weekly_all', 'weekly_fable']);
+    expect(usageStatusText({
+      kind: 'ok', windows: perModel, tightest: perModel[0], fetchedAt: Date.now(),
+    })).toBe('5h 80% · wk 60% · fable 12%');
+  });
+
+  it('keeps a window it has never seen, after the ones it knows', () => {
+    const windows = parseUsageWindows({
+      limits: [
+        { kind: 'monthly_something', percent: 90, severity: 'normal', resets_at: null },
+        { kind: 'session', group: 'session', percent: 10, severity: 'normal', resets_at: null },
+      ],
+    });
+    expect(statusBarWindows(windows).map((w) => w.shortLabel)).toEqual(['5h', 'monthly']);
+  });
+
+  it('colours by the window that gates every model, not the tightest one', () => {
+    const windows = parseUsageWindows({
+      limits: [
+        { kind: 'session', group: 'session', percent: 20, severity: 'normal', resets_at: null },
+        { kind: 'weekly_all', group: 'weekly', percent: 40, severity: 'normal', resets_at: null },
+        { kind: 'weekly_fable', group: 'weekly', percent: 97, severity: 'normal', resets_at: null },
+      ],
+    });
+    // Fable is at 3% left, but the fix for that is to run the next step on
+    // another model — amber, and never the red that means "everything stops".
+    const alert = usageAlert({ kind: 'ok', windows, tightest: windows[2], fetchedAt: 0 });
+    expect(alert.level).toBe('warning');
+    expect(alert.window?.key).toBe('weekly_fable');
+  });
+
+  it('goes red when a gating window is at the wall', () => {
+    const windows = parseUsageWindows({
+      limits: [
+        { kind: 'session', group: 'session', percent: 96, severity: 'normal', resets_at: null },
+        { kind: 'weekly_all', group: 'weekly', percent: 40, severity: 'normal', resets_at: null },
+      ],
+    });
+    const alert = usageAlert({ kind: 'ok', windows, tightest: windows[0], fetchedAt: 0 });
+    expect(alert).toMatchObject({ level: 'critical' });
+    expect(alert.window?.key).toBe('session');
+  });
+
+  it('defers to the server on overage, and stays quiet with room everywhere', () => {
+    const locked = parseUsageWindows({
+      limits: [{ kind: 'weekly_all', group: 'weekly', percent: 61, severity: 'critical', resets_at: null }],
+    });
+    expect(usageAlert({ kind: 'ok', windows: locked, tightest: locked[0], fetchedAt: 0 }).level)
+      .toBe('critical');
+
+    const roomy = parseUsageWindows({
+      limits: [
+        { kind: 'session', group: 'session', percent: 10, severity: 'normal', resets_at: null },
+        { kind: 'weekly_fable', group: 'weekly', percent: 50, severity: 'normal', resets_at: null },
+      ],
+    });
+    expect(usageAlert({ kind: 'ok', windows: roomy, tightest: roomy[1], fetchedAt: 0 }).level)
+      .toBe('none');
+    expect(usageAlert({ kind: 'no-plan' }).level).toBe('none');
+  });
+
+  it('counts down only the 5-hour window, and only when asked', () => {
+    const windows = parseUsageWindows({
+      limits: [
+        { kind: 'session', group: 'session', percent: 49, severity: 'normal', resets_at: new Date(Date.now() + 132 * 60_000).toISOString() },
+        { kind: 'weekly_all', group: 'weekly', percent: 66, severity: 'normal', resets_at: new Date(Date.now() + 75 * 3600_000).toISOString() },
+      ],
+    });
+    const ok = { kind: 'ok' as const, windows, tightest: windows[1], fetchedAt: 0 };
+    expect(usageStatusText(ok, { resetIn: true })).toBe('5h 51% 2h12m · wk 34%');
+    expect(usageStatusText(ok)).toBe('5h 51% · wk 34%');
+  });
+
+  it('moves amber and red where the settings put them', () => {
+    const windows = parseUsageWindows({
+      limits: [{ kind: 'session', group: 'session', percent: 65, severity: 'normal', resets_at: null }],
+    });
+    const state = { kind: 'ok' as const, windows, tightest: windows[0], fetchedAt: 0 };
+    expect(usageAlert(state).level).toBe('none');
+    expect(usageAlert(state, { warnBelow: 40, criticalBelow: 20 }).level).toBe('warning');
+    expect(usageAlert(state, { warnBelow: 60, criticalBelow: 40 }).level).toBe('critical');
+  });
+
   it('says nothing at all when there is nothing trustworthy to say', () => {
     expect(usageSummary({ kind: 'no-plan' })).toBeUndefined();
     expect(usageSummary({ kind: 'error', message: 'HTTP 500' })).toBeUndefined();
@@ -97,6 +206,61 @@ describe('plan usage rendering', () => {
 
   it('points an expired sign-in at the fix', () => {
     expect(usageMarkdown({ kind: 'expired' }).join(' ')).toContain('claude');
+  });
+});
+
+describe('burn rate', () => {
+  const H = 3600_000;
+
+  it('reads the pace off the readings and says where it lands', () => {
+    const now = Date.parse('2026-09-22T20:00:00Z');
+    const burn = estimateBurn([
+      { at: now - 2 * H, usedPct: 30 },
+      { at: now - 1 * H, usedPct: 45 },
+      { at: now, usedPct: 60 },
+    ], { now });
+    expect(burn?.pctPerHour).toBe(15);
+    // 40 points left at 15/hr — a touch under three hours out.
+    expect(burn?.exhaustsAt).toBeCloseTo(now + (40 / 15) * H, -3);
+  });
+
+  it('stays quiet when it cannot honestly answer', () => {
+    const now = Date.now();
+    // One reading, no span.
+    expect(estimateBurn([{ at: now, usedPct: 10 }], { now })).toBeUndefined();
+    // Two readings five minutes apart: noise, not a pace.
+    expect(estimateBurn([
+      { at: now - 5 * 60_000, usedPct: 10 },
+      { at: now, usedPct: 12 },
+    ], { now })).toBeUndefined();
+    // Idle: the level has not moved.
+    expect(estimateBurn([
+      { at: now - 2 * H, usedPct: 40 },
+      { at: now, usedPct: 40 },
+    ], { now })).toBeUndefined();
+  });
+
+  it('measures from the roll-over, not through it', () => {
+    const now = Date.now();
+    const burn = estimateBurn([
+      { at: now - 3 * H, usedPct: 90 },
+      { at: now - 2 * H, usedPct: 4 },
+      { at: now - 1 * H, usedPct: 8 },
+      { at: now, usedPct: 12 },
+    ], { now });
+    // 4 points an hour since the window rolled — not the fall from 90 to 4.
+    expect(burn?.pctPerHour).toBe(4);
+  });
+
+  it('does not project past a reset the window reaches first', () => {
+    const now = Date.now();
+    const samples = [
+      { at: now - 2 * H, usedPct: 10 },
+      { at: now, usedPct: 20 },
+    ];
+    // 80 points left at 5/hr is sixteen hours; the window resets in one.
+    expect(estimateBurn(samples, { now, resetsAt: now + H })?.exhaustsAt).toBeUndefined();
+    expect(estimateBurn(samples, { now, resetsAt: now + 40 * H })?.exhaustsAt).toBeDefined();
   });
 });
 
@@ -120,5 +284,9 @@ describe('plan usage contributions', () => {
     const props = pkg.contributes.configuration.properties;
     expect(props['aidlcNative.claude.planUsage.enabled']?.default).toBe(true);
     expect(props['aidlcNative.claude.planUsage.refreshSeconds']?.default).toBe(300);
+    expect(props['aidlcNative.claude.planUsage.statusBar']?.default).toBe('windows');
+    expect(props['aidlcNative.claude.planUsage.showResetIn']?.default).toBe(true);
+    expect(props['aidlcNative.claude.planUsage.warnBelowPercent']?.default).toBe(20);
+    expect(props['aidlcNative.claude.planUsage.criticalBelowPercent']?.default).toBe(5);
   });
 });

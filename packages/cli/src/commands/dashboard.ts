@@ -15,7 +15,7 @@ import {
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { readYaml } from '../yamlIO';
-import { listEpics } from '../epicsList';
+import { epicProgress, listEpics } from '../epicsList';
 import { saveRunState } from '../runHelpers';
 
 const RUNS_GLOB     = '.aidlc/runs/*.json';
@@ -81,7 +81,13 @@ export function registerDashboard(program: Command): void {
 
         if (url.pathname === '/api/epics') {
           const doc = readYaml(root);
-          const epics = listEpics(root, doc);
+          // `progress` is computed here, not in the page: the browser has no
+          // pipeline to read dependencies from, and counting steps there would
+          // disagree with every other surface on what a fan-out is worth.
+          const epics = listEpics(root, doc).map(e => {
+            const { percent, stages } = epicProgress(e);
+            return { ...e, progress: percent, stages };
+          });
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(epics));
           return;
@@ -719,7 +725,11 @@ function renderEpicsList() {
   el.innerHTML = filtered.map(e => {
     const total = (e.stepDetails || []).length;
     const done  = (e.stepDetails || []).filter(s => s.status === 'done').length;
-    const pct   = total ? Math.round((done / total) * 100) : 0;
+    // Server-computed: stages, not steps. Falls back to the plain count only
+    // when talking to an older server that sends no progress field.
+    const pct   = typeof e.progress === 'number'
+      ? e.progress
+      : (total ? Math.round((done / total) * 100) : 0);
 
     const stepsHtml = (e.stepDetails || []).map((s, i) => {
       const cls = i === e.currentStep && e.status === 'in_progress' ? 'step current' : 'step';

@@ -168,8 +168,15 @@ From the epic detail panel:
   *Update with feedback* is the honest way back.
 - **Approve / Reject** (after `human_review`) → either advances or rewinds.
   Rewind to any upstream step; downstream steps reset to pending.
+- **Rerun step** → for a step that already passed and whose prompt you have
+  since changed. It reopens just that step; the finished steps after it stay
+  done and are marked **dirty** — still done, but built on output that has
+  since changed. Dirty blocks nothing; you get a risk warning before working
+  anything behind it, and the mark clears when that step is redone.
 - **Update with feedback** → re-opens an already-approved step with
-  feedback so a later phase can ask earlier ones to redo work.
+  feedback so a later phase can ask earlier ones to redo work. Unlike *Rerun
+  step*, it resets every downstream step to pending — use it when the change
+  really does invalidate them.
 
 ---
 

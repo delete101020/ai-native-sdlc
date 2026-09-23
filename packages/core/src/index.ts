@@ -402,6 +402,9 @@ export {
   rejectStep,
   rerunStep,
   requestStepUpdate,
+  canRerunApprovedStep,
+  rerunApprovedStep,
+  dirtyUpstreamOf,
   submitAutoReviewVerdict,
   retryAutoReview,
   PipelineRunError,
@@ -411,8 +414,9 @@ export {
   isRunComplete,
   isStepOptional,
   isActiveStatus,
+  weighStepProgress,
 } from './runs/runProgress';
-export type { RunProgress } from './runs/runProgress';
+export type { RunProgress, ProgressStep, ProgressWeighting } from './runs/runProgress';
 export { checkBudget } from './runs/budget';
 export type { BudgetCheckArgs, BudgetVerdict, CostAccounting, CostConfidence } from './runs/budget';
 export {
@@ -448,6 +452,7 @@ export type {
   RunStatus,
   AutoReviewVerdict,
   StepHistoryEntry,
+  StepDirtyMark,
 } from './runs/RunState';
 
 // ── Built-in workflow presets (shared by extension + CLI) ──────────

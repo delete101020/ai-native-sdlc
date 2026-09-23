@@ -535,6 +535,16 @@ export interface AutoReviewVerdict {
   runner: string;
 }
 
+/**
+ * Mirror of core's `StepDirtyMark` — why an approved step is now suspect.
+ */
+export interface StepDirtyMark {
+  since: string;
+  byStepIdx: number;
+  byStep: string;
+  byRevision: number;
+}
+
 export type StepHistoryEntry =
   | {
       kind: 'reject';
@@ -568,6 +578,15 @@ export type StepHistoryEntry =
       at: string;
       revision: number;
       from: StepStatus;
+    }
+  | {
+      // An upstream step was rerun under this one. The status does not
+      // change — the step is still done — so this is the only trace.
+      kind: 'dirty';
+      at: string;
+      revision: number;
+      byStep: string;
+      byStepIdx: number;
     }
   | {
       // A /annotate-artifact round that edited the .md, merged from the
@@ -661,6 +680,17 @@ export interface EpicStepDetailFull {
    *  back. Optional so a host bundle predating the field simply hides the
    *  button rather than offering an undo the host would refuse. */
   canUndoDone?: boolean;
+  /** Host's verdict on whether this already-approved step can be rerun in
+   *  place, keeping the finished work downstream. Optional so a host bundle
+   *  predating the field simply hides the button. */
+  canRerun?: boolean;
+  /** Set when an upstream step was rerun after this one finished. The step is
+   *  still done — this changes no status, it only says the output was built on
+   *  an input that has since changed. */
+  dirty?: StepDirtyMark;
+  /** The dirty steps this one transitively depends on. Non-empty means
+   *  starting work here risks building on stale upstream output. */
+  dirtyUpstream?: Array<{ stepIdx: number; step: string; byStep: string }>;
   startedAt?: string;
   finishedAt?: string;
   /** Append-only timeline of significant transitions (reject / rerun /
@@ -679,7 +709,12 @@ export interface EpicSummary {
   title: string;
   description: string;
   status: 'pending' | 'in_progress' | 'done' | 'failed';
+  /** Weighted completion 0–100: steps that run as peers count as one stage. */
   progress: number;
+  /** Stages the pipeline has. Absent on an older host bundle. */
+  stages?: number;
+  /** Stages finished, fractional while a stage is only partly done. */
+  stagesDone?: number;
   statePath: string;
   stepDetails: EpicStepDetailFull[];
   currentStep: number;

@@ -19,6 +19,7 @@ import {
   markStepDone,
   approveStep,
   submitAutoReviewVerdict,
+  dirtyUpstreamOf,
   PipelineRunError,
 } from './PipelineRunner';
 import { runAutoReview } from './AutoReviewer';
@@ -91,6 +92,13 @@ export interface ExecHooks {
   onStepStart?(e: {
     stepIdx: number; agent: string; revision: number;
     skills: string[]; model?: string; context?: string;
+    /**
+     * Approved-but-suspect steps this one depends on — see `dirtyUpstreamOf`.
+     * Empty in the ordinary case. Non-empty means the step is about to be
+     * built on an input that was regenerated under it, which is a risk worth
+     * naming *before* the work rather than after.
+     */
+    dirtyUpstream?: Array<{ stepIdx: number; step: string; byStep: string }>;
   }): void;
   /** A step finished `markStepDone` and transitioned. */
   onStepResult?(e: {
@@ -427,6 +435,8 @@ async function execStep(
   hooks.onStepStart?.({
     stepIdx, agent: agentId, revision: stepRec.revision,
     skills: agent.skills, model: agent.model, context: userMessage,
+    dirtyUpstream: dirtyUpstreamOf({ state, pipeline, stepIdx })
+      .map((d) => ({ stepIdx: d.stepIdx, step: d.step, byStep: d.dirty.byStep })),
   });
 
   // Model + rates are per-provider facts the user declares (P3); resolving the

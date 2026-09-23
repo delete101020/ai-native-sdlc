@@ -54,6 +54,7 @@ import {
   startPipelineRunCommand,
   markStepDoneCommand,
   undoStepDoneCommand,
+  rerunApprovedStepCommand,
   approveStepCommand,
   rejectStepCommand,
   rerunStepCommand,
@@ -579,6 +580,15 @@ export function registerV2WorkspaceCommands(
     (runId?: unknown, stepIdx?: unknown) =>
       undoStepDoneCommand(typeof runId === 'string' ? runId : undefined, toStepIdx(stepIdx)),
   );
+  const rerunApprovedStepCmd = vscode.commands.registerCommand(
+    'aidlcNative.rerunApprovedStep',
+    (runId?: unknown, stepIdx?: unknown, feedback?: unknown) =>
+      rerunApprovedStepCommand(
+        typeof runId === 'string' ? runId : undefined,
+        toStepIdx(stepIdx),
+        typeof feedback === 'string' ? feedback : undefined,
+      ),
+  );
   const approveStepCmd = vscode.commands.registerCommand(
     'aidlcNative.approveStep',
     (runId?: unknown, stepIdx?: unknown) =>
@@ -674,6 +684,7 @@ export function registerV2WorkspaceCommands(
       startRunCmd,
       markStepDoneCmd,
       undoStepDoneCmd,
+      rerunApprovedStepCmd,
       approveStepCmd,
       rejectStepCmd,
       rerunStepCmd,
