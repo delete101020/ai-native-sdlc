@@ -26,6 +26,7 @@ import {
   type PipelineConfig,
   type PipelineStepConfig,
   normalizeStep,
+  producesEntries,
   stepDagId,
   collectWorkspaceRefIssues,
 } from '../schema/WorkspaceSchema';
@@ -197,7 +198,7 @@ export function applyAdaptation(
       agent: norm.agent,
       name: norm.name ?? a.phase,
       enabled: norm.enabled,
-      produces: norm.produces,
+      produces: producesEntries(norm),
       requires: norm.requires,
       depends_on: anchor ? [anchor] : (usesDag && steps.length > 0 ? [stepDagId(steps[steps.length - 1])] : []),
       auto_review: norm.auto_review,

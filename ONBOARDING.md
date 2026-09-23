@@ -233,6 +233,27 @@ Artifacts land in `docs/epics/<EPIC-ID>/artifacts/` (configurable via
 `state.root` in `workspace.yaml`), alongside the epic's `state.json` — which you
 never edit by hand; see step 5.
 
+### Optional `produces` entries — listed when there, never blocking
+
+Some output is written only sometimes: a diagram rendered when there is
+something to draw. Declare it as `{ path, optional: true }`:
+
+```yaml
+steps:
+  - agent: architect
+    name: cr-intake
+    produces:
+      - docs/cr/{epic}/business.md
+      - path: docs/cr/{epic}/diagrams/overview.html
+        optional: true
+```
+
+The step's artifact list shows it when it exists and marks it
+**optional · not produced** when it does not. `mark-done` requires only the
+plain entries. An absent optional file is left out of what the step recorded
+as produced, so `produces_contains` and `aidlc run verify` never look for it.
+A recipe that borrows the step keeps the flag.
+
 ### `produces_contains` — the gate on what is *in* the artifact
 
 A step's `produces` says which files must exist before it can advance.

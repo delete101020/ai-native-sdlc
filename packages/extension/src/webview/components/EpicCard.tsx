@@ -1200,6 +1200,8 @@ function StepDetail({
   // file, so "it exists" does not mean "this step wrote it". The host
   // compares mtime against the step's startedAt and tells us which it is.
   const artifactStale = artifactExists && !!focused.artifactStale;
+  // Declared `{ path, optional: true }`: the step writes it only sometimes.
+  const artifactOptional = !!focused.artifactOptional;
   // Annotron opens artifacts by `<epicId> <filename>` under the epic folder,
   // so its two entries only make sense for artifacts that actually live there.
   const artifactInEpicFolder = !!artifactName && epic.existingArtifacts.includes(artifactName);
@@ -1384,9 +1386,11 @@ function StepDetail({
           ) : (
             <div
               className="inline-flex w-fit items-center rounded border border-border bg-muted/50 px-2 py-0.5 font-mono text-[11px] italic text-muted-foreground opacity-70"
-              title="File not produced yet — will land in artifacts/ when this step runs"
+              title={artifactOptional
+                ? 'Optional artifact — this step writes it only sometimes, and it is not there'
+                : 'File not produced yet — will land in artifacts/ when this step runs'}
             >
-              {artifactName} · not produced yet
+              {artifactName} · {artifactOptional ? 'optional · not produced' : 'not produced yet'}
             </div>
           )
         ) : (
@@ -1413,7 +1417,9 @@ function StepDetail({
                   }}
                   title={a.exists
                     ? `${a.isDirectory ? 'Reveal' : 'Open'} ${a.path}`
-                    : `${a.path} — not produced yet`}
+                    : a.optional
+                      ? `${a.path} — optional, not produced`
+                      : `${a.path} — not produced yet`}
                   className={cn(
                     'inline-flex w-fit items-center gap-1 rounded border px-2 py-0.5 font-mono text-[11px] transition-colors',
                     a.exists
@@ -1425,6 +1431,9 @@ function StepDetail({
                     ? <Folder className="h-3 w-3 opacity-70" />
                     : <FileText className="h-3 w-3 opacity-70" />}
                   <span>{a.label}</span>
+                  {a.optional && !a.exists && (
+                    <span className="text-[9.5px] font-sans not-italic uppercase tracking-wider opacity-70">· optional</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -1456,7 +1465,9 @@ function StepDetail({
         focusedIdx={focusedIdx}
         slashCommand={slashCommand}
         artifactName={artifactName}
-        artifactExists={artifactExists}
+        // An optional headline artifact is no reason to hold the step back —
+        // `markStepDone` does not require it either.
+        artifactExists={artifactExists || artifactOptional}
         artifactStale={artifactStale}
         activity={activity}
         otherActivities={otherActivities}

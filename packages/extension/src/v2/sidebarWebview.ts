@@ -73,6 +73,8 @@ interface ArtifactPath {
   /** Path relative to workspace root, with placeholders substituted. */
   path: string;
   exists: boolean;
+  /** Declared `{ path, optional: true }` — absence is not a gap. */
+  optional?: boolean;
 }
 
 /** Compact run summary for sidebar rendering. */
@@ -432,7 +434,10 @@ function listActiveRuns(root: string, epicIds: ReadonlySet<string>): ActiveRun[]
           rejectReason: step?.rejectReason,
           feedback: step?.feedback,
           produces: norm
-            ? norm.produces.map((p) => resolveArtifact(root, p, r.context))
+            ? norm.produces.map((p) => {
+                const a = resolveArtifact(root, p, r.context);
+                return norm.produces_optional.includes(p) ? { ...a, optional: true } : a;
+              })
             : [],
           requires: norm
             ? norm.requires.map((p) => resolveArtifact(root, p, r.context))

@@ -45,9 +45,11 @@ export function stepProducesFollowUps(step: unknown): boolean {
   if (!step || typeof step !== 'object') { return false; }
   const produces = (step as { produces?: unknown }).produces;
   if (!Array.isArray(produces)) { return false; }
-  return produces.some(
-    (p) => typeof p === 'string' && path.posix.basename(p.replace(/\\/g, '/')) === FOLLOW_UPS_FILE,
-  );
+  return produces.some((entry) => {
+    // A `{ path, optional }` entry names its path in a field.
+    const p = entry && typeof entry === 'object' ? (entry as { path?: unknown }).path : entry;
+    return typeof p === 'string' && path.posix.basename(p.replace(/\\/g, '/')) === FOLLOW_UPS_FILE;
+  });
 }
 
 /**

@@ -225,11 +225,16 @@ export function markStepDone(args: {
   }
 
   // Validate produces — each path resolved with run context, then existsSync.
-  const resolvedProduces = norm.produces.map((p) => resolvePath(p, state.context));
+  // An optional entry that is absent is not missing: it is left out of what
+  // the step produced, so the content check and the drift check never see it.
+  const optionalProduces = new Set(norm.produces_optional);
+  const resolvedProduces: string[] = [];
   const missing: string[] = [];
-  for (const rel of resolvedProduces) {
+  for (const p of norm.produces) {
+    const rel = resolvePath(p, state.context);
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
-    if (!fs.existsSync(abs)) { missing.push(rel); }
+    if (fs.existsSync(abs)) { resolvedProduces.push(rel); }
+    else if (!optionalProduces.has(p)) { missing.push(rel); }
   }
   if (missing.length > 0) {
     throw new PipelineRunError(

@@ -107,6 +107,25 @@ const SlashCommandSchema = z.union([
 // ── Pipelines ──────────────────────────────────────────────────────
 
 /**
+ * One `produces` entry: a bare path, or `{ path, optional }`.
+ *
+ * The object form is for output a step writes only sometimes — a diagram
+ * rendered when there is something to draw. Declaring it lists it with the
+ * step's artifacts when it exists, without the existence gate blocking
+ * mark-done when it does not. A required entry may use the object form too
+ * (`optional: false`), so a list can be written uniformly.
+ */
+const ProducesEntrySchema = z.union([
+  z.string().min(1),
+  z.object({
+    path: z.string().min(1),
+    optional: z.boolean().default(false),
+  }).strict(),
+]);
+
+export type ProducesEntry = z.infer<typeof ProducesEntrySchema>;
+
+/**
  * A pipeline step is either a bare agent id (legacy form) or an object
  * with gating metadata. The object form lets the pipeline runner enforce
  * artifact preconditions (`requires`), validate produced artifacts
@@ -136,8 +155,12 @@ const PipelineStepObjectSchema = z
      * `depends_on` it, which the runner cannot tell from an oversight.
      */
     optional: z.boolean().default(false),
-    /** Artifact paths the step is expected to produce. Checked after work. */
-    produces: z.array(z.string().min(1)).default([]),
+    /**
+     * Artifact paths the step is expected to produce. Checked after work —
+     * except entries marked `{ path, optional: true }`, which are listed when
+     * present and never block mark-done when absent.
+     */
+    produces: z.array(ProducesEntrySchema).default([]),
     /**
      * Optional content markers asserted against the `produces` files after
      * they pass the existence check. Each marker must appear (plain substring)
@@ -304,7 +327,13 @@ export interface NormalizedStep {
   enabled: boolean;
   /** Rejecting this step never fails the run — see the schema for semantics. */
   optional: boolean;
+  /** Every `produces` path, required and optional alike, in declared order. */
   produces: string[];
+  /**
+   * The subset of {@link produces} declared `optional: true` — unresolved,
+   * exactly as written, so a caller tests membership before resolving.
+   */
+  produces_optional: string[];
   produces_contains: string[];
   requires: string[];
   /** Agent ids this step waits for before opening — see schema for semantics. */
@@ -333,6 +362,7 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
       enabled: true,
       optional: false,
       produces: [],
+      produces_optional: [],
       produces_contains: [],
       requires: [],
       depends_on: [],
@@ -342,7 +372,17 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
   }
   const obj = step as Record<string, unknown>;
   const requires = Array.isArray(obj.requires) ? (obj.requires as string[]) : [];
-  const produces = Array.isArray(obj.produces) ? (obj.produces as string[]) : [];
+  const produces: string[] = [];
+  const produces_optional: string[] = [];
+  for (const entry of Array.isArray(obj.produces) ? (obj.produces as unknown[]) : []) {
+    if (typeof entry === 'string') {
+      produces.push(entry);
+    } else if (entry && typeof entry === 'object' && typeof (entry as { path?: unknown }).path === 'string') {
+      const e = entry as { path: string; optional?: unknown };
+      produces.push(e.path);
+      if (e.optional === true) { produces_optional.push(e.path); }
+    }
+  }
   const produces_contains = Array.isArray(obj.produces_contains) ? (obj.produces_contains as string[]) : [];
   const depends_on = Array.isArray(obj.depends_on) ? (obj.depends_on as string[]) : [];
   // Coerce legacy singular `skill: <id>` into the new array form so old
@@ -369,6 +409,7 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
     enabled: typeof obj.enabled === 'boolean' ? obj.enabled : true,
     optional: obj.optional === true,
     produces,
+    produces_optional,
     produces_contains,
     requires,
     depends_on,
@@ -381,6 +422,17 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
     human_review: obj.human_review === true,
     ...(git && { git }),
   };
+}
+
+/**
+ * A normalized step's `produces` written back in config form: bare strings for
+ * required paths, `{ path, optional: true }` for optional ones. For code that
+ * rebuilds a step from its normalized form — copying `norm.produces` alone
+ * would silently turn every optional entry into a required one.
+ */
+export function producesEntries(norm: Pick<NormalizedStep, 'produces' | 'produces_optional'>): ProducesEntry[] {
+  const optional = new Set(norm.produces_optional);
+  return norm.produces.map((p) => (optional.has(p) ? { path: p, optional: true } : p));
 }
 
 /**

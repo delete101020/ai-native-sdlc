@@ -701,7 +701,10 @@ function ActiveRunCard({
     cls: 'border-border bg-secondary text-muted-foreground',
   };
   const missingRequires = run.requires.filter((r) => !r.exists);
-  const written = run.produces.filter((p) => p.exists).length;
+  // An optional artifact the step has not written is not owed, so it stays
+  // out of the count — it would otherwise read as work left undone.
+  const counted = run.produces.filter((p) => p.exists || !p.optional);
+  const written = counted.filter((p) => p.exists).length;
   const note = run.rejectReason || run.feedback;
   // The whole card is the one control: it opens the epic, where the step can be
   // acted on with its full context. A run started outside an epic has no such
@@ -762,7 +765,7 @@ function ActiveRunCard({
         </div>
       )}
 
-      {(missingRequires.length > 0 || run.produces.length > 0) && (
+      {(missingRequires.length > 0 || counted.length > 0) && (
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground">
           {missingRequires.length > 0 && (
             <span
@@ -772,9 +775,9 @@ function ActiveRunCard({
               {missingRequires.length} missing input{missingRequires.length === 1 ? '' : 's'}
             </span>
           )}
-          {run.produces.length > 0 && (
-            <span title={run.produces.map((p) => `${p.exists ? '✓' : '·'} ${p.path}`).join('\n')}>
-              {written}/{run.produces.length} artifact{run.produces.length === 1 ? '' : 's'} written
+          {counted.length > 0 && (
+            <span title={run.produces.map((p) => `${p.exists ? '✓' : '·'} ${p.path}${p.optional ? ' (optional)' : ''}`).join('\n')}>
+              {written}/{counted.length} artifact{counted.length === 1 ? '' : 's'} written
             </span>
           )}
         </div>

@@ -44,6 +44,8 @@ export type UiStatus =
 export interface ArtifactPath {
   path: string;
   exists: boolean;
+  /** Declared `{ path, optional: true }` — absence is not a gap. */
+  optional?: boolean;
 }
 
 /**
@@ -640,6 +642,8 @@ export interface StepArtifact {
   /** A folder (declared with a trailing slash, or found as one on disk):
    *  reveal it in the explorer rather than opening it as a file. */
   isDirectory: boolean;
+  /** Declared `{ path, optional: true }` — absence is expected, not a gap. */
+  optional?: boolean;
 }
 
 export interface EpicStepDetailFull {
@@ -662,6 +666,9 @@ export interface EpicStepDetailFull {
   artifactExists?: boolean;
   /** Artifact exists but predates this step — inherited, not produced here. */
   artifactStale?: boolean;
+  /** `artifactPath` is an optional `produces` entry (the step declares only
+   *  optional ones), so its absence never blocks *Mark step done*. */
+  artifactOptional?: boolean;
   /** Every artifact this step emits — the step's recorded `artifactsProduced`
    *  when it has run, else its declared `produces`. `artifact` above is the
    *  first of these; the rest had no way out to the panel before. Optional so

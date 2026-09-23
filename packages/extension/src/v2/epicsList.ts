@@ -56,6 +56,12 @@ export interface StepArtifact {
    * to open them as a file.
    */
   isDirectory: boolean;
+  /**
+   * Declared `{ path, optional: true }`: the step writes it only sometimes,
+   * so its absence is not a gap — the panel says so rather than showing the
+   * usual "not produced yet".
+   */
+  optional?: boolean;
 }
 
 export interface EpicSummary {
@@ -103,6 +109,13 @@ export interface EpicSummary {
      * {@link artifactExists}; false when the file is missing or fresh.
      */
     artifactStale?: boolean;
+    /**
+     * {@link artifactPath} is an optional `produces` entry — only when the
+     * step declares nothing but optional ones, since a required entry is
+     * always picked as the headline first. Its absence does not block
+     * *Mark step done*, because `markStepDone` does not require it.
+     */
+    artifactOptional?: boolean;
     /**
      * Every artifact this step emits, not just the headline one above.
      * A step that declares four `produces` entries had three of them
@@ -737,6 +750,8 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const stepArtifactByIdx = new Map<number, string>();
     const stepArtifactPathByIdx = new Map<number, string>();
     const stepProducesByIdx = new Map<number, string[]>();
+    /** Resolved paths of the `{ path, optional: true }` entries, per step. */
+    const stepOptionalByIdx = new Map<number, Set<string>>();
     // Same context the runner resolves `produces` with, so the panel and
     // `markStepDone` are looking at the same file.
     const artifactContext: Record<string, string> = runState?.context ?? { epic: epicId };
@@ -757,12 +772,18 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         // Take the label off the *resolved* path: a document pipeline names
         // its output `docs/snp/analysis/{topic}.md`, and the raw basename
         // would put the literal `{topic}.md` on the card.
-        const resolvedProduces = norm.produces
-          .filter((p): p is string => typeof p === 'string' && p.length > 0)
-          .map((p) => resolvePath(p, artifactContext));
+        const declared = norm.produces.filter((p): p is string => typeof p === 'string' && p.length > 0);
+        const resolvedProduces = declared.map((p) => resolvePath(p, artifactContext));
+        const optionalRaw = new Set(norm.produces_optional);
+        const optionalResolved = new Set(
+          declared.filter((p) => optionalRaw.has(p)).map((p) => resolvePath(p, artifactContext)),
+        );
+        if (optionalResolved.size > 0) { stepOptionalByIdx.set(i, optionalResolved); }
         if (resolvedProduces.length > 0) {
           stepProducesByIdx.set(i, resolvedProduces);
-          const resolved = resolvedProduces[0];
+          // The headline is what gates *Mark step done*, so it is the first
+          // required entry — an optional one only when there is nothing else.
+          const resolved = resolvedProduces.find((p) => !optionalResolved.has(p)) ?? resolvedProduces[0];
           const basename = resolved.split(/[/\\]/).pop() ?? resolved;
           if (basename) { stepArtifactByIdx.set(i, basename); }
           stepArtifactPathByIdx.set(i, resolved);
@@ -917,12 +938,23 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       // Prefer what the run recorded over what the pipeline declares: a step
       // that has finished knows its own output, while the declaration is only
       // a promise until then.
-      const artifactPaths = runArtifactsByIdx.get(i) ?? stepProducesByIdx.get(i) ?? [];
+      // An optional entry the step did not write is absent from that record,
+      // and is added back from the declaration: a step that finished without
+      // its diagram should still say it had one to offer.
+      const optionalPaths = stepOptionalByIdx.get(i) ?? new Set<string>();
+      const artifactPaths = [
+        ...(runArtifactsByIdx.get(i) ?? stepProducesByIdx.get(i) ?? []),
+        ...optionalPaths,
+      ];
       const artifacts = dedupeArtifacts(
         [...new Set(artifactPaths)]
-          .map((rel) => describeArtifact(workspaceRoot, rel))
+          .map((rel) => {
+            const a = describeArtifact(workspaceRoot, rel);
+            return optionalPaths.has(rel) ? { ...a, optional: true } : a;
+          })
           .flatMap((a) => expandDirectoryArtifact(workspaceRoot, a)),
       );
+      const artifactOptional = artifactRel !== undefined && optionalPaths.has(artifactRel);
 
       return {
         agent,
@@ -931,7 +963,12 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         artifact: stepArtifactByIdx.get(i),
         ...(artifactRel === undefined
           ? {}
-          : { artifactPath: artifactRel, artifactExists: !!artifactOnDisk, artifactStale }),
+          : {
+              artifactPath: artifactRel,
+              artifactExists: !!artifactOnDisk,
+              artifactStale,
+              ...(artifactOptional ? { artifactOptional } : {}),
+            }),
         artifacts,
         status: displayStatus,
         startedAt: typeof s.startedAt === 'string' ? s.startedAt : null,

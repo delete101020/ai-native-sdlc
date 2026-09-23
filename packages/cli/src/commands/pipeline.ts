@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import {
   validateWorkspace,
+  normalizeStep,
   assemblePipeline,
   recipePipelineId,
   PipelineAssembleError,
@@ -314,8 +315,10 @@ export function registerPipeline(program: Command): void {
       steps.forEach((step, i) => {
         const agent   = typeof step === 'string' ? step : String(step.agent ?? '?');
         const review  = step.human_review ? chalk.yellow(' [review]') : '';
-        const prod    = Array.isArray(step.produces) && step.produces.length
-          ? chalk.dim(` → ${(step.produces as string[]).join(', ')}`) : '';
+        const norm    = normalizeStep(step);
+        const optional = new Set(norm.produces_optional);
+        const prod    = norm.produces.length
+          ? chalk.dim(` → ${norm.produces.map((p) => (optional.has(p) ? `${p} (optional)` : p)).join(', ')}`) : '';
         console.log(`  ${chalk.dim(String(i + 1) + '.')} ${chalk.bold(agent)}${review}${prod}`);
       });
       console.log();
