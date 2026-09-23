@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.0.21
+
+The extra files a step produces now open the same way as its main artifact.
+
+### Changed
+
+- **Also produced.** Clicking a file listed under *Also produced* on the
+  step card opens the same menu as *Artifact*. For Markdown that is *Open
+  Markdown* and *Preview (VS Code)*, for HTML *Open rendered* and *Open in
+  browser*. *Preview (annotron)* and *Feedback* appear when the file is in
+  the epic's `artifacts/`. A folder is still revealed in the Explorer.
+
 ## 4.0.20
 
 A pipeline step can now say what it does. When one agent runs several steps,
