@@ -400,7 +400,7 @@
             "tightest"
           ],
           "enumDescriptions": [
-            "One percentage per limit window \u2014 `5h 51% \u00b7 wk 34%`, and `5h 80% \u00b7 wk 60% \u00b7 fable 12%` on a plan that reports a weekly window per model. Up to four windows, session first.",
+            "One percentage per limit window \u2014 `5h 51% - 2h12m \u00b7 1w 34%`, and `5h 80% \u00b7 1w 60% \u00b7 fable 12%` on a plan that reports a weekly window per model. Up to four windows, session first.",
             "A single percentage: whichever window is closest to its limit."
           ],
           "markdownDescription": "How much the plan-usage status bar item says. Percentages are what is **left**, matching the tooltip. Requires `#aidlcNative.claude.planUsage.enabled#`.",
@@ -409,7 +409,7 @@
         "aidlcNative.claude.planUsage.showResetIn": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Show when the 5-hour window rolls over next to its percentage on the status bar \u2014 `5h 51% 2h12m`. Only that window: a weekly one resets days out, which is a fact nobody plans the next hour around. The tooltip always lists every window's reset time.",
+          "markdownDescription": "Show when the 5-hour window rolls over next to its percentage on the status bar \u2014 `5h 51% - 2h12m`. Only that window: a weekly one resets days out, which is a fact nobody plans the next hour around. The tooltip always lists every window's reset time.",
           "scope": "window"
         },
         "aidlcNative.claude.planUsage.warnBelowPercent": {
