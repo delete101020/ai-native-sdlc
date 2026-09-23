@@ -111,7 +111,7 @@ function labelFor(key: string): string {
 
 /**
  * The status bar has room for a couple of characters per window, not a label —
- * `5h 51% · 1w 34%` has to fit next to everything else the user keeps down
+ * `5h 49% · 1w 66%` has to fit next to everything else the user keeps down
  * there. Unknown keys get their first word, which is still better than a bare
  * number whose window nobody can name.
  */
@@ -665,18 +665,18 @@ export function statusBarWindows(windows: readonly UsageWindow[]): UsageWindow[]
 }
 
 /**
- * The status bar text: `5h 51% - 2h12m · 1w 34% · fable 12%`, percentages *left*, same as the
- * tooltip. `tightest` keeps the older one-number form for anyone who wants the
- * bar back the way it was.
+ * The status bar text: `5h 49% - 2h12m · 1w 66% · fable 88%`, percentages
+ * *used*, the way `/usage` reports them and the tooltip draws them. `tightest`
+ * keeps the older one-number form for anyone who wants the bar back that way.
  */
 export function usageStatusText(
   state: UsageState | undefined,
   opts: { style?: StatusBarStyle; resetIn?: boolean } = {},
 ): string | undefined {
   if (state?.kind !== 'ok') { return undefined; }
-  if (opts.style === 'tightest') { return `${state.tightest.remainingPct}% left`; }
+  if (opts.style === 'tightest') { return `${state.tightest.usedPct}% used`; }
   const picked = statusBarWindows(state.windows);
-  if (!picked.length) { return `${state.tightest.remainingPct}% left`; }
+  if (!picked.length) { return `${state.tightest.usedPct}% used`; }
   return picked
     .map((w) => {
       // Only the session window gets a countdown. It is the one people plan
@@ -684,7 +684,7 @@ export function usageStatusText(
       // answer to change anything — a weekly window resetting "in 3d 3h" is
       // three characters of bar spent on a fact nobody acts on.
       const countdown = opts.resetIn && w.group === 'session' ? fmtCountdown(w.resetsAt) : '';
-      return `${w.shortLabel} ${w.remainingPct}%${countdown ? ` - ${countdown}` : ''}`;
+      return `${w.shortLabel} ${w.usedPct}%${countdown ? ` - ${countdown}` : ''}`;
     })
     .join(' · ');
 }
@@ -767,7 +767,7 @@ function fmtCountdown(at: number): string {
 /** One line for a status bar or a QuickPick row. `undefined` = say nothing. */
 export function usageSummary(state: UsageState | undefined): string | undefined {
   switch (state?.kind) {
-    case 'ok': return `${state.tightest.remainingPct}% left`;
+    case 'ok': return `${state.tightest.usedPct}% used`;
     case 'expired': return 'sign-in expired';
     case 'no-credentials': return 'not signed in';
     default: return undefined;
@@ -797,20 +797,20 @@ function fmtBurn(burn: BurnRate | undefined): string {
 const BAR_CELLS = 20;
 
 /**
- * What is left, drawn: `████████░░░░░░░░░░░░`. A hover is Markdown, not a
+ * What is used, drawn: `████████░░░░░░░░░░░░`. A hover is Markdown, not a
  * webview, so there is no `<progress>` to reach for — block characters in a
  * code span are what renders the same in every theme and every tooltip that
- * borrows these lines. Never empty for a window with anything left, so 2%
- * does not read as spent.
+ * borrows these lines. Never empty for a window with anything used, so 2%
+ * does not read as untouched.
  */
-export function usageBar(remainingPct: number, cells = BAR_CELLS): string {
-  const pct = Math.min(100, Math.max(0, remainingPct));
+export function usageBar(usedPct: number, cells = BAR_CELLS): string {
+  const pct = Math.min(100, Math.max(0, usedPct));
   const filled = pct > 0 ? Math.max(1, Math.round((pct / 100) * cells)) : 0;
   return '█'.repeat(filled) + '░'.repeat(cells - filled);
 }
 
 /**
- * Markdown for a tooltip: one row per window, a bar of what is left, and when
+ * Markdown for a tooltip: one row per window, a bar of what is used, and when
  * it resets. Empty when there is nothing worth saying. Starts with a blank line
  * so the table stands on its own after whatever list the caller put above it.
  */
@@ -820,10 +820,10 @@ export function usageMarkdown(state: UsageState | undefined): string[] {
       const withPace = state.windows.some((w) => w.burn);
       return [
         '',
-        `| Window | Left | | Resets |${withPace ? ' Pace |' : ''}`,
+        `| Window | Used | | Resets |${withPace ? ' Pace |' : ''}`,
         `|:--|:--|--:|:--|${withPace ? ':--|' : ''}`,
         ...state.windows.map(
-          (w) => `| ${w.label} | \`${usageBar(w.remainingPct)}\` | **${w.remainingPct}%** | ${fmtReset(w.resetsAt)} |`
+          (w) => `| ${w.label} | \`${usageBar(w.usedPct)}\` | **${w.usedPct}%** | ${fmtReset(w.resetsAt)} |`
             + (withPace ? ` ${fmtBurn(w.burn) || '—'} |` : ''),
         ),
         '',
@@ -885,7 +885,7 @@ export function registerClaudePlanUsage(
             : undefined;
       item.tooltip = new vscode.MarkdownString(
         [
-          '**Claude plan usage left**',
+          '**Claude plan usage**',
           '',
           ...usageMarkdown(state),
           ...(alert.window
@@ -935,8 +935,8 @@ export function registerClaudePlanUsage(
       if (state.kind === 'ok') {
         await vscode.window.showQuickPick(
           state.windows.map((w) => ({
-            label: `${usageBar(w.remainingPct)} ${w.remainingPct}% left — ${w.label}`,
-            detail: `${w.usedPct}% used · resets ${fmtReset(w.resetsAt)}`,
+            label: `${usageBar(w.usedPct)} ${w.usedPct}% used — ${w.label}`,
+            detail: `${w.remainingPct}% left · resets ${fmtReset(w.resetsAt)}`,
           })),
           { title: `Claude plan usage · ${claudeConfigDir()}`, placeHolder: 'Press Escape to close' },
         );

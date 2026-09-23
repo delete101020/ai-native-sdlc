@@ -105,7 +105,7 @@ describe('plan usage parsing', () => {
       ['weekly_fable', 'Weekly (Fable)', 'fable', 39],
     ]);
     const state = { kind: 'ok' as const, windows, tightest: windows[2], fetchedAt: 0 };
-    expect(usageStatusText(state)).toBe('5h 98% · 1w 62% · fable 39%');
+    expect(usageStatusText(state)).toBe('5h 2% · 1w 38% · fable 61%');
   });
 
   it('names a scoped model it has never heard of by its display name', () => {
@@ -145,12 +145,12 @@ describe('plan usage rendering', () => {
   };
 
   it('headlines the tightest window, not the first', () => {
-    expect(usageSummary(state)).toBe('34% left');
+    expect(usageSummary(state)).toBe('66% used');
   });
 
   it('puts one percentage per window on the status bar', () => {
-    expect(usageStatusText(state)).toBe('5h 51% · 1w 34%');
-    expect(usageStatusText(state, { style: 'tightest' })).toBe('34% left');
+    expect(usageStatusText(state)).toBe('5h 49% · 1w 66%');
+    expect(usageStatusText(state, { style: 'tightest' })).toBe('66% used');
     expect(usageStatusText({ kind: 'no-plan' })).toBeUndefined();
   });
 
@@ -169,7 +169,7 @@ describe('plan usage rendering', () => {
       .toEqual(['session', 'weekly_all', 'weekly_fable']);
     expect(usageStatusText({
       kind: 'ok', windows: perModel, tightest: perModel[0], fetchedAt: Date.now(),
-    })).toBe('5h 80% · 1w 60% · fable 12%');
+    })).toBe('5h 20% · 1w 40% · fable 88%');
   });
 
   it('keeps a window it has never seen, after the ones it knows', () => {
@@ -235,8 +235,8 @@ describe('plan usage rendering', () => {
       ],
     });
     const ok = { kind: 'ok' as const, windows, tightest: windows[1], fetchedAt: 0 };
-    expect(usageStatusText(ok, { resetIn: true })).toBe('5h 51% - 2h12m · 1w 34%');
-    expect(usageStatusText(ok)).toBe('5h 51% · 1w 34%');
+    expect(usageStatusText(ok, { resetIn: true })).toBe('5h 49% - 2h12m · 1w 66%');
+    expect(usageStatusText(ok)).toBe('5h 49% · 1w 66%');
   });
 
   it('moves amber and red where the settings put them', () => {
@@ -255,14 +255,14 @@ describe('plan usage rendering', () => {
     expect(usageMarkdown(undefined)).toEqual([]);
   });
 
-  it('draws what is left as a bar in the tooltip', () => {
+  it('draws what is used as a bar in the tooltip', () => {
     expect(usageBar(100)).toBe('█'.repeat(20));
     expect(usageBar(0)).toBe('░'.repeat(20));
     expect(usageBar(50)).toBe('█'.repeat(10) + '░'.repeat(10));
     // A sliver left is not the same as spent.
     expect(usageBar(1)).toBe('█' + '░'.repeat(19));
     const md = usageMarkdown(state).join('\n');
-    expect(md).toContain(`| 5-hour session | \`${usageBar(51)}\` | **51%** |`);
+    expect(md).toContain(`| 5-hour session | \`${usageBar(49)}\` | **49%** |`);
   });
 
   it('points an expired sign-in at the fix', () => {

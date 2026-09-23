@@ -372,7 +372,7 @@ export function registerClaudeAccounts(
     const dir = claudeConfigDir();
     const email = accountEmail(dir);
     // Cache only — the plan-usage item owns the polling, this just borrows the
-    // answer so the account tooltip says what the account has left.
+    // answer so the account tooltip says how much of the plan the account has used.
     const usage = usageMarkdown(cachedPlanUsage(dir));
     status.text = `$(account) ${activeLabel()}`;
     status.tooltip = new vscode.MarkdownString(

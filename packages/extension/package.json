@@ -395,7 +395,7 @@
         "aidlcNative.claude.planUsage.enabled": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Show how much of the Claude plan the active account has left (5-hour and weekly windows) on the status bar, in the account tooltip, and in **AIDLC: Switch Claude Account**. Read from the signed-in account with the same call Claude Code's own `/usage` makes — that endpoint is not documented, so the indicator hides itself rather than guessing when it stops answering. Turn off to make no network call at all. Distinct from `#aidlcNative.tokenMonitor.enabled#`, which reports spend from local logs, not remaining quota.",
+          "markdownDescription": "Show how much of the Claude plan the active account has used (5-hour and weekly windows) on the status bar, in the account tooltip, and in **AIDLC: Switch Claude Account**. Read from the signed-in account with the same call Claude Code's own `/usage` makes — that endpoint is not documented, so the indicator hides itself rather than guessing when it stops answering. Turn off to make no network call at all. Distinct from `#aidlcNative.tokenMonitor.enabled#`, which reports spend from local logs, not remaining quota.",
           "scope": "window"
         },
         "aidlcNative.claude.planUsage.statusBar": {
@@ -406,16 +406,16 @@
             "tightest"
           ],
           "enumDescriptions": [
-            "One percentage per limit window \u2014 `5h 51% - 2h12m \u00b7 1w 34%`, and `5h 80% \u00b7 1w 60% \u00b7 fable 12%` on a plan that reports a weekly window per model. Up to four windows, session first.",
+            "One percentage per limit window \u2014 `5h 49% - 2h12m \u00b7 1w 66%`, and `5h 20% \u00b7 1w 40% \u00b7 fable 88%` on a plan that reports a weekly window per model. Up to four windows, session first.",
             "A single percentage: whichever window is closest to its limit."
           ],
-          "markdownDescription": "How much the plan-usage status bar item says. Percentages are what is **left**, matching the tooltip. Requires `#aidlcNative.claude.planUsage.enabled#`.",
+          "markdownDescription": "How much the plan-usage status bar item says. Percentages are what is **used**, as `/usage` reports them and matching the tooltip. The colour thresholds below are still set in percent **left**. Requires `#aidlcNative.claude.planUsage.enabled#`.",
           "scope": "window"
         },
         "aidlcNative.claude.planUsage.showResetIn": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Show when the 5-hour window rolls over next to its percentage on the status bar \u2014 `5h 51% - 2h12m`. Only that window: a weekly one resets days out, which is a fact nobody plans the next hour around. The tooltip always lists every window's reset time.",
+          "markdownDescription": "Show when the 5-hour window rolls over next to its percentage on the status bar \u2014 `5h 49% - 2h12m`. Only that window: a weekly one resets days out, which is a fact nobody plans the next hour around. The tooltip always lists every window's reset time.",
           "scope": "window"
         },
         "aidlcNative.claude.planUsage.warnBelowPercent": {
