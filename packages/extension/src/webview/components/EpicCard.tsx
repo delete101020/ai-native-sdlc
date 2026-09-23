@@ -1206,13 +1206,14 @@ function StepDetail({
   // so its two entries only make sense for artifacts that actually live there.
   const artifactInEpicFolder = !!artifactName && epic.existingArtifacts.includes(artifactName);
   const [artifactMenuOpen, setArtifactMenuOpen] = useState(false);
+  // Which "Also produced" file has its menu open, by path.
+  const [extraMenuPath, setExtraMenuPath] = useState<string | null>(null);
   // A step may declare several `produces` entries. The first is the headline
   // artifact rendered above; the rest are listed beside it, because otherwise
   // the only way to reach them is to know their paths by heart.
   const extraArtifacts = (focused.artifacts ?? []).filter(
     (a) => a.path !== focused.artifactPath && a.label !== artifactName,
   );
-  const artifactIsHtml = /\.html?$/i.test(artifactName);
 
   const accent = (() => {
     switch (focused.status) {
@@ -1301,88 +1302,13 @@ function StepDetail({
                 <ChevronDown className={cn('h-2.5 w-2.5 opacity-70 transition-transform', artifactMenuOpen && 'rotate-180')} />
               </button>
               {artifactMenuOpen && (
-                <>
-                  {/* click-away backdrop */}
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={(e) => { e.stopPropagation(); setArtifactMenuOpen(false); }}
-                  />
-                  <div className="absolute left-0 top-full z-20 mt-1 min-w-[210px] overflow-hidden rounded-md border border-border bg-card shadow-lg">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setArtifactMenuOpen(false);
-                        postMessage({ type: 'openArtifactFile', epicDir: epic.epicDir, filename: artifactName, path: focused.artifactPath });
-                      }}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
-                    >
-                      <FileText className="h-3 w-3 text-muted-foreground" />
-                      {/* An .html artifact is rendered, not read as source —
-                          the host branches on the extension. */}
-                      <span>{artifactIsHtml ? 'Open rendered' : 'Open Markdown'}</span>
-                    </button>
-                    {artifactIsHtml ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setArtifactMenuOpen(false);
-                          postMessage({ type: 'openArtifactExternally', epicDir: epic.epicDir, filename: artifactName, path: focused.artifactPath });
-                        }}
-                        className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
-                        title="Open in your default browser — for printing, saving, or a second monitor."
-                      >
-                        <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                        <span>Open in browser</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setArtifactMenuOpen(false);
-                          postMessage({ type: 'previewArtifactInVsCode', epicDir: epic.epicDir, filename: artifactName, path: focused.artifactPath });
-                        }}
-                        className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
-                        title="Render in VS Code's own Markdown preview — no terminal, no browser. Mermaid diagrams need a Markdown-preview extension; use Preview below for those."
-                      >
-                        <Eye className="h-3 w-3 text-muted-foreground" />
-                        <span>Preview (VS Code)</span>
-                      </button>
-                    )}
-                    {artifactInEpicFolder && (
-                      <>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setArtifactMenuOpen(false);
-                        postMessage({ type: 'viewArtifact', epicDir: epic.epicDir, filename: artifactName });
-                      }}
-                      className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
-                      title="Preview in annotron (browser) — renders diagrams as SVG, same view the Feedback loop uses. Read-only; no feedback loop."
-                    >
-                      <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                      <span>Preview (annotron)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setArtifactMenuOpen(false);
-                        postMessage({ type: 'annotateArtifact', epicDir: epic.epicDir, filename: artifactName });
-                      }}
-                      className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
-                      title="Open in annotron (renders the Markdown with diagrams) and start the feedback loop — edits land in the .md and each round is logged to this step's history"
-                    >
-                      <Highlighter className="h-3 w-3 text-primary" />
-                      <span>Feedback</span>
-                    </button>
-                      </>
-                    )}
-                  </div>
-                </>
+                <ArtifactMenu
+                  epicDir={epic.epicDir}
+                  name={artifactName}
+                  path={focused.artifactPath}
+                  inEpicFolder={artifactInEpicFolder}
+                  onClose={() => setArtifactMenuOpen(false)}
+                />
               )}
             </div>
           ) : (
@@ -1404,18 +1330,19 @@ function StepDetail({
             <DetailLabel icon={<FolderOpen className="h-3 w-3" />} text="Also produced" />
             <div className="flex w-fit flex-wrap gap-1.5">
               {extraArtifacts.map((a) => (
+                <div key={a.path} className="relative w-fit">
                 <button
-                  key={a.path}
                   type="button"
                   disabled={!a.exists}
                   onClick={(e) => {
                     e.stopPropagation();
-                    // A folder has nothing to open — reveal it instead.
-                    postMessage(
-                      a.isDirectory
-                        ? { type: 'revealArtifactPath', epicDir: epic.epicDir, path: a.path }
-                        : { type: 'openArtifactFile', epicDir: epic.epicDir, filename: a.label, path: a.path },
-                    );
+                    // A folder has nothing to open — reveal it instead. A file
+                    // gets the same menu as the headline artifact.
+                    if (a.isDirectory) {
+                      postMessage({ type: 'revealArtifactPath', epicDir: epic.epicDir, path: a.path });
+                    } else {
+                      setExtraMenuPath((p) => (p === a.path ? null : a.path));
+                    }
                   }}
                   title={a.exists
                     ? `${a.isDirectory ? 'Reveal' : 'Open'} ${a.path}`
@@ -1436,7 +1363,20 @@ function StepDetail({
                   {a.optional && !a.exists && (
                     <span className="text-[9.5px] font-sans not-italic uppercase tracking-wider opacity-70">· optional</span>
                   )}
+                  {a.exists && !a.isDirectory && (
+                    <ChevronDown className={cn('h-2.5 w-2.5 opacity-70 transition-transform', extraMenuPath === a.path && 'rotate-180')} />
+                  )}
                 </button>
+                {extraMenuPath === a.path && (
+                  <ArtifactMenu
+                    epicDir={epic.epicDir}
+                    name={a.label}
+                    path={a.path}
+                    inEpicFolder={epic.existingArtifacts.includes(a.label)}
+                    onClose={() => setExtraMenuPath(null)}
+                  />
+                )}
+                </div>
               ))}
             </div>
           </>
@@ -1487,6 +1427,97 @@ function StepDetail({
       />
       <StepHistory step={focused} />
     </div>
+  );
+}
+
+/**
+ * The open menu for an artifact file — the headline one and each "Also
+ * produced" entry alike. The annotron entries need the file to sit in the
+ * epic's own `artifacts/`, which is where those handlers look for it.
+ */
+function ArtifactMenu({
+  epicDir,
+  name,
+  path,
+  inEpicFolder,
+  onClose,
+}: {
+  epicDir: string;
+  name: string;
+  path?: string;
+  inEpicFolder: boolean;
+  onClose: () => void;
+}) {
+  // An .html artifact is rendered, not read as source — the host branches on
+  // the extension.
+  const isHtml = /\.html?$/i.test(name);
+  const item = 'flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent';
+  const act = (msg: Record<string, unknown>) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onClose();
+    postMessage(msg);
+  };
+  return (
+    <>
+      {/* click-away backdrop */}
+      <div
+        className="fixed inset-0 z-10"
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
+      />
+      <div className="absolute left-0 top-full z-20 mt-1 min-w-[210px] overflow-hidden rounded-md border border-border bg-card shadow-lg">
+        <button
+          type="button"
+          onClick={act({ type: 'openArtifactFile', epicDir, filename: name, path })}
+          className={cn(item, 'border-t-0')}
+        >
+          <FileText className="h-3 w-3 text-muted-foreground" />
+          <span>{isHtml ? 'Open rendered' : 'Open Markdown'}</span>
+        </button>
+        {isHtml ? (
+          <button
+            type="button"
+            onClick={act({ type: 'openArtifactExternally', epicDir, filename: name, path })}
+            className={item}
+            title="Open in your default browser — for printing, saving, or a second monitor."
+          >
+            <ExternalLink className="h-3 w-3 text-muted-foreground" />
+            <span>Open in browser</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={act({ type: 'previewArtifactInVsCode', epicDir, filename: name, path })}
+            className={item}
+            title="Render in VS Code's own Markdown preview — no terminal, no browser. Mermaid diagrams need a Markdown-preview extension; use Preview below for those."
+          >
+            <Eye className="h-3 w-3 text-muted-foreground" />
+            <span>Preview (VS Code)</span>
+          </button>
+        )}
+        {inEpicFolder && (
+          <>
+            <button
+              type="button"
+              onClick={act({ type: 'viewArtifact', epicDir, filename: name })}
+              className={item}
+              title="Preview in annotron (browser) — renders diagrams as SVG, same view the Feedback loop uses. Read-only; no feedback loop."
+            >
+              <ExternalLink className="h-3 w-3 text-muted-foreground" />
+              <span>Preview (annotron)</span>
+            </button>
+            <button
+              type="button"
+              onClick={act({ type: 'annotateArtifact', epicDir, filename: name })}
+              className={item}
+              title="Open in annotron (renders the Markdown with diagrams) and start the feedback loop — edits land in the .md and each round is logged to this step's history"
+            >
+              <Highlighter className="h-3 w-3 text-primary" />
+              <span>Feedback</span>
+            </button>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
