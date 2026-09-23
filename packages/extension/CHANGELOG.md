@@ -1,5 +1,41 @@
 # Changelog
 
+## 4.0.19
+
+A step can now declare an output it writes only sometimes, such as a diagram
+rendered when there is something to draw. The file is listed with the step's
+artifacts when it is there, and its absence never blocks *Mark step done*.
+
+### Added
+
+- **Optional `produces` entries.** Write `{ path, optional: true }` in place of a
+  plain path. Both forms can be mixed in one list:
+
+  ```yaml
+  produces:
+    - docs/cr/{epic}/business.md
+    - path: docs/cr/{epic}/diagrams/overview.html
+      optional: true
+  ```
+
+  - *Mark step done* checks only the plain entries. An optional file that is
+    missing is left out of what the step recorded as produced, so
+    `produces_contains`, `aidlc run verify` and auto-review never look for it.
+  - The Epics panel lists an optional file either way. When it is missing, it
+    is greyed out and labelled **· optional**, even after the step is approved.
+    The step's main artifact is always its first required entry.
+  - Recipes and adapted pipelines keep the flag on the steps they borrow.
+  - `aidlc pipeline show` marks optional entries, and the sidebar's
+    "artifacts written" count leaves out optional files that were not written.
+  - A misspelt key such as `optonal` is a validation error, not a silently
+    required file.
+
+### Heads-up
+
+- Releases before 4.0.19 reject the object form, and the whole
+  `workspace.yaml` fails to validate. Install 4.0.19 everywhere the workspace
+  is used before committing it.
+
 ## 4.0.18
 
 The Epics list can now be sorted: by what needs you first, by last activity,
