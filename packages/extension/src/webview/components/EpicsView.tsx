@@ -1,11 +1,18 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X } from 'lucide-react';
+import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
 import { EpicCard } from './EpicCard';
 import { StartEpicModal } from './StartEpicModal';
 import { ReportSignalModal } from './ReportSignalModal';
-import { postMessage, onHostMessage } from '@/lib/bridge';
+import { postMessage, onHostMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
+import { EPIC_SORTS, DEFAULT_EPIC_SORT, isEpicSort, sortEpics, type EpicSort } from '@/lib/epicSort';
+
+/** Shares the panel's persisted UI object with the Builder view — merge, never replace. */
+interface PersistedEpicsUi {
+  epicSort?: EpicSort;
+  epicSortReversed?: boolean;
+}
 
 const FILTERS: { id: EpicFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -68,6 +75,21 @@ export function EpicsView({
 }) {
   const [filter, setFilter] = useState<EpicFilter>('all');
   const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [sort, setSort] = useState<EpicSort>(() => {
+    const saved = getPersistedUi<PersistedEpicsUi>()?.epicSort;
+    return isEpicSort(saved) ? saved : DEFAULT_EPIC_SORT;
+  });
+  const [sortReversed, setSortReversed] = useState<boolean>(
+    () => getPersistedUi<PersistedEpicsUi>()?.epicSortReversed === true,
+  );
+  const persistSort = (next: PersistedEpicsUi) => {
+    const prev = getPersistedUi<PersistedEpicsUi>() ?? {};
+    setPersistedUi<PersistedEpicsUi>({ ...prev, ...next });
+  };
+  const prefix = state.epicIdPrefix ?? null;
+  // "My epics" with no prefix would silently read as "Created"; fall back so
+  // the picker never claims an order the list is not in.
+  const effectiveSort: EpicSort = sort === 'mine' && !prefix ? DEFAULT_EPIC_SORT : sort;
   const [startEpicOpen, setStartEpicOpen] = useState(false);
   const [reportSignalOpen, setReportSignalOpen] = useState(false);
   // Focus comes from two places now: the host deep link, and the incident ⇄
@@ -125,9 +147,16 @@ export function EpicsView({
     return out;
   }, [state.epics]);
 
+  // Sorted before grouping: a family takes the place of whichever of its
+  // epics sorts first, so one follow-up awaiting review lifts its incident.
   const visible = useMemo(
-    () => state.epics.filter((e) => matches(e, filter) && matchesTags(e, tagFilter)),
-    [state.epics, filter, tagFilter],
+    () => sortEpics(
+      state.epics.filter((e) => matches(e, filter) && matchesTags(e, tagFilter)),
+      effectiveSort,
+      sortReversed,
+      prefix,
+    ),
+    [state.epics, filter, tagFilter, effectiveSort, sortReversed, prefix],
   );
 
   /**
@@ -301,7 +330,7 @@ export function EpicsView({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -325,6 +354,48 @@ export function EpicsView({
             </span>
           </button>
         ))}
+        <div className="ml-auto flex items-center gap-1">
+          <select
+            aria-label="Sort epics"
+            value={effectiveSort}
+            onChange={(e) => {
+              const next = e.target.value as EpicSort;
+              setSort(next);
+              persistSort({ epicSort: next });
+            }}
+            title={EPIC_SORTS.find((s) => s.id === effectiveSort)?.hint}
+            className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground focus:border-primary focus:outline-none"
+          >
+            {EPIC_SORTS.map((s) => (
+              <option
+                key={s.id}
+                value={s.id}
+                disabled={s.id === 'mine' && !prefix}
+                title={s.id === 'mine' && !prefix ? 'Set an epic ID prefix to tell your epics apart' : s.hint}
+              >
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !sortReversed;
+              setSortReversed(next);
+              persistSort({ epicSortReversed: next });
+            }}
+            title={sortReversed ? 'Reversed order — click for the default' : 'Reverse the order'}
+            aria-pressed={sortReversed}
+            className={cn(
+              'inline-flex h-6 w-6 items-center justify-center rounded-md border transition-colors',
+              sortReversed
+                ? 'border-primary bg-primary/15 text-primary'
+                : 'border-border text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <ArrowDownUp className="h-3 w-3" />
+          </button>
+        </div>
       </div>
 
       {tagCounts.length > 0 && (

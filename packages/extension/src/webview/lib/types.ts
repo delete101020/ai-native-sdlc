@@ -794,6 +794,9 @@ export interface WorkspaceState {
   defaultPipeline?: PipelineSummary;
   /** Suggested next sequential id for the inline Start-Epic modal (e.g. EPIC-007). */
   nextEpicId: string;
+  /** This checkout's epic id prefix, or null. Drives "My epics" sorting.
+   * Optional so an older host bundle simply disables that option. */
+  epicIdPrefix?: string | null;
   /** True when this checkout has not chosen an `epic_id_prefix` of its own,
    * so the Start Epic modal warns where the id is actually chosen. */
   epicIdPrefixNeedsSetup: boolean;

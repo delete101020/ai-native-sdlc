@@ -589,6 +589,9 @@ interface WorkspaceState {
   defaultPipeline?: PipelineSummary;
   /** Suggested next sequential id for the inline Start-Epic modal. */
   nextEpicId: string;
+  /** The prefix this checkout's epic ids carry, or null — lets the Epics
+   *  list sort one's own epics first. */
+  epicIdPrefix: string | null;
   /** True when `.aidlc/user.yaml` names no prefix for this checkout. */
   epicIdPrefixNeedsSetup: boolean;
   /** Two letters derived from `git config user.name` to offer, or null. */
@@ -677,6 +680,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       skillTemplates: SKILL_TEMPLATE_REFS,
       nextEpicId: 'EPIC-001',
       // No workspace yet: nothing to warn about until there is one.
+      epicIdPrefix: null,
       epicIdPrefixNeedsSetup: false,
       epicIdPrefixSuggestion: null,
       existingEpicIds: [],
@@ -762,8 +766,10 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       runIds: listRunIds(root),
       skillTemplates: SKILL_TEMPLATE_REFS,
       nextEpicId: suggestNextEpicId(root, epicIds0, null),
-      epicIdPrefixNeedsSetup: epicIdPrefixState(root, null).needsSetup,
-      epicIdPrefixSuggestion: epicIdPrefixState(root, null).suggestion,
+      ...(() => {
+        const p = epicIdPrefixState(root, null);
+        return { epicIdPrefix: p.prefix, epicIdPrefixNeedsSetup: p.needsSetup, epicIdPrefixSuggestion: p.suggestion };
+      })(),
       existingEpicIds: epicIds0,
       requirementRuns: scanRequirementRuns(root),
       initialView,
@@ -845,8 +851,10 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       ? getBuiltinPipelineSummary(BUILTIN_WORKFLOWS[0])
       : undefined,
     nextEpicId: suggestNextEpicId(root, epicIds, doc),
-      epicIdPrefixNeedsSetup: epicIdPrefixState(root, doc).needsSetup,
-      epicIdPrefixSuggestion: epicIdPrefixState(root, doc).suggestion,
+    ...(() => {
+      const p = epicIdPrefixState(root, doc);
+      return { epicIdPrefix: p.prefix, epicIdPrefixNeedsSetup: p.needsSetup, epicIdPrefixSuggestion: p.suggestion };
+    })(),
     existingEpicIds: epicIds,
     requirementRuns: scanRequirementRuns(root),
     initialView,
