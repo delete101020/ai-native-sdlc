@@ -2195,18 +2195,6 @@ function RunGate({
             Run auto-review
           </GateButton>
         )}
-        {/* The misclick's way out. Mark done is one button away from Run, and
-            until now the only path back was Request update — which bumps the
-            revision and resets everything downstream to undo a wrong click. */}
-        {focused.canUndoDone && (
-          <GateButton
-            variant="quiet"
-            title="Put this step back to awaiting work — same revision, no artifact touched"
-            onClick={() => postMessage({ type: 'undoStepDone', runId: epic.runId!, stepIdx: focusedIdx })}
-          >
-            <Undo2 className="h-3 w-3" /> Undo mark done
-          </GateButton>
-        )}
         {status === 'awaiting_review' && (
           <>
             <GateButton
@@ -2271,6 +2259,23 @@ function RunGate({
           </GateButton>
         )}
       </div>
+
+      {/* The misclick's way out. Mark done is one button away from Run, and
+          until now the only path back was Request update — which bumps the
+          revision and resets everything downstream to undo a wrong click.
+          A row of its own: it steps back from the gate, so it should not read
+          as one more answer to it next to Approve / Reject. */}
+      {focused.canUndoDone && (
+        <div className="flex border-t border-dashed border-border pt-2">
+          <GateButton
+            variant="quiet"
+            title="Put this step back to awaiting work — same revision, no artifact touched"
+            onClick={() => postMessage({ type: 'undoStepDone', runId: epic.runId!, stepIdx: focusedIdx })}
+          >
+            <Undo2 className="h-3 w-3" /> Undo mark done
+          </GateButton>
+        </div>
+      )}
 
       {rejectOpen && epic.runId && (
         <RejectModal
