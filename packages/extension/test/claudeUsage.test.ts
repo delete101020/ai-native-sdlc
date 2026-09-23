@@ -102,10 +102,10 @@ describe('plan usage parsing', () => {
     expect(windows.map((w) => [w.key, w.label, w.shortLabel, w.remainingPct])).toEqual([
       ['session', '5-hour session', '5h', 98],
       ['weekly_all', 'Weekly (all models)', '1w', 62],
-      ['weekly_fable', 'Weekly (Fable)', 'fable', 39],
+      ['weekly_fable', 'Weekly (Fable)', 'Fable', 39],
     ]);
     const state = { kind: 'ok' as const, windows, tightest: windows[2], fetchedAt: 0 };
-    expect(usageStatusText(state)).toBe('5h 2% · 1w 38% · fable 61%');
+    expect(usageStatusText(state)).toBe('5h 2% · 1w 38% · Fable 61%');
   });
 
   it('names a scoped model it has never heard of by its display name', () => {
@@ -115,7 +115,7 @@ describe('plan usage parsing', () => {
         scope: { model: { id: null, display_name: 'Nimbus' }, surface: null },
       }],
     });
-    expect(windows.map((w) => [w.label, w.shortLabel])).toEqual([['Weekly (Nimbus)', 'nimbus']]);
+    expect(windows.map((w) => [w.label, w.shortLabel])).toEqual([['Weekly (Nimbus)', 'Nimbus']]);
   });
 
   it('never lets two windows share a name', () => {
@@ -169,7 +169,7 @@ describe('plan usage rendering', () => {
       .toEqual(['session', 'weekly_all', 'weekly_fable']);
     expect(usageStatusText({
       kind: 'ok', windows: perModel, tightest: perModel[0], fetchedAt: Date.now(),
-    })).toBe('5h 20% · 1w 40% · fable 88%');
+    })).toBe('5h 20% · 1w 40% · Fable 88%');
   });
 
   it('keeps a window it has never seen, after the ones it knows', () => {

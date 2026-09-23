@@ -120,20 +120,28 @@ const SHORT_LABELS: Record<string, string> = {
   five_hour: '5h',
   weekly_all: '1w',
   seven_day: '1w',
-  weekly_opus: 'opus',
-  seven_day_opus: 'opus',
-  weekly_sonnet: 'sonnet',
-  seven_day_sonnet: 'sonnet',
-  weekly_fable: 'fable',
-  seven_day_fable: 'fable',
-  weekly_haiku: 'haiku',
-  seven_day_haiku: 'haiku',
+  weekly_opus: 'Opus',
+  seven_day_opus: 'Opus',
+  weekly_sonnet: 'Sonnet',
+  seven_day_sonnet: 'Sonnet',
+  weekly_fable: 'Fable',
+  seven_day_fable: 'Fable',
+  weekly_haiku: 'Haiku',
+  seven_day_haiku: 'Haiku',
 };
 
 function shortLabelFor(key: string): string {
   // `weekly_scoped` → `scoped`: the week is already implied by where it sits,
   // and a bare `weekly` is exactly what cannot be told apart from `1w`.
-  return SHORT_LABELS[key] ?? (key.replace(/^(weekly|seven_day)_/, '').split('_')[0] || key);
+  const known = SHORT_LABELS[key];
+  if (known) { return known; }
+  // A model-scoped week for a model not listed above reads as a model name,
+  // capitalised like the ones that are: `Nimbus`.
+  const scoped = /^(?:weekly|seven_day)_(.+)$/.exec(key);
+  if (scoped && !/^scoped\d*$/.test(scoped[1])) {
+    return scoped[1].split('_')[0].replace(/^./, (c) => c.toUpperCase());
+  }
+  return (scoped ? scoped[1] : key).split('_')[0] || key;
 }
 
 /** Model families a per-model window may be scoped to. */
