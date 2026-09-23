@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
 
 interface Props {
@@ -11,6 +12,8 @@ interface Props {
    * from "Request update", and the difference is exactly which work survives.
    */
   keptSteps: string[];
+  /** The confirm button's words — "Rerun with Claude" when it also launches the agent. */
+  confirmLabel?: string;
   onSubmit: (feedback: string) => void;
   onClose: () => void;
 }
@@ -20,6 +23,7 @@ export function RerunStepModal({
   runId,
   stepIdx,
   keptSteps,
+  confirmLabel = 'Rerun step',
   onSubmit,
   onClose,
 }: Props) {
@@ -55,11 +59,11 @@ export function RerunStepModal({
           This step reopens at revision++ and its artifacts are regenerated.
         </div>
         {keptSteps.length > 0 ? (
-          <>
-            <div className="mt-1.5">
-              These finished steps are <span className="font-semibold text-foreground/85">kept</span>,
-              not reset — they stay done and are marked{' '}
-              <span className="font-semibold text-warning">dirty</span>:
+          <div className="mt-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2">
+            <div className="flex items-center gap-1.5 font-semibold text-warning">
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+              {keptSteps.length} finished step{keptSteps.length === 1 ? '' : 's'} after this one
+              {keptSteps.length === 1 ? ' was' : ' were'} built on its current output
             </div>
             <ul className="mt-1 space-y-0.5">
               {keptSteps.map((label) => (
@@ -69,10 +73,13 @@ export function RerunStepModal({
               ))}
             </ul>
             <div className="mt-1.5">
-              Dirty does not block anything. It means "done, but built on output that has
-              since changed" — you will get a warning before working anything behind them.
+              {keptSteps.length === 1 ? 'It is' : 'They are'}{' '}
+              <span className="font-semibold text-foreground/85">kept</span>, not reset — still done,
+              but marked <span className="font-semibold text-warning">dirty</span> until redone
+              against the new output. Nothing is blocked; you will be warned before working
+              anything behind them.
             </div>
-          </>
+          </div>
         ) : (
           <div className="mt-1">Nothing finished downstream, so nothing will be marked dirty.</div>
         )}
@@ -96,7 +103,7 @@ export function RerunStepModal({
 
       <ModalFooter>
         <ModalCancelButton onClick={onClose} />
-        <ModalConfirmButton onClick={submit} label="Rerun step" />
+        <ModalConfirmButton onClick={submit} label={confirmLabel} />
       </ModalFooter>
     </Modal>
   );

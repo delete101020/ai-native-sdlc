@@ -256,6 +256,12 @@
         "category": "AIDLC Native"
       },
       {
+        "command": "aidlcNative.rerunApprovedStep",
+        "title": "Rerun Step (redo a passed step, keep what came after)",
+        "icon": "$(history)",
+        "category": "AIDLC Native"
+      },
+      {
         "command": "aidlcNative.retryAutoReview",
         "title": "Re-verify Step (run auto-review again)",
         "icon": "$(shield)",

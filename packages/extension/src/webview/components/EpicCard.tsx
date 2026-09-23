@@ -1106,7 +1106,7 @@ function StepperNode({
       type="button"
       onClick={onFocus}
       className="group flex flex-col items-center gap-1 px-1"
-      title={`${step.stepName ?? step.agent}${step.stepName && step.stepName !== step.agent ? ` · agent ${step.agent}` : ''} — ${isBusy ? 'agent running' : isAwaitingUpdate ? 'awaiting update' : STEP_LABEL[step.status]}${step.dirty ? ` · dirty: ${step.dirty.byStep} was rerun after this finished` : ''}`}
+      title={`${step.stepName ?? step.agent}${step.stepName && step.stepName !== step.agent ? ` · agent ${step.agent}` : ''} — ${isBusy ? 'agent running' : isAwaitingUpdate ? 'awaiting update' : STEP_LABEL[step.status]}${step.dirty ? ` · dirty: ${step.dirty.byStep} was rerun after this finished` : ''}${step.canRerun ? ' · click to open and rerun it' : ''}`}
     >
       <div
         className={cn(
@@ -1464,7 +1464,13 @@ function StepDetail({
       />
       <DirtyUpstreamWarning focused={focused} />
       <UndoDoneAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
-      <RerunStepAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
+      <RerunStepAction
+        epic={epic}
+        focused={focused}
+        focusedIdx={focusedIdx}
+        slashCommand={slashCommand}
+        busy={!!activity}
+      />
       <RequestUpdateAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <StepHistory step={focused} />
     </div>
@@ -1626,42 +1632,52 @@ function RerunStepAction({
   epic,
   focused,
   focusedIdx,
+  slashCommand,
+  busy,
 }: {
   epic: EpicSummary;
   focused: EpicStepDetailFull;
   focusedIdx: number;
+  /** The step's command; without one the step reopens and waits for a manual run. */
+  slashCommand: string | undefined;
+  busy: boolean;
 }) {
   const [open, setOpen] = useState(false);
   if (!epic.runId || !focused.canRerun) { return null; }
   const kept = keptOnRerun(epic, focusedIdx);
+  const withClaude = !!slashCommand;
   return (
-    <div className="mt-3 flex items-center justify-between rounded-md border border-dashed border-border bg-secondary/20 px-3 py-2 text-[11px]">
-      <div className="text-muted-foreground">
-        Updated the prompt?{' '}
-        <span className="text-foreground/80">Rerun this step</span>
+    <div className="mt-3 rounded-md border border-border bg-secondary/20 px-3 py-2.5 text-[11px]">
+      <div className="mb-2 text-muted-foreground">
+        Step is done. Updated the prompt?{' '}
+        <span className="text-foreground/80">Rerun it</span>
         {kept.length > 0
-          ? <> — the {kept.length} finished step{kept.length === 1 ? '' : 's'} after it stay done, marked dirty.</>
+          ? <> — <span className="font-semibold text-warning">{kept.length} finished step{kept.length === 1 ? '' : 's'} after it</span> stay done, marked dirty.</>
           : <> and produce its artifacts again.</>}
       </div>
-      <button
-        type="button"
+      <GateButton
+        variant="approve"
+        disabled={busy}
+        title={busy ? 'An agent is still working on this step — wait for it, or dismiss the banner above' : undefined}
         onClick={() => setOpen(true)}
-        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10.5px] font-semibold text-muted-foreground hover:border-foreground/40 hover:text-foreground"
       >
-        <RotateCcw className="h-2.5 w-2.5" /> Rerun step
-      </button>
+        <RotateCcw className="h-3 w-3" /> {withClaude ? 'Rerun with Claude' : 'Rerun step'}
+      </GateButton>
       {open && (
         <RerunStepModal
           agent={focused.stepName ?? focused.agent}
           runId={epic.runId}
           stepIdx={focusedIdx}
           keptSteps={kept}
+          confirmLabel={withClaude ? 'Rerun with Claude' : 'Rerun step'}
           onSubmit={(feedback) =>
             postMessage({
               type: 'rerunApprovedStep',
               runId: epic.runId!,
               stepIdx: focusedIdx,
               feedback,
+              andRun: withClaude,
+              slashCommand,
             })
           }
           onClose={() => setOpen(false)}
