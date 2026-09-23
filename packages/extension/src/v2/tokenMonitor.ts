@@ -17,7 +17,6 @@ import * as readline from 'readline';
 
 import { claudeConfigDir } from '@aidlc/core';
 
-import { cachedPlanUsage, usageMarkdown } from './claudeUsage';
 import { calcCost, type Usage } from './tokenPricing';
 import { TokenReportWebview } from './tokenReportWebview';
 
@@ -210,10 +209,8 @@ function buildTooltip(snap: Snapshot): vscode.MarkdownString {
   md.appendMarkdown('|---|---|---|---|---|---|---|\n');
   md.appendMarkdown(row('Today', snap.today) + '\n');
   md.appendMarkdown(row('Month', snap.month) + '\n\n');
-  // Spend answers "what did this cost"; the plan windows answer "can I keep
-  // going". Both belong in the tooltip a user opens when a run feels slow.
-  const plan = usageMarkdown(cachedPlanUsage(claudeConfigDir()));
-  if (plan.length) { md.appendMarkdown(plan.join('\n') + '\n\n'); }
+  // Spend only. The plan windows ("can I keep going") have their own status
+  // bar item, and showing them twice made the two tooltips look like copies.
   md.appendMarkdown(`_${snap.scannedFiles} log file(s) scanned · click for breakdown_\n\n`);
   md.appendMarkdown('Source: [claude-token-monitor](https://github.com/novapizza/claude-token-monitor)');
   return md;
