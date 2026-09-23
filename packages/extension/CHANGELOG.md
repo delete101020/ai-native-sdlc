@@ -1,5 +1,40 @@
 # Changelog
 
+## 4.0.15
+
+The Rerun and Undo buttons added in 4.0.14 now actually show up, a passed step
+gets a one-click "Rerun with Claude", and the plan-usage bar tells the weekly
+window every model shares from the one scoped to a single model.
+
+### Added
+
+- **Rerun with Claude** on a step that already passed. It sits in the step
+  panel where Run with Claude sits on an open step: it reopens the step and
+  launches the agent in one go. When finished steps downstream were built on
+  its output, the card counts them and the confirm lists them in a warning —
+  they are kept and marked dirty, not reset.
+- **AIDLC Native: Rerun Step** in the Command Palette, with a pick of the
+  steps that can be rerun.
+- **Plan-usage tooltip drawn as bars** — one row per window with a bar, the
+  percentage left, the reset time and, when known, the pace.
+
+### Changed
+
+- The status bar reads `5h 98% - 1h15m · 1w 62% · fable 39%`: `wk` is now
+  `1w`, and the countdown is set off with a dash.
+
+### Fixed
+
+- **Rerun step, Undo mark done and the dirty warnings never rendered.** The
+  host worked out whether each was allowed, but the Epics panel was never
+  passed the answer, so every one of them stayed hidden.
+- **The palette's Rerun Step always refused.** With no step given it tried the
+  current step, which is never one that already passed.
+- **The weekly window scoped to one model looked like the all-models one.**
+  The API reports it as `weekly_scoped` with the model only in its scope, so
+  both showed as the week; the scoped one is now labelled by its model
+  (`fable 39%`).
+
 ## 4.0.14
 
 Rerunning a step no longer costs you the work that came after it, a fan-out
