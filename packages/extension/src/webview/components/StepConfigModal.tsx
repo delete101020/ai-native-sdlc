@@ -4,6 +4,8 @@ import type { AgentSummary, PipelineStepSummary } from '@/lib/types';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
 
 export interface StepConfigDraft {
+  /** What the step does, shown on the epic panel. Empty clears it. */
+  description: string;
   enabled: boolean;
   requires: string[];
   produces: string[];
@@ -36,6 +38,7 @@ interface Props {
 }
 
 export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds = [], onSubmit, onClose }: Props) {
+  const [description, setDescription] = useState(step.description ?? '');
   const [enabled, setEnabled] = useState(step.enabled);
   const [requires, setRequires] = useState((step.requires ?? []).join('\n'));
   const [produces, setProduces] = useState((step.produces ?? []).join('\n'));
@@ -92,6 +95,7 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
         ? Number(timeoutMs.trim())
         : undefined;
     onSubmit({
+      description: description.trim(),
       enabled,
       requires: splitLines(requires),
       produces: splitLines(produces),
@@ -120,6 +124,22 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
       onSubmit={submit}
     >
       <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+            Description <span className="font-normal normal-case tracking-normal">(optional)</span>
+          </label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What this step does — shown on the epic panel"
+            rows={2}
+            className="w-full resize-none rounded-md border border-border bg-input/50 px-2.5 py-2 text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+          />
+          <p className="mt-1 text-[10px] italic text-muted-foreground">
+            Empty falls back to the description of the step's skill when it has exactly one, then to the agent's.
+          </p>
+        </div>
+
         <Toggle
           checked={enabled}
           onChange={setEnabled}

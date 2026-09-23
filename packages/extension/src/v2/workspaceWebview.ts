@@ -174,6 +174,7 @@ import {
   stepAgentId,
   stepDagId,
   normalizeStep,
+  producesEntries,
   discoverAssets,
   RunStateStore,
   describeGateEffect,
@@ -263,6 +264,7 @@ import { provisionDeclaredWorkflows, relativeEpicRoot, resolveCommand } from '@a
 import { PresetStore } from './presetStore';
 import type {
   PipelineStepConfig,
+  ProducesEntry,
   AssetScope,
   DiscoveredAsset,
   PipelineConfig,
@@ -468,6 +470,8 @@ interface EpicStepDetailFull {
   agent: string;
   /** Optional phase id (= slash command name) for built-in pipelines. */
   stepName?: string;
+  /** Step's own description, else its single skill's — see `listEpics`. */
+  stepDescription?: string;
   /** Step's artifact filename (basename of `produces[0]`). Empty when the
    *  step's output is a non-file artifact (branch / tag). */
   artifact?: string;
@@ -810,6 +814,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
           return {
             agent: norm.agent,
             name: norm.name,
+            description: norm.description,
             skills: norm.skills,
             enabled: norm.enabled,
             produces: norm.produces,
@@ -1096,6 +1101,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     stepDetails: e.stepDetails.map((s) => ({
       agent: s.agent,
       stepName: s.name,
+      stepDescription: s.description,
       slashCommand: s.slashCommand,
       artifact: s.artifact,
       artifactPath: s.artifactPath,
@@ -3458,6 +3464,13 @@ export class WorkspaceWebview {
         } else {
           delete obj.auto_review_timeout_ms;
         }
+
+        // Only a modal that sends the field edits it; one built before the
+        // field existed leaves the hand-written value alone.
+        if (typeof inlineConfig.description === 'string') {
+          const desc = inlineConfig.description.trim();
+          if (desc) { obj.description = desc; } else { delete obj.description; }
+        }
       }
       p.steps[idx] = obj as unknown as PipelineStepConfig;
     });
@@ -5368,8 +5381,10 @@ export class WorkspaceWebview {
     const oldByAgent = new Map<
       string,
       Array<{
+        name?: string;
+        description?: string;
         requires: string[];
-        produces: string[];
+        produces: ProducesEntry[];
         produces_contains: string[];
         auto_review_timeout_ms?: number;
       }>
@@ -5379,8 +5394,11 @@ export class WorkspaceWebview {
         const norm = normalizeStep(raw);
         const arr = oldByAgent.get(norm.agent) ?? [];
         arr.push({
+          name: norm.name,
+          description: norm.description,
           requires: norm.requires,
-          produces: norm.produces,
+          // Entry form, so a `{ path, optional: true }` survives the re-save.
+          produces: producesEntries(norm),
           produces_contains: norm.produces_contains,
           auto_review_timeout_ms: norm.auto_review_timeout_ms,
         });
@@ -5410,7 +5428,12 @@ export class WorkspaceWebview {
         return;
       }
 
-      const carry = oldByAgent.get(agent)?.shift();
+      // Several steps can share one agent (a dev agent that specs, then
+      // builds), so pair by step name first and only then by position —
+      // otherwise reordering them in the modal swaps their descriptions.
+      const pool = oldByAgent.get(agent) ?? [];
+      const byName = stepName ? pool.findIndex((c) => c.name === stepName) : -1;
+      const carry = pool.splice(byName >= 0 ? byName : 0, 1)[0];
       const step: Record<string, unknown> = {
         agent,
         enabled: true,
@@ -5420,6 +5443,7 @@ export class WorkspaceWebview {
         auto_review,
       };
       if (stepName) { step.name = stepName; }
+      if (carry?.description) { step.description = carry.description; }
       if (skillsArr.length > 0) { step.skills = skillsArr; }
       // Carry DAG edges. The modal doesn't let the user edit deps, but a
       // save-without-deps would silently flatten the workflow's columns,

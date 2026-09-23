@@ -472,6 +472,8 @@ export interface SkillSummary {
 export interface PipelineStepSummary {
   agent: string;
   name?: string;
+  /** Step-level description from the pipeline YAML, when set. */
+  description?: string;
   /** Skills this step makes available to the agent. */
   skills?: string[];
   enabled: boolean;
@@ -651,6 +653,9 @@ export interface EpicStepDetailFull {
   /** Phase id / slash command name (e.g. `plan`, `test-plan`) when the
    *  pipeline step carries a separate `name:` distinct from `agent:`. */
   stepName?: string;
+  /** What this step does: the step's `description`, else the frontmatter
+   *  description of its only skill. Absent → the card shows the agent's. */
+  stepDescription?: string;
   /** Resolved slash command for this step (`/implement` or
    *  `/sdlc-parallel-full-implement`), from workspace.yaml slash_commands. */
   slashCommand?: string;

@@ -19,6 +19,7 @@ import {
   dirtyUpstreamOf,
   normalizeStep,
   resolvePath,
+  expandHome,
   mirrorRunStateToEpic,
   RUN_STATE_SCHEMA_VERSION,
   epicStrictMode,
@@ -82,6 +83,9 @@ export interface EpicSummary {
     agent: string;
     /** Optional phase id / slash command name — set on built-in pipelines that split phase ↔ persona. */
     name?: string;
+    /** What this step does: the step's `description`, else its single skill's
+     *  frontmatter description. Absent → the card uses the agent's. */
+    description?: string;
     /** Resolved slash command for this step (`/implement` or
      *  `/sdlc-parallel-full-implement`), matched against workspace.yaml. */
     slashCommand?: string;
@@ -444,6 +448,51 @@ function parseArtifactStatus(filePath: string): string | undefined {
   return undefined;
 }
 
+/**
+ * The frontmatter `description` of a skill, by id — the step card's fallback
+ * when a step declares no `description` of its own but runs exactly one skill.
+ *
+ * Looks where the skill can actually live: the path workspace.yaml declares
+ * for it, then the command file Claude Code runs (`.claude/commands/<id>.md`),
+ * then the project and AIDLC skill folders. First file with a description
+ * wins; undefined when none has one.
+ */
+export function readSkillDescription(
+  workspaceRoot: string,
+  doc: YamlDocument | null,
+  skillId: string,
+): string | undefined {
+  const candidates: string[] = [];
+  const decl = Array.isArray(doc?.skills)
+    ? doc!.skills.find((s) => String(s.id) === skillId)
+    : undefined;
+  if (decl && typeof decl.path === 'string' && decl.path) {
+    const expanded = expandHome(decl.path);
+    candidates.push(path.isAbsolute(expanded) ? expanded : path.resolve(workspaceRoot, expanded));
+  }
+  candidates.push(
+    path.join(workspaceRoot, '.claude', 'commands', `${skillId}.md`),
+    path.join(workspaceRoot, '.claude', 'skills', skillId, 'SKILL.md'),
+    path.join(workspaceRoot, '.claude', 'skills', `${skillId}.md`),
+    path.join(workspaceRoot, '.aidlc', 'skills', `${skillId}.md`),
+  );
+  for (const file of candidates) {
+    let raw: string;
+    try { raw = fs.readFileSync(file, 'utf8').slice(0, 4096); }
+    catch { continue; }
+    const m = raw.match(/^(?:<!--[^\n]*-->\s*\n)?---\r?\n([\s\S]*?)\r?\n---/);
+    if (!m) { continue; }
+    for (const line of m[1].split(/\r?\n/)) {
+      const kv = line.match(/^description\s*:\s*(.+)$/i);
+      if (kv) {
+        const v = kv[1].trim().replace(/^['"]|['"]$/g, '').trim();
+        if (v) { return v; }
+      }
+    }
+  }
+  return undefined;
+}
+
 /** Map an artifact frontmatter status to an epic step status. */
 function artifactStatusToEpicStatus(s: string | undefined): EpicStatus {
   switch (s) {
@@ -649,6 +698,16 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     .filter((d) => d.isDirectory())
     .map((d) => d.name);
 
+  // Every epic on the same pipeline asks about the same skills; read each
+  // skill file once per listing, not once per epic.
+  const skillDescriptions = new Map<string, string | undefined>();
+  const skillDescription = (id: string): string | undefined => {
+    if (!skillDescriptions.has(id)) {
+      skillDescriptions.set(id, readSkillDescription(workspaceRoot, doc, id));
+    }
+    return skillDescriptions.get(id);
+  };
+
   const epics: EpicSummary[] = [];
   for (const folder of folders) {
     const epicDir = path.join(dir, folder);
@@ -747,6 +806,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const stepDependsByIdx = new Map<number, string[]>();
     const stepNameByIdx = new Map<number, string>();
     const stepSkillsByIdx = new Map<number, string[]>();
+    const stepDescriptionByIdx = new Map<number, string>();
     const stepArtifactByIdx = new Map<number, string>();
     const stepArtifactPathByIdx = new Map<number, string>();
     const stepProducesByIdx = new Map<number, string[]>();
@@ -762,6 +822,12 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         stepDependsByIdx.set(i, norm.depends_on);
         if (norm.name) { stepNameByIdx.set(i, norm.name); }
         if (norm.skills && norm.skills.length > 0) { stepSkillsByIdx.set(i, norm.skills); }
+        // What the card says the step does: its own `description`, else the
+        // description of the one skill it runs. Several skills leave it to the
+        // agent's description — picking one of them would be a guess.
+        const description = norm.description
+          ?? (norm.skills?.length === 1 ? skillDescription(norm.skills[0]) : undefined);
+        if (description) { stepDescriptionByIdx.set(i, description); }
         // Surface the produced artifact for the per-step detail panel —
         // `step.produces[0]` is the canonical artifact path on built-in
         // pipelines (e.g. `docs/epics/{epic}/PRD.md`). The UI displays
@@ -959,6 +1025,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       return {
         agent,
         name: stepNameByIdx.get(i),
+        ...(stepDescriptionByIdx.has(i) ? { description: stepDescriptionByIdx.get(i) } : {}),
         slashCommand: slashForStep(stepNameByIdx.get(i), stepSkillsByIdx.get(i)),
         artifact: stepArtifactByIdx.get(i),
         ...(artifactRel === undefined

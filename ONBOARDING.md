@@ -254,6 +254,36 @@ plain entries. An absent optional file is left out of what the step recorded
 as produced, so `produces_contains` and `aidlc run verify` never look for it.
 A recipe that borrows the step keeps the flag.
 
+### Step `description` — when one agent runs several steps
+
+The Epics panel shows a line under each step saying what it does. By default
+that is the agent's description, which cannot tell apart two steps on the same
+agent. Give each step its own:
+
+```yaml
+steps:
+  - agent: cr-dev
+    name: cr-build-spec
+    skills: [cr-build-spec]
+    description: Write the build spec from the approved business analysis.
+  - agent: cr-dev
+    name: cr-build
+    skills: [cr-build]
+    description: Build against the approved spec.
+```
+
+The panel uses the first of these that exists:
+
+1. The step's `description`.
+2. The frontmatter `description` of the step's skill, when `skills:` names
+   exactly one. The skill file is looked up at the path `workspace.yaml`
+   declares for it, then `.claude/commands/<id>.md`, then `.claude/skills/`.
+3. The agent's description.
+
+It works the same in `workspace.yaml` and in an epic's own `pipeline.yaml`.
+You can also set it in the step's config modal in the Builder. It is display
+text only and never reaches the prompt.
+
 ### `produces_contains` — the gate on what is *in* the artifact
 
 A step's `produces` says which files must exist before it can advance.

@@ -142,6 +142,14 @@ const PipelineStepObjectSchema = z
     agent: z.string().min(1),
     /** Display name for the step. Falls back to the agent id when omitted. */
     name: z.string().optional(),
+    /**
+     * What this step does, shown on the epic panel's step card. One agent
+     * often backs several steps (a dev agent that writes the spec and then
+     * builds it), so the agent's own description cannot tell them apart.
+     * Falls back to the frontmatter `description` of the step's skill when
+     * it names exactly one, then to the agent's description.
+     */
+    description: z.string().optional(),
     /** Step is part of the pipeline but skipped at run time when false. Defaults to true. */
     enabled: z.boolean().default(true),
     /**
@@ -322,6 +330,8 @@ export type PipelineStepConfig = z.infer<typeof PipelineStepSchema>;
 export interface NormalizedStep {
   agent: string;
   name?: string;
+  /** Step-level description for the panel — see the schema for the fallback. */
+  description?: string;
   /** Skill ids this step makes available — overrides the agent's defaults. */
   skills?: string[];
   enabled: boolean;
@@ -405,6 +415,9 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
   return {
     agent: typeof obj.agent === 'string' ? obj.agent : '',
     name: typeof obj.name === 'string' ? obj.name : undefined,
+    ...(typeof obj.description === 'string' && obj.description.trim()
+      ? { description: obj.description.trim() }
+      : {}),
     skills,
     enabled: typeof obj.enabled === 'boolean' ? obj.enabled : true,
     optional: obj.optional === true,

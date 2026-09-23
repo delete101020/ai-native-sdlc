@@ -1237,9 +1237,11 @@ function StepDetail({
         <StatusBadge status={ui} />
       </div>
 
-      {m.description && (
+      {/* One agent can back several steps, so a step's own description
+          (or its only skill's) beats the agent's. */}
+      {(focused.stepDescription || m.description) && (
         <p className="mt-2 text-[11.5px] italic leading-relaxed text-muted-foreground">
-          {m.description}
+          {focused.stepDescription || m.description}
         </p>
       )}
 

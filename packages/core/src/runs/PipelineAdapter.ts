@@ -204,6 +204,7 @@ export function applyAdaptation(
       auto_review: norm.auto_review,
       human_review: norm.human_review,
     };
+    if (norm.description) { step.description = norm.description; }
     if (norm.skills && norm.skills.length > 0) { step.skills = norm.skills; }
     if (norm.auto_review_runner) { step.auto_review_runner = norm.auto_review_runner; }
 

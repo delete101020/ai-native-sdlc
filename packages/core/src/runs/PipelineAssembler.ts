@@ -140,6 +140,7 @@ export function assemblePipeline(
       auto_review,
       human_review: gate.human_review ?? norm.human_review,
     };
+    if (norm.description) { step.description = norm.description; }
     if (norm.skills && norm.skills.length > 0) { step.skills = norm.skills; }
     if (auto_review_runner) { step.auto_review_runner = auto_review_runner; }
     return step as PipelineStepConfig;
