@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.0.17
+
+Tidier step buttons and status bar: Rerun with Claude matches Request update,
+Undo mark done moves off the review gate, and the token usage tooltip stops
+repeating the plan windows.
+
+### Changed
+
+- **Rerun with Claude looks like Request update.** It uses the same colours,
+  so the two read as a pair.
+- **Undo mark done is in a row of its own**, below the gate buttons, so it
+  doesn't look like a third answer next to Approve / Reject.
+- **The token usage tooltip shows only spend** (Today / Month). The plan's
+  5-hour and weekly windows appear only in the plan usage item, so the two
+  tooltips no longer look like copies.
+
 ## 4.0.16
 
 Plan usage now reads as used, the way `/usage` does, an epic with a fan-out
