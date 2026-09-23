@@ -99,20 +99,27 @@ const LABELS: Record<string, string> = {
 };
 
 function labelFor(key: string): string {
-  return LABELS[key] ?? key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+  const known = LABELS[key];
+  if (known) { return known; }
+  // A model-scoped week for a model not listed above: `Weekly (Nimbus)`.
+  const scoped = /^(?:weekly|seven_day)_(.+)$/.exec(key);
+  if (scoped && scoped[1] !== 'scoped') {
+    return `Weekly (${scoped[1].replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())})`;
+  }
+  return key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 }
 
 /**
  * The status bar has room for a couple of characters per window, not a label —
- * `5h 51% · wk 34%` has to fit next to everything else the user keeps down
+ * `5h 51% · 1w 34%` has to fit next to everything else the user keeps down
  * there. Unknown keys get their first word, which is still better than a bare
  * number whose window nobody can name.
  */
 const SHORT_LABELS: Record<string, string> = {
   session: '5h',
   five_hour: '5h',
-  weekly_all: 'wk',
-  seven_day: 'wk',
+  weekly_all: '1w',
+  seven_day: '1w',
   weekly_opus: 'opus',
   seven_day_opus: 'opus',
   weekly_sonnet: 'sonnet',
@@ -124,7 +131,86 @@ const SHORT_LABELS: Record<string, string> = {
 };
 
 function shortLabelFor(key: string): string {
-  return SHORT_LABELS[key] ?? key.split('_')[0];
+  // `weekly_scoped` → `scoped`: the week is already implied by where it sits,
+  // and a bare `weekly` is exactly what cannot be told apart from `1w`.
+  return SHORT_LABELS[key] ?? (key.replace(/^(weekly|seven_day)_/, '').split('_')[0] || key);
+}
+
+/** Model families a per-model window may be scoped to. */
+const MODEL_FAMILIES = ['fable', 'opus', 'sonnet', 'haiku'];
+
+/** Fields that describe the reading, not the window — never a model name. */
+const NOT_A_SCOPE = new Set(['kind', 'group', 'percent', 'severity', 'resets_at', 'utilization', 'is_active']);
+
+/** `Fable` → `fable`, `Claude Fable 5` → `claude_fable_5`: something a key can carry. */
+function slug(text: string): string {
+  return text.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+/**
+ * The model a limit is scoped to, as a key-safe slug.
+ *
+ * The live response names a per-model window `weekly_scoped` — the same
+ * generic kind for every model — and says which model in
+ * `scope.model.display_name` (`id` is null today). Reading only `kind`
+ * rendered the all-models week and the Fable week as two numbers nobody could
+ * tell apart. The declared field wins, so a model this file has never heard
+ * of still gets its own name; after that, any string on the limit that names
+ * a known family, in case the field moves.
+ */
+function scopedModel(limit: Record<string, unknown>): string | undefined {
+  const scope = limit.scope as { model?: { display_name?: unknown; id?: unknown } | null } | null | undefined;
+  const model = scope && typeof scope === 'object' ? scope.model : undefined;
+  if (model && typeof model === 'object') {
+    for (const name of [model.display_name, model.id]) {
+      if (typeof name === 'string' && slug(name)) {
+        const family = MODEL_FAMILIES.find((m) => name.toLowerCase().includes(m));
+        return family ?? slug(name);
+      }
+    }
+  }
+  const found = (text: string): string | undefined => {
+    const lower = text.toLowerCase();
+    return MODEL_FAMILIES.find((m) => lower.includes(m));
+  };
+  const visit = (value: unknown, depth: number): string | undefined => {
+    if (typeof value === 'string') { return found(value); }
+    if (depth > 3 || !value || typeof value !== 'object' || Array.isArray(value)) { return undefined; }
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (NOT_A_SCOPE.has(k)) { continue; }
+      const hit = visit(v, depth + 1);
+      if (hit) { return hit; }
+    }
+    return undefined;
+  };
+  return (typeof limit.kind === 'string' ? found(limit.kind) : undefined) ?? visit(limit, 0);
+}
+
+/**
+ * The key a limit renders under: its `kind`, with the scoped model folded in
+ * when the kind does not already carry it. The session and all-models windows
+ * are never re-keyed — whatever models they mention, they gate all of them.
+ */
+function limitKey(limit: RawLimit): string {
+  const kind = typeof limit.kind === 'string' && limit.kind ? limit.kind : 'limit';
+  if (WEEKLY_ALL.has(kind) || kind === 'session' || kind === 'five_hour') { return kind; }
+  const model = scopedModel(limit);
+  if (!model || kind.toLowerCase().includes(model)) { return kind; }
+  const weekly = limit.group === 'weekly' || /^(weekly|seven_day)/.test(kind);
+  return weekly ? `weekly_${model}` : `${kind}_${model}`;
+}
+
+/**
+ * Whatever still collides after {@link limitKey} gets a counter — two windows
+ * under one name are two numbers nobody can read.
+ */
+function disambiguate(windows: UsageWindow[]): UsageWindow[] {
+  const seen = new Map<string, number>();
+  return windows.map((w) => {
+    const n = (seen.get(w.shortLabel) ?? 0) + 1;
+    seen.set(w.shortLabel, n);
+    return n === 1 ? w : { ...w, label: `${w.label} #${n}`, shortLabel: `${w.shortLabel}${n}` };
+  });
 }
 
 /**
@@ -173,7 +259,14 @@ export interface UsageSample {
 }
 
 export type UsageState =
-  | { kind: 'ok'; windows: UsageWindow[]; tightest: UsageWindow; fetchedAt: number }
+  | {
+    kind: 'ok';
+    windows: UsageWindow[];
+    tightest: UsageWindow;
+    fetchedAt: number;
+    /** The `limits` array minus its readings, for the output channel — see {@link limitsShape}. */
+    shape?: string;
+  }
   /** Signed in, but no plan window reported — API-key auth, or a plan the endpoint stays silent about. */
   | { kind: 'no-plan' }
   | { kind: 'no-credentials' }
@@ -246,6 +339,7 @@ async function readCredentials(configDir: string): Promise<OAuthCredentials | un
  * with the named keys as the fallback for a response that omits it.
  */
 interface RawLimit {
+  [field: string]: unknown;
   kind?: unknown;
   group?: unknown;
   percent?: unknown;
@@ -255,6 +349,23 @@ interface RawLimit {
 interface RawWindow {
   utilization?: unknown;
   resets_at?: unknown;
+}
+
+/**
+ * What the server called each limit, readings stripped. Logged when it
+ * changes, so the next unfamiliar window can be read off the output channel
+ * instead of guessed at. Holds no credential.
+ */
+export function limitsShape(body: Record<string, unknown>): string {
+  if (!Array.isArray(body.limits)) { return `(no limits array; keys: ${Object.keys(body).join(', ')})`; }
+  return JSON.stringify((body.limits as unknown[]).map((l) => {
+    if (!l || typeof l !== 'object') { return l; }
+    const rest = { ...(l as Record<string, unknown>) };
+    delete rest.percent;
+    delete rest.resets_at;
+    delete rest.utilization;
+    return rest;
+  }));
 }
 
 /** `resets_at` is an ISO string today and was unix seconds before. Accept both. */
@@ -294,15 +405,10 @@ export function parseUsageWindows(body: Record<string, unknown>): UsageWindow[] 
   const limits = Array.isArray(body.limits) ? (body.limits as RawLimit[]) : undefined;
   if (limits?.length) {
     const parsed = limits
-      .map((l) => toWindow(
-        typeof l.kind === 'string' ? l.kind : 'limit',
-        l.percent,
-        l.resets_at,
-        l.severity,
-        l.group,
-      ))
+      .filter((l): l is RawLimit => !!l && typeof l === 'object')
+      .map((l) => toWindow(limitKey(l), l.percent, l.resets_at, l.severity, l.group))
       .filter((w): w is UsageWindow => w !== undefined);
-    if (parsed.length) { return parsed; }
+    if (parsed.length) { return disambiguate(parsed); }
   }
   return NAMED_WINDOWS
     .map((key) => {
@@ -372,7 +478,7 @@ async function fetchState(configDir: string, timeoutMs: number): Promise<UsageSt
   // The tightest window is the honest headline: what stops the next run is
   // whichever limit is closest, not the one that happens to be listed first.
   const tightest = windows.reduce((a, b) => (b.usedPct > a.usedPct ? b : a));
-  return { kind: 'ok', windows, tightest, fetchedAt: Date.now() };
+  return { kind: 'ok', windows, tightest, fetchedAt: Date.now(), shape: limitsShape(parsed) };
 }
 
 // ── Burn rate ────────────────────────────────────────────────────────────────
@@ -559,7 +665,7 @@ export function statusBarWindows(windows: readonly UsageWindow[]): UsageWindow[]
 }
 
 /**
- * The status bar text: `5h 51% · wk 34%`, percentages *left*, same as the
+ * The status bar text: `5h 51% - 2h12m · 1w 34% · fable 12%`, percentages *left*, same as the
  * tooltip. `tightest` keeps the older one-number form for anyone who wants the
  * bar back the way it was.
  */
@@ -578,7 +684,7 @@ export function usageStatusText(
       // answer to change anything — a weekly window resetting "in 3d 3h" is
       // three characters of bar spent on a fact nobody acts on.
       const countdown = opts.resetIn && w.group === 'session' ? fmtCountdown(w.resetsAt) : '';
-      return `${w.shortLabel} ${w.remainingPct}%${countdown ? ` ${countdown}` : ''}`;
+      return `${w.shortLabel} ${w.remainingPct}%${countdown ? ` - ${countdown}` : ''}`;
     })
     .join(' · ');
 }
@@ -675,7 +781,7 @@ export function usageSummary(state: UsageState | undefined): string | undefined 
 function fmtBurn(burn: BurnRate | undefined): string {
   if (!burn) { return ''; }
   const rate = `${burn.pctPerHour}%/hr`;
-  if (burn.exhaustsAt === undefined) { return ` — ${rate}, resets before it runs out`; }
+  if (burn.exhaustsAt === undefined) { return `${rate}, lasts to reset`; }
   // A clock time alone reads as "today"; a weekly window projected three days
   // out would then look like it goes this morning.
   const when = new Date(burn.exhaustsAt);
@@ -685,21 +791,45 @@ function fmtBurn(burn: BurnRate | undefined): string {
     hour: 'numeric',
     minute: '2-digit',
   });
-  return ` — ${rate}, out ~${at}`;
+  return `${rate}, out ~${at}`;
 }
 
-/** Markdown bullets for a tooltip. Empty when there is nothing worth saying. */
+const BAR_CELLS = 20;
+
+/**
+ * What is left, drawn: `████████░░░░░░░░░░░░`. A hover is Markdown, not a
+ * webview, so there is no `<progress>` to reach for — block characters in a
+ * code span are what renders the same in every theme and every tooltip that
+ * borrows these lines. Never empty for a window with anything left, so 2%
+ * does not read as spent.
+ */
+export function usageBar(remainingPct: number, cells = BAR_CELLS): string {
+  const pct = Math.min(100, Math.max(0, remainingPct));
+  const filled = pct > 0 ? Math.max(1, Math.round((pct / 100) * cells)) : 0;
+  return '█'.repeat(filled) + '░'.repeat(cells - filled);
+}
+
+/**
+ * Markdown for a tooltip: one row per window, a bar of what is left, and when
+ * it resets. Empty when there is nothing worth saying. Starts with a blank line
+ * so the table stands on its own after whatever list the caller put above it.
+ */
 export function usageMarkdown(state: UsageState | undefined): string[] {
   switch (state?.kind) {
-    case 'ok':
+    case 'ok': {
+      const withPace = state.windows.some((w) => w.burn);
       return [
+        '',
+        `| Window | Left | | Resets |${withPace ? ' Pace |' : ''}`,
+        `|:--|:--|--:|:--|${withPace ? ':--|' : ''}`,
         ...state.windows.map(
-          (w) => `- ${w.label}: **${w.remainingPct}% left** (${w.usedPct}% used, resets ${fmtReset(w.resetsAt)})`
-            + fmtBurn(w.burn),
+          (w) => `| ${w.label} | \`${usageBar(w.remainingPct)}\` | **${w.remainingPct}%** | ${fmtReset(w.resetsAt)} |`
+            + (withPace ? ` ${fmtBurn(w.burn) || '—'} |` : ''),
         ),
         '',
-        '_Plan limits read from the Claude account — undocumented endpoint, may go quiet._',
+        '_Read from the Claude account — undocumented endpoint, may go quiet._',
       ];
+    }
     case 'expired':
       return ['- Plan limits: _sign-in expired — run `claude` once to refresh it_'];
     case 'no-credentials':
@@ -735,8 +865,13 @@ export function registerClaudePlanUsage(
   item.command = SHOW_USAGE_CMD;
   context.subscriptions.push(item);
 
+  let loggedShape: string | undefined;
   const render = (state: UsageState): void => {
     if (state.kind === 'ok') {
+      if (state.shape && state.shape !== loggedShape) {
+        loggedShape = state.shape;
+        output.appendLine(`Claude plan usage: server limits ${state.shape} → ${state.windows.map((w) => w.key).join(', ')}`);
+      }
       item.text = `$(pulse) ${usageStatusText(state, { style: statusBarStyle(), resetIn: showResetIn() })}`;
       // Red at the wall, amber in the last fifth — the point is to be noticed
       // before a run is refused, not after. Which window gets to say it is
@@ -754,7 +889,7 @@ export function registerClaudePlanUsage(
           '',
           ...usageMarkdown(state),
           ...(alert.window
-            ? ['', `_${alert.window.label} is what the colour is about._`]
+            ? ['', `_Colour set by ${alert.window.label}._`]
             : []),
           '',
           'Click to refresh.',
@@ -800,7 +935,7 @@ export function registerClaudePlanUsage(
       if (state.kind === 'ok') {
         await vscode.window.showQuickPick(
           state.windows.map((w) => ({
-            label: `${w.remainingPct}% left — ${w.label}`,
+            label: `${usageBar(w.remainingPct)} ${w.remainingPct}% left — ${w.label}`,
             detail: `${w.usedPct}% used · resets ${fmtReset(w.resetsAt)}`,
           })),
           { title: `Claude plan usage · ${claudeConfigDir()}`, placeHolder: 'Press Escape to close' },

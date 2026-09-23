@@ -1102,6 +1102,12 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
       stepHasAutoReview: s.stepHasAutoReview,
       stepHasHumanReview: s.stepHasHumanReview,
       dependsOn: s.dependsOn,
+      // The card gates Undo mark done, Rerun and the dirty warnings on these;
+      // left out, every one of them silently never renders.
+      canUndoDone: s.canUndoDone,
+      canRerun: s.canRerun,
+      dirty: s.dirty,
+      dirtyUpstream: s.dirtyUpstream,
       startedAt: s.startedAt ?? undefined,
       finishedAt: s.finishedAt ?? undefined,
       history: s.history,
@@ -2942,7 +2948,14 @@ export class WorkspaceWebview {
         const stepIdx = Number(msg.stepIdx);
         const feedback = String(msg.feedback ?? '');
         if (!runId || !Number.isInteger(stepIdx)) { return; }
-        await rerunApprovedStepInlineCommand(runId, stepIdx, feedback);
+        const reopened = await rerunApprovedStepInlineCommand(runId, stepIdx, feedback);
+        // "Rerun with Claude": reopen, then launch exactly as Run with Claude
+        // would. Done here, not as a second webview message, so the launch
+        // cannot race ahead of the state write it depends on.
+        const slash = typeof msg.slashCommand === 'string' ? msg.slashCommand : '';
+        if (reopened && msg.andRun === true && slash) {
+          await vscode.commands.executeCommand('aidlcNative.runStepWithFeedback', slash, runId, feedback, stepIdx);
+        }
         return;
       }
       case 'savePresetInline': {

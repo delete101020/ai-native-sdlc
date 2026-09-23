@@ -18,6 +18,7 @@ import {
   parseUsageWindows,
   usageAlert,
   statusBarWindows,
+  usageBar,
   usageMarkdown,
   usageStatusText,
   usageSummary,
@@ -42,6 +43,23 @@ const LIVE = {
   limits: [
     { kind: 'session', group: 'session', percent: 49, severity: 'normal', resets_at: '2026-09-22T13:00:00.689894+00:00', is_active: false },
     { kind: 'weekly_all', group: 'weekly', percent: 66, severity: 'normal', resets_at: '2026-09-22T19:00:00.689944+00:00', is_active: true },
+  ],
+};
+
+/** Captured live, 2026-09-23, on a plan with a per-model week. Unused sibling keys trimmed. */
+const LIVE_SCOPED = {
+  five_hour: { utilization: 2, resets_at: '2026-09-23T02:59:59.901113+00:00', locked_reason: null },
+  seven_day: { utilization: 38, resets_at: '2026-09-28T14:59:59.901130+00:00', locked_reason: null },
+  seven_day_opus: null,
+  nimbus_quill: { utilization: 0, resets_at: null, locked_reason: null },
+  limits: [
+    { kind: 'session', group: 'session', percent: 2, severity: 'normal', resets_at: '2026-09-23T02:59:59.901113+00:00', scope: null, is_active: false },
+    { kind: 'weekly_all', group: 'weekly', percent: 38, severity: 'normal', resets_at: '2026-09-28T14:59:59.901130+00:00', scope: null, is_active: false },
+    {
+      kind: 'weekly_scoped', group: 'weekly', percent: 61, severity: 'normal', resets_at: '2026-09-28T14:59:59.901282+00:00',
+      scope: { model: { id: null, display_name: 'Fable' }, surface: null },
+      is_active: true,
+    },
   ],
 };
 
@@ -77,6 +95,39 @@ describe('plan usage parsing', () => {
     expect(windows[0].resetsAt).toBe(0);
   });
 
+  it('tells the all-models week from the model-scoped one, as the server sends it', () => {
+    // Captured live, 2026-09-23, on a plan with a Fable week. The model window
+    // is `weekly_scoped`, and only `scope.model.display_name` says which model.
+    const windows = parseUsageWindows(LIVE_SCOPED);
+    expect(windows.map((w) => [w.key, w.label, w.shortLabel, w.remainingPct])).toEqual([
+      ['session', '5-hour session', '5h', 98],
+      ['weekly_all', 'Weekly (all models)', '1w', 62],
+      ['weekly_fable', 'Weekly (Fable)', 'fable', 39],
+    ]);
+    const state = { kind: 'ok' as const, windows, tightest: windows[2], fetchedAt: 0 };
+    expect(usageStatusText(state)).toBe('5h 98% · 1w 62% · fable 39%');
+  });
+
+  it('names a scoped model it has never heard of by its display name', () => {
+    const windows = parseUsageWindows({
+      limits: [{
+        kind: 'weekly_scoped', group: 'weekly', percent: 10, severity: 'normal', resets_at: null,
+        scope: { model: { id: null, display_name: 'Nimbus' }, surface: null },
+      }],
+    });
+    expect(windows.map((w) => [w.label, w.shortLabel])).toEqual([['Weekly (Nimbus)', 'nimbus']]);
+  });
+
+  it('never lets two windows share a name', () => {
+    const windows = parseUsageWindows({
+      limits: [
+        { kind: 'weekly_scoped', group: 'weekly', percent: 10, severity: 'normal', resets_at: null },
+        { kind: 'weekly_scoped', group: 'weekly', percent: 20, severity: 'normal', resets_at: null },
+      ],
+    });
+    expect(windows.map((w) => w.shortLabel)).toEqual(['scoped', 'scoped2']);
+  });
+
   it('yields nothing rather than guessing on a shape it cannot read', () => {
     expect(parseUsageWindows({})).toEqual([]);
     expect(parseUsageWindows({ limits: [{ kind: 'session', percent: 'lots' }] })).toEqual([]);
@@ -98,7 +149,7 @@ describe('plan usage rendering', () => {
   });
 
   it('puts one percentage per window on the status bar', () => {
-    expect(usageStatusText(state)).toBe('5h 51% · wk 34%');
+    expect(usageStatusText(state)).toBe('5h 51% · 1w 34%');
     expect(usageStatusText(state, { style: 'tightest' })).toBe('34% left');
     expect(usageStatusText({ kind: 'no-plan' })).toBeUndefined();
   });
@@ -118,7 +169,7 @@ describe('plan usage rendering', () => {
       .toEqual(['session', 'weekly_all', 'weekly_fable']);
     expect(usageStatusText({
       kind: 'ok', windows: perModel, tightest: perModel[0], fetchedAt: Date.now(),
-    })).toBe('5h 80% · wk 60% · fable 12%');
+    })).toBe('5h 80% · 1w 60% · fable 12%');
   });
 
   it('keeps a window it has never seen, after the ones it knows', () => {
@@ -184,8 +235,8 @@ describe('plan usage rendering', () => {
       ],
     });
     const ok = { kind: 'ok' as const, windows, tightest: windows[1], fetchedAt: 0 };
-    expect(usageStatusText(ok, { resetIn: true })).toBe('5h 51% 2h12m · wk 34%');
-    expect(usageStatusText(ok)).toBe('5h 51% · wk 34%');
+    expect(usageStatusText(ok, { resetIn: true })).toBe('5h 51% - 2h12m · 1w 34%');
+    expect(usageStatusText(ok)).toBe('5h 51% · 1w 34%');
   });
 
   it('moves amber and red where the settings put them', () => {
@@ -202,6 +253,16 @@ describe('plan usage rendering', () => {
     expect(usageSummary({ kind: 'no-plan' })).toBeUndefined();
     expect(usageSummary({ kind: 'error', message: 'HTTP 500' })).toBeUndefined();
     expect(usageMarkdown(undefined)).toEqual([]);
+  });
+
+  it('draws what is left as a bar in the tooltip', () => {
+    expect(usageBar(100)).toBe('█'.repeat(20));
+    expect(usageBar(0)).toBe('░'.repeat(20));
+    expect(usageBar(50)).toBe('█'.repeat(10) + '░'.repeat(10));
+    // A sliver left is not the same as spent.
+    expect(usageBar(1)).toBe('█' + '░'.repeat(19));
+    const md = usageMarkdown(state).join('\n');
+    expect(md).toContain(`| 5-hour session | \`${usageBar(51)}\` | **51%** |`);
   });
 
   it('points an expired sign-in at the fix', () => {

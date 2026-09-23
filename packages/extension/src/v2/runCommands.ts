@@ -517,7 +517,8 @@ export async function rerunApprovedStepCommand(
   const stepIdx = typeof stepIdxArg === 'number' && Number.isInteger(stepIdxArg)
     && stepIdxArg >= 0 && stepIdxArg < state.steps.length
     ? stepIdxArg
-    : state.currentStepIdx;
+    : await pickRerunTarget(state, pipeline);
+  if (stepIdx === undefined) { return; }
 
   const gate = canRerunApprovedStep({ state, pipeline, stepIdx });
   if (!gate.ok) { void vscode.window.showWarningMessage(gate.reason); return; }
@@ -562,21 +563,46 @@ export async function rerunApprovedStepCommand(
  * Inline variant driven from the epic card — same transition, no run picker
  * and no modal, because the card already asked.
  */
+/**
+ * Which passed step to rerun, when the caller did not say.
+ *
+ * Not the current step: the cursor never parks on an approved step, so
+ * defaulting to it made the palette command refuse every time. A single
+ * candidate is taken without asking.
+ */
+async function pickRerunTarget(state: RunState, pipeline: PipelineConfig): Promise<number | undefined> {
+  const candidates = state.steps
+    .map((step, i) => ({ step, i }))
+    .filter(({ i }) => canRerunApprovedStep({ state, pipeline, stepIdx: i }).ok);
+  if (candidates.length === 0) { return state.currentStepIdx; }
+  if (candidates.length === 1) { return candidates[0].i; }
+  const picked = await vscode.window.showQuickPick(
+    candidates.map(({ step, i }) => ({
+      label: `Step ${i + 1} — ${stepIdentityOf(step)}`,
+      description: `revision ${step.revision}`,
+      stepIdx: i,
+    })),
+    { placeHolder: 'Rerun which passed step?', ignoreFocusOut: true },
+  );
+  return picked?.stepIdx;
+}
+
+/** Resolves true when the step was reopened, so a caller can go on to run it. */
 export async function rerunApprovedStepInlineCommand(
   runId: string,
   stepIdx: number,
   feedback: string,
-): Promise<void> {
+): Promise<boolean> {
   const root = requireRoot('Rerun Step');
-  if (!root) { return; }
+  if (!root) { return false; }
   const state = RunStateStore.load(root, runId);
-  if (!state) { return; }
+  if (!state) { return false; }
   const pipeline = loadPipeline(root, state.pipelineId);
   if (!pipeline) {
     void vscode.window.showErrorMessage(
       `Run "${runId}" references pipeline "${state.pipelineId}" which is no longer in workspace.yaml.`,
     );
-    return;
+    return false;
   }
   try {
     const next = rerunApprovedStep({
@@ -594,8 +620,10 @@ export async function rerunApprovedStepInlineCommand(
         ? ` Kept ${marked.length} finished step(s) downstream — they are marked dirty until redone.`
         : ''),
     );
+    return true;
   } catch (err) {
     surfaceRunError(err);
+    return false;
   }
 }
 
