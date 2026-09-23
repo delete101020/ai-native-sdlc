@@ -1464,6 +1464,7 @@ function StepDetail({
       />
       <DirtyUpstreamWarning focused={focused} />
       <UndoDoneAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
+      <RequestUpdateAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <RerunStepAction
         epic={epic}
         focused={focused}
@@ -1471,7 +1472,6 @@ function StepDetail({
         slashCommand={slashCommand}
         busy={!!activity}
       />
-      <RequestUpdateAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <StepHistory step={focused} />
     </div>
   );
@@ -1623,8 +1623,9 @@ function DirtyUpstreamWarning({ focused }: { focused: EpicStepDetailFull }) {
 /**
  * Rerun a step that already passed, keeping what was built on top of it.
  *
- * Sits beside Request update on purpose, because they answer the same question
- * differently and the choice is the user's: Request update says the change
+ * Its own row under Request update, laid out the same way, because they answer
+ * the same question differently and the choice is the user's — though Request
+ * update is the usual answer, so it comes first. Request update says the change
  * invalidates the downstream work, this says it might not. The copy leads with
  * what survives, since that is the only difference visible after the click.
  */
@@ -1647,22 +1648,26 @@ function RerunStepAction({
   const kept = keptOnRerun(epic, focusedIdx);
   const withClaude = !!slashCommand;
   return (
-    <div className="mt-3 rounded-md border border-border bg-secondary/20 px-3 py-2.5 text-[11px]">
-      <div className="mb-2 text-muted-foreground">
-        Step is done. Updated the prompt?{' '}
+    <div className="mt-3 flex items-center justify-between gap-2 rounded-md border border-dashed border-border bg-secondary/20 px-3 py-2 text-[11px]">
+      <div className="text-muted-foreground">
+        Updated the prompt?{' '}
         <span className="text-foreground/80">Rerun it</span>
         {kept.length > 0
           ? <> — <span className="font-semibold text-warning">{kept.length} finished step{kept.length === 1 ? '' : 's'} after it</span> stay done, marked dirty.</>
           : <> and produce its artifacts again.</>}
       </div>
-      <GateButton
-        variant="approve"
+      <button
+        type="button"
         disabled={busy}
         title={busy ? 'An agent is still working on this step — wait for it, or dismiss the banner above' : undefined}
         onClick={() => setOpen(true)}
+        className={cn(
+          'inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10.5px] font-semibold text-muted-foreground hover:border-foreground/40 hover:text-foreground',
+          busy && 'cursor-not-allowed opacity-40 hover:!border-border hover:!text-muted-foreground',
+        )}
       >
-        <RotateCcw className="h-3 w-3" /> {withClaude ? 'Rerun with Claude' : 'Rerun step'}
-      </GateButton>
+        <RotateCcw className="h-2.5 w-2.5" /> {withClaude ? 'Rerun with Claude' : 'Rerun step'}
+      </button>
       {open && (
         <RerunStepModal
           agent={focused.stepName ?? focused.agent}
