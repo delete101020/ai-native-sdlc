@@ -146,7 +146,7 @@ function progressTitle(epic: EpicSummary): string {
   return epic.stages === total
     ? `${done} of ${total} steps done`
     : `${stagesDone} of ${epic.stages} stages done — ${done} of ${total} steps, `
-      + 'with steps that run as peers counting as one stage';
+      + 'with steps that run as peers counting as one stage, done once any of them is';
 }
 
 export function EpicCard({

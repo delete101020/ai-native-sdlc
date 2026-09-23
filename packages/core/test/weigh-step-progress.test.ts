@@ -44,9 +44,14 @@ describe('weighStepProgress', () => {
     expect(all.percent).toBeLessThan(57);
   });
 
-  it('gives partial credit while a stage is only partly done', () => {
+  it('counts a stage done once any one of its peers is done', () => {
     const one = weighStepProgress(withDone(FAN, ['cr-intake', 'cr-solo-dev']));
-    expect(one.stagesDone).toBeCloseTo(1 + 1 / 3);
+    expect(one.stagesDone).toBe(2);
+    // The CR-Y01 case: intake, one solo and the merge done is 3 of 5 stages,
+    // however the other two solos stand.
+    const merged = weighStepProgress(withDone(FAN, ['cr-intake', 'cr-solo-dev', 'cr-merge']));
+    expect(merged.stagesDone).toBe(3);
+    expect(merged.percent).toBe(60);
   });
 
   it('leaves a sequential pipeline counted exactly as before', () => {
@@ -114,6 +119,7 @@ describe('weighStepProgress', () => {
       { id: 'qa', dependsOn: ['dev'], done: false },
     ]);
     expect(w.ranks).toEqual([0, 0, 1]);
-    expect(w.stagesDone).toBeCloseTo(0.5);
+    // Both sit at the front, so the done one settles that stage.
+    expect(w.stagesDone).toBe(1);
   });
 });

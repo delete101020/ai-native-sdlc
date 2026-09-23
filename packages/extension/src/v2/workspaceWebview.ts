@@ -514,7 +514,7 @@ interface EpicSummaryUi {
   progress: number;
   /** Stages the pipeline has: steps that run as peers count as one. */
   stages: number;
-  /** Stages finished, fractional while a stage is only partly done. */
+  /** Stages finished: a stage of peers is done once any one of them is. */
   stagesDone: number;
   statePath: string;
   stepDetails: EpicStepDetailFull[];

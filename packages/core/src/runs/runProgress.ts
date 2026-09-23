@@ -159,7 +159,7 @@ export interface ProgressWeighting {
   weights: number[];
   /** Number of distinct ranks: the units the run is measured in. */
   stages: number;
-  /** Completed stages, fractional while a rank is partly done. */
+  /** Completed stages: a rank counts once any one of its peers is done. */
   stagesDone: number;
   /** `stagesDone / stages` as a rounded percentage. */
   percent: number;
@@ -175,8 +175,10 @@ export interface ProgressWeighting {
  * a third of the pipeline, and a pipeline that split that round five ways
  * would claim more progress for the same amount of review.
  *
- * So steps are grouped by rank (longest path from a root), peers share their
- * rank's single unit, and the total is the number of ranks. A pipeline with no
+ * So steps are grouped by rank (longest path from a root), each rank is one
+ * unit, and the total is the number of ranks. Peers are takes on the same
+ * round, so one finished peer completes its rank and the rest add nothing on
+ * top — the others still open do not hold the epic back. A pipeline with no
  * `depends_on` gives every step its own rank, which is the old count exactly —
  * sequential pipelines are unaffected.
  *
@@ -229,7 +231,11 @@ export function weighStepProgress(steps: ReadonlyArray<ProgressStep>): ProgressW
 
   const weights = ranks.map((r) => 1 / (sizeByRank.get(r) ?? 1));
   const stages = sizeByRank.size;
-  const stagesDone = steps.reduce((sum, s, i) => (s.done ? sum + weights[i] : sum), 0);
+  // One finished peer settles its rank: the round has produced what the next
+  // stage reads, and the peers still open do not hold the epic back.
+  const doneRanks = new Set<number>();
+  steps.forEach((s, i) => { if (s.done) { doneRanks.add(ranks[i]); } });
+  const stagesDone = doneRanks.size;
 
   return {
     ranks,

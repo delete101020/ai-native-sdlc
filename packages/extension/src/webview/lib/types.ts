@@ -713,7 +713,7 @@ export interface EpicSummary {
   progress: number;
   /** Stages the pipeline has. Absent on an older host bundle. */
   stages?: number;
-  /** Stages finished, fractional while a stage is only partly done. */
+  /** Stages finished: a stage of peers is done once any one of them is. */
   stagesDone?: number;
   statePath: string;
   stepDetails: EpicStepDetailFull[];
