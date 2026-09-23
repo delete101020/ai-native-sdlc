@@ -1623,7 +1623,7 @@ function DirtyUpstreamWarning({ focused }: { focused: EpicStepDetailFull }) {
 /**
  * Rerun a step that already passed, keeping what was built on top of it.
  *
- * Its own row under Request update, laid out the same way, because they answer
+ * Its own row under Request update, styled the same way, because they answer
  * the same question differently and the choice is the user's — though Request
  * update is the usual answer, so it comes first. Request update says the change
  * invalidates the downstream work, this says it might not. The copy leads with
@@ -1648,7 +1648,7 @@ function RerunStepAction({
   const kept = keptOnRerun(epic, focusedIdx);
   const withClaude = !!slashCommand;
   return (
-    <div className="mt-3 flex items-center justify-between gap-2 rounded-md border border-dashed border-border bg-secondary/20 px-3 py-2 text-[11px]">
+    <div className="mt-3 flex items-center justify-between rounded-md border border-dashed border-warning/40 bg-warning/5 px-3 py-2 text-[11px]">
       <div className="text-muted-foreground">
         Updated the prompt?{' '}
         <span className="text-foreground/80">Rerun it</span>
@@ -1662,8 +1662,8 @@ function RerunStepAction({
         title={busy ? 'An agent is still working on this step — wait for it, or dismiss the banner above' : undefined}
         onClick={() => setOpen(true)}
         className={cn(
-          'inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10.5px] font-semibold text-muted-foreground hover:border-foreground/40 hover:text-foreground',
-          busy && 'cursor-not-allowed opacity-40 hover:!border-border hover:!text-muted-foreground',
+          'inline-flex shrink-0 items-center gap-1 rounded-md border border-warning/50 bg-warning/15 px-2 py-1 text-[10.5px] font-semibold text-warning hover:border-warning hover:bg-warning/25',
+          busy && 'cursor-not-allowed opacity-40 hover:!border-warning/50 hover:!bg-warning/15',
         )}
       >
         <RotateCcw className="h-2.5 w-2.5" /> {withClaude ? 'Rerun with Claude' : 'Rerun step'}
