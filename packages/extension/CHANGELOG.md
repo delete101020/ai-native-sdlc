@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.0.18
+
+The Epics list can now be sorted: by what needs you first, by last activity,
+by creation date, by name, or with your own epics on top.
+
+### Added
+
+- **Sort picker on the Epics list**, next to the status filters, with a
+  reverse toggle. Your choice is remembered when you reopen the panel.
+  - **Created**: newest first. This is the default and the order the list had before.
+  - **Needs attention**: steps awaiting review or rejected, then failed epics,
+    then work built on an upstream step that was rerun, then running, pending,
+    done.
+  - **Last activity**: the most recent step start, finish, approval, rejection
+    or rerun.
+  - **My epics**: epics whose id carries your `epic_id_prefix` come first,
+    newest id first. Disabled until a prefix is set.
+  - **Name**: title A → Z.
+- An incident and its follow-ups move as one family, placed where the
+  highest-sorting member of the family would go.
+
 ## 4.0.17
 
 Tidier step buttons and status bar: Rerun with Claude matches Request update,
