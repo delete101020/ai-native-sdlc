@@ -255,7 +255,7 @@ function accountItems(accounts: Account[], active: string): Pick[] {
   const rows: Pick[] = accounts.map((a) => {
     const email = accountEmail(a.resolved);
     const exists = fs.existsSync(a.resolved);
-    const left = usageSummary(cachedPlanUsage(a.resolved));
+    const used = usageSummary(cachedPlanUsage(a.resolved));
     const where = email
       ? `Signed in as ${email}`
       : exists
@@ -263,9 +263,9 @@ function accountItems(accounts: Account[], active: string): Pick[] {
         : 'Folder does not exist yet — Claude will create it on first login';
     return {
       label: a.resolved === active ? `$(check) ${a.label}` : a.label,
-      // The headline of this picker is "which account still has room", so the
+      // The headline of this picker is "which account has the most room", so the
       // percentage goes where the eye lands first.
-      description: left ? `${left} · ${a.declared}` : a.declared,
+      description: used ? `${used} · ${a.declared}` : a.declared,
       detail: where,
       value: a.declared,
     };
