@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.0.22
+
+Popups stay open until you close them, and a parallel run whose leftover
+steps lead nowhere now finishes.
+
+### Fixed
+
+- **Popups.** A click outside a popup such as *Update with feedback* no
+  longer closes it and throws away what you typed. Every popup now closes
+  only from its X, *Cancel* or Esc. Dropdown menus still close on an outside
+  click.
+- **Runs that never finished.** A pipeline with parallel steps could show
+  100% and stay *in progress* forever when a peer step was rejected or left
+  open and no later step depended on it. Such a run now completes once
+  another step in the same stage is approved, including runs already stuck
+  that way. `aidlc step done` and `aidlc step skip` use the same rule.
+
 ## 4.0.21
 
 The extra files a step produces now open the same way as its main artifact.
