@@ -15,9 +15,9 @@ interface Props {
    * outer modal in a stacked-modal pair so the inner modal's Esc doesn't
    * also dismiss the outer one. */
   inactive?: boolean;
-  /** When false, a backdrop click does NOT dismiss the modal (only the X /
-   * Cancel / Esc do). Use for form modals where an accidental outside click
-   * would throw away in-progress work. Defaults to true. */
+  /** When true, a backdrop click dismisses the modal. Off by default: an
+   * accidental outside click threw away whatever was typed, so a modal closes
+   * only from the X / Cancel / Esc unless it opts in. */
   closeOnBackdrop?: boolean;
 }
 
@@ -29,7 +29,7 @@ export function Modal({
   maxWidth = 'max-w-md',
   onSubmit,
   inactive = false,
-  closeOnBackdrop = true,
+  closeOnBackdrop = false,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
 

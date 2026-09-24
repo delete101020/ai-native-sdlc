@@ -121,7 +121,6 @@ export function AnalyzeRequirementsModal({ onClose }: Props) {
       maxWidth="max-w-xl"
       onClose={onClose}
       onSubmit={submit}
-      closeOnBackdrop={false}
     >
       <div className="space-y-4 pb-1">
 

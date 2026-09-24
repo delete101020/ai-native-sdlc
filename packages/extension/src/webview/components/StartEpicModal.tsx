@@ -616,7 +616,7 @@ export function StartEpicModal({
   const [localEpicsDir, setLocalEpicsDir] = useState(epicsDir);
 
   return (
-    <Modal title="Start epic" maxWidth="max-w-2xl" onClose={onClose} onSubmit={submit} closeOnBackdrop={false}>
+    <Modal title="Start epic" maxWidth="max-w-2xl" onClose={onClose} onSubmit={submit}>
       <div className="space-y-4">
         {isFirstEpic && hasFolder && (
           <div className="rounded-md border border-primary/30 bg-primary/5 p-3">

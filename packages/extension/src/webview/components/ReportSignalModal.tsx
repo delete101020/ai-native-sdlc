@@ -98,7 +98,6 @@ export function ReportSignalModal({
       maxWidth="max-w-xl"
       onClose={onClose}
       onSubmit={submit}
-      closeOnBackdrop={false}
     >
       <div className="space-y-4">
         <div>

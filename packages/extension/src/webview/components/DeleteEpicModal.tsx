@@ -48,7 +48,6 @@ export function DeleteEpicModal({ epicId, epicDir, hasRun, artifacts, doneSteps,
       title={`Delete epic ${epicId}`}
       onClose={onClose}
       onSubmit={submit}
-      closeOnBackdrop={false}
     >
       <div className="space-y-3 text-[12px] leading-relaxed text-foreground/85">
         <p>
