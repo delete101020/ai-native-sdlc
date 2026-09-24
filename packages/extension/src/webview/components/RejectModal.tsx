@@ -48,13 +48,10 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
     .filter((s) => s.idx < currentStepIdx);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
+    // No backdrop dismiss — an outside click lost the typed reason; X / Cancel / Esc close it.
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div
         className="w-full max-w-md rounded-lg border border-border bg-popover p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="reject-modal-title"
