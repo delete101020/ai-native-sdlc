@@ -1,4 +1,4 @@
-# AIDLC v3.6 🚀
+# AIDLC v4.0 🚀
 
 **AI-Native SDLC pipeline runner. Drive Claude through the six-stage AI-Native SDLC Playbook — Plan → Design → Build → Test → Deploy → Maintain, with Maintain looping back to Plan. See what Claude is building, control every step, track every token.**
 
@@ -26,6 +26,62 @@ observability, and a native session-insights dashboard built from the Claude
 Code transcript.
 
 ![aidlc demo](packages/extension/media/demo.gif)
+
+## ✨ What's New in v4.0 — AIDLC Native on the Marketplace (this fork)
+
+Covers 4.0.0 – 4.0.22. The full, per-release record is in [`packages/extension/CHANGELOG.md`](packages/extension/CHANGELOG.md).
+
+- **🏷️ Published as AIDLC Native** — extension `delete101020.aidlc-native` on the VS Code Marketplace and Open VSX, CLI `@delete101020/aidlc` on npm (the command is still `aidlc`). Commands and settings moved from `aidlc.*` to `aidlcNative.*`, so it installs side by side with upstream `hueanmy.aidlc`. Your `aidlc.*` settings are copied over on first activation; keybindings have to be renamed by hand.
+- **🔁 Rerun without throwing work away** — **Rerun with Claude** on a step that already passed reopens that step alone: approved steps downstream keep their artifacts and history and get a `dirty` mark until they are approved again. **Undo mark done** takes back a mis-click while nothing downstream has started, and **Re-verify** runs a step's auto-review again on the artifact as it stands.
+- **🧩 Pipelines can say more** — `optional: true` on a step (rejecting it never fails the epic), `on_failure: continue` honoured by `aidlc run exec`, optional `produces` entries (`{ path, optional: true }`, which needs 4.0.19+ everywhere the workspace is used), and a step `description` shown on the step card.
+- **📊 Progress counts in stages** — steps are ranked through `depends_on`, so a fan-out round counts as one unit of work and one finished peer completes it. A run whose leftover parallel peers lead nowhere now finishes instead of sitting at 100% *in progress*.
+- **⚡ Plan usage in the status bar** — how much of each Claude plan window is used (`5h 2% · 1w 38% · Fable 61%`, read the way `/usage` reads), with a reset countdown, a burn rate and amber/red thresholds. **Switch Claude Account** shows the same figure for every saved account.
+- **🗂️ A tidier Epics panel** — tags on epics (`aidlc epic tag`, filter chips), a sort picker (needs attention, last activity, created, my epics, name), incident families folded into one row, an editable description (`aidlc epic describe`), **Change workflow** until the first step moves (`aidlc epic workflow`), every file a step writes listed under **Also produced**, and `.html` artifacts rendered instead of opened as markup.
+- **🔧 Fewer ways to break a workspace** — renaming an agent or a skill updates every reference to it, `aidlc validate` checks slash commands, parallel steps each track their own running agent, and popups close only from X, *Cancel* or Esc.
+
+---
+
+## ✨ What's New in v3.14 — CodeGraph engine (this fork)
+
+- **🕸️ No scan on open** — ast-graph now scans only when there is no graph yet or HEAD has moved. Large repos can opt into **CodeGraph** (`aidlcNative.astGraph.engine`: `codegraph`), which indexes once in the background and keeps itself up to date through its own MCP server.
+- **🪟 Windows fixes** — npm-installed `claude` / `codex` `.cmd` shims are resolved, so MCP registration, Ask and both runners stop reporting "`claude` not found on PATH".
+
+---
+
+## ✨ What's New in v3.12 – v3.13 — follow-up epics (this fork)
+
+- **➡️ A finished epic can hand its work forward** — any step can write `followups.json` (one item per piece of work, with `intent`, `recipe`, `blockedBy`, `dependsOn`). **Open follow-up epics** scaffolds each pick as `<parent>-<key>` with `intent.md` already written, grouped under its parent the way an incident groups its fix.
+- **🪝 Follow-up hooks** — `on_followups_opened` and `on_followup_done` run a command of your own when children open and as each one finishes, to keep a handoff document or a tracker in step. **Sync follow-ups** re-runs the open hook.
+- **🩹 `aidlc epic step add`** on a run already past the gate that would have opened the new step now opens it.
+
+---
+
+## ✨ What's New in v3.10 – v3.11 — Run to completion (this fork)
+
+- **▶️ Run to completion from the panel** — one button runs every remaining step back to back (spawn, check `produces`, auto-review, advance) with the same engine as `aidlc run exec`, pausing at `human_review` gates unless you say otherwise.
+- **🧹 Epic pipelines stop cluttering the pickers** — an epic's own pipeline is no longer offered as a workflow. **Show epic pipelines** in Builder › Workflows and **Edit workflow** on the epic card are the way back to one; **Reload** re-reads the epics from disk.
+- **🩹 Fixes** — *Start pipeline run* no longer resets a finished epic, and a deleted epic no longer keeps its card.
+
+---
+
+## ✨ What's New in v3.9 — an epic owns its pipeline (this fork)
+
+- **📁 `docs/epics/<id>/pipeline.yaml`** — an epic's pipeline lives beside its `state.json` instead of being appended to `.aidlc/workspace.yaml`, so concurrent epics stop conflicting in one shared file. Move older ones with `aidlc epic pipeline extract`.
+- **📏 `strict_mode`** — how deep an epic's phases go (`aidlc epic start --no-strict`, `aidlc epic strict <id> [on|off]`, or the **Depth** badge). Every template heading survives; only breadth shrinks.
+- **🌿 `artifact_commit: on_approve`** — approving a step commits its artifact to an `epic/<id>` branch with git plumbing, never touching HEAD, the index or the working tree.
+- **🚦 Per-recipe `gates:`**, the **`native-lite`** recipe (intent → build-plan → implement → review), and **`epic_id_prefix`** for ids that carry your initials and a date.
+- **🚨 Report a signal** — stage 6 gets a form in the UI, and the incident → follow-up link is drawn on the epic list. **Active Runs** shows in the sidebar.
+
+---
+
+## ✨ What's New in v3.7 – v3.8 — right-sized workflows, reshapable epics (this fork)
+
+- **🧾 The prompt carries what a phase needs** — the persona and the repo's conventions are inlined into the prompt instead of passed as paths to read. Runners declare what their harness already supplies, so Claude is not handed `CLAUDE.md` twice.
+- **✂️ Reshape a running epic** — `aidlc epic step add|remove <epic>` updates the pipeline, run state and `state.json` together and keeps the history pointing at the right step. `aidlc epic step set <epic> <step>` (3.8) changes a step's review gates while it runs.
+- **🎯 Start epic right-sizes the work** — pick a recipe by hand, four more recipes for the AI-Native workflow (eight in all), and `artifact_language:` to keep a pipeline writing in one language.
+- **🤝 Beyond Claude** — a bundled `runner: codex`, `aidlc mcp status` / `aidlc mcp register` to give another CLI the same MCP servers, and a `providers:` block in `workspace.yaml`.
+
+---
 
 ## ✨ What's New in v3.6 — multi-account Claude, living model defaults (this fork)
 
