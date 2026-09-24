@@ -13,6 +13,7 @@
  * maps them to a progress panel.
  */
 
+import * as path from 'path';
 import { WorkspaceLoader } from '../loader/WorkspaceLoader';
 import { RunStateStore } from './RunStateStore';
 import {
@@ -25,6 +26,7 @@ import {
 import { runAutoReview } from './AutoReviewer';
 import { commitApprovedArtifacts, resolveArtifactCommitConfig } from './EpicArtifactCommit';
 import { epicsRoot, mirrorRunStateToEpic } from './EpicScaffold';
+import { readEpicAttachments, attachmentsForStep, attachmentsPromptSection } from '../epics/EpicAttachments';
 import { isActiveStatus, isStepOptional } from './runProgress';
 import { checkBudget, type CostAccounting } from './budget';
 import { estimateCostUsd, ratesFromConfig, providerAliases } from './pricing';
@@ -419,7 +421,14 @@ async function execStep(
   // claude --print always needs a non-empty prompt: explicit message → context
   // pairs → agent name fallback.
   const contextStr = Object.entries(state.context).map(([k, v]) => `${k}=${v}`).join(' ');
-  const userMessage = opts.message ?? (contextStr || `Execute step: ${agentId}`);
+  const baseMessage = opts.message ?? (contextStr || `Execute step: ${agentId}`);
+  // Documents the user attached by hand: the epic's inputs plus this step's own.
+  const epicDir = path.join(epicsRoot(root, ws.config), state.runId);
+  const attached = attachmentsPromptSection(
+    path.relative(root, epicDir),
+    attachmentsForStep(readEpicAttachments(epicDir), stepRec.name ?? agentId),
+  );
+  const userMessage = attached ? `${baseMessage}\n\n${attached}` : baseMessage;
 
   if (opts.dryRun) {
     hooks.onDryRunPreview?.({

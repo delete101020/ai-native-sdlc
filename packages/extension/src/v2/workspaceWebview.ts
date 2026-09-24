@@ -291,6 +291,14 @@ import {
   startPipelineRunInlineCommand,
 } from './runCommands';
 import { pickAndReadTextFile } from './pickAndReadTextFile';
+import {
+  readAttachmentsUi,
+  addEpicInputsInteractive,
+  attachStepFilesInteractive,
+  useFileAsStepOutputInteractive,
+  removeAttachmentInteractive,
+  type EpicAttachmentsUi,
+} from './epicAttachmentsHost';
 import { scaffoldRequirementAnalysis } from './requirementWizard';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
@@ -529,6 +537,9 @@ interface EpicSummaryUi {
   inputs: Record<string, string>;
   epicDir: string;
   existingArtifacts: string[];
+  /** Documents added by hand — epic inputs and per-step attachments. Absent
+   *  on an artifacts-only folder, which has no manifest to write to. */
+  attachments?: EpicAttachmentsUi;
   /**
    * `strict_mode` from the epic's state.json. Carried explicitly because the
    * webview badge reads it: leave it out of this DTO and every epic arrives
@@ -1107,6 +1118,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
       artifactPath: s.artifactPath,
       artifactExists: s.artifactExists,
       artifactStale: s.artifactStale,
+      artifactOptional: s.artifactOptional,
       artifacts: s.artifacts,
       status: s.status,
       runStatus: s.runStatus,
@@ -1150,6 +1162,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     tags: e.tags,
     epicDir,
     existingArtifacts,
+    attachments: e.artifactsOnly ? undefined : readAttachmentsUi(epicDir),
     // Cheap and exact: the file core writes is the only marker of an incident
     // epic — the pipeline id is generated per epic and the recipe is not stored.
     hasSignal: fs.existsSync(path.join(epicDir, SIGNAL_FILE)),
@@ -2495,6 +2508,38 @@ export class WorkspaceWebview {
         const target = candidates.find((p) => fs.existsSync(p));
         if (!target) { return; }
         await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(target));
+        return;
+      }
+      case 'addEpicInput': {
+        if (await addEpicInputsInteractive(String(msg.epicDir ?? ''))) { this.refresh(); }
+        return;
+      }
+      case 'attachStepFile': {
+        const changed = await attachStepFilesInteractive(
+          String(msg.epicDir ?? ''),
+          String(msg.stepName ?? ''),
+        );
+        if (changed) { this.refresh(); }
+        return;
+      }
+      case 'useFileAsStepOutput': {
+        // An artifact produced outside the tool, written to the path the
+        // step declares — so Mark step done checks it like any other.
+        const epicDir = String(msg.epicDir ?? '');
+        const filename = String(msg.filename ?? '');
+        if (!epicDir || (!filename && !msg.path)) { return; }
+        const target = artifactAbsPath(epicDir, filename, msg.path);
+        if (await useFileAsStepOutputInteractive(target, filename || path.basename(target))) {
+          this.refresh();
+        }
+        return;
+      }
+      case 'removeAttachment': {
+        const changed = await removeAttachmentInteractive(
+          String(msg.epicDir ?? ''),
+          String(msg.relPath ?? ''),
+        );
+        if (changed) { this.refresh(); }
         return;
       }
       case 'revealArtifactPath': {

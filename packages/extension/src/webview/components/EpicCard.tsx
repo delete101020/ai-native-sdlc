@@ -35,6 +35,9 @@ import {
   Workflow,
   Undo2,
   Tag as TagIcon,
+  Paperclip,
+  Plus,
+  Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -45,6 +48,7 @@ import type {
   StepStatus,
   UiStatus,
   AgentActivity,
+  AttachmentItem,
 } from '@/lib/types';
 import { StatusBadge } from './StatusBadge';
 import { TagInput } from './TagInput';
@@ -387,6 +391,28 @@ export function EpicCard({
               </div>
               {epic.inputs.extra_projects && (
                 <ExtraProjectsList raw={epic.inputs.extra_projects} />
+              )}
+            </div>
+          )}
+
+          {epic.attachments && (
+            <div>
+              <div className="mb-1.5 flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Input documents
+                </span>
+                <AddAttachmentButton
+                  label="Add document"
+                  title="Copy documents into this epic's inputs/ folder — every step reads them when it runs"
+                  onClick={() => postMessage({ type: 'addEpicInput', epicDir: epic.epicDir })}
+                />
+              </div>
+              {epic.attachments.epic.length > 0 ? (
+                <AttachmentChips epicDir={epic.epicDir} items={epic.attachments.epic} />
+              ) : (
+                <div className="text-[11px] italic text-muted-foreground">
+                  None — add a document here and every step will read it.
+                </div>
               )}
             </div>
           )}
@@ -1214,6 +1240,13 @@ function StepDetail({
   const extraArtifacts = (focused.artifacts ?? []).filter(
     (a) => a.path !== focused.artifactPath && a.label !== artifactName,
   );
+  // Attachments are keyed the way the runner names a step: `name`, else agent.
+  const stepKey = focused.stepName ?? focused.agent;
+  const stepAttachments = epic.attachments?.steps[stepKey] ?? [];
+  // An artifact produced elsewhere can stand in for this step's output. Only
+  // for a file the step declares, and not while an agent is writing it.
+  const canPlaceOutput = !!artifactName && !!epic.attachments && !activity
+    && !(focused.artifacts ?? []).some((a) => a.label === artifactName && a.isDirectory);
 
   const accent = (() => {
     switch (focused.status) {
@@ -1279,6 +1312,7 @@ function StepDetail({
         <DetailValue empty={!m.outputs}>{m.outputs || '—'}</DetailValue>
 
         <DetailLabel icon={<FileText className="h-3 w-3" />} text="Artifact" />
+        <div className="flex flex-wrap items-center gap-1.5">
         {artifactName ? (
           artifactExists ? (
             <div className="relative w-fit">
@@ -1323,6 +1357,42 @@ function StepDetail({
           )
         ) : (
           <div className="font-mono text-[11px] italic text-muted-foreground">—</div>
+        )}
+        {canPlaceOutput && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              postMessage({
+                type: 'useFileAsStepOutput',
+                epicDir: epic.epicDir,
+                filename: artifactName,
+                path: focused.artifactPath,
+              });
+            }}
+            title={`Produced ${artifactName} outside this tool? Pick the file and it is copied to ${focused.artifactPath ?? `artifacts/${artifactName}`}. Mark step done still checks it.`}
+            className="inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <Upload className="h-3 w-3" />
+            <span>{artifactExists ? 'Replace with file…' : 'Use external file…'}</span>
+          </button>
+        )}
+        </div>
+
+        {epic.attachments && (
+          <>
+            <DetailLabel icon={<Paperclip className="h-3 w-3" />} text="Attached" />
+            <div className="flex flex-wrap items-center gap-1.5">
+              {stepAttachments.length > 0 && (
+                <AttachmentChips epicDir={epic.epicDir} items={stepAttachments} />
+              )}
+              <AddAttachmentButton
+                label={stepAttachments.length > 0 ? 'Attach' : 'Attach file'}
+                title="Copy files into this epic for this step only — the agent reads them when this step runs"
+                onClick={() => postMessage({ type: 'attachStepFile', epicDir: epic.epicDir, stepName: stepKey })}
+              />
+            </div>
+          </>
         )}
 
         {extraArtifacts.length > 0 && (
@@ -1426,6 +1496,79 @@ function StepDetail({
         busy={!!activity}
       />
       <StepHistory step={focused} />
+    </div>
+  );
+}
+
+function AddAttachmentButton({ label, title, onClick }: { label: string; title: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      title={title}
+      className="inline-flex w-fit items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
+    >
+      <Plus className="h-3 w-3" />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+/**
+ * Documents added by hand, each with the usual open menu and a remove button.
+ * They live in `inputs/` or `attachments/`, never in `artifacts/`, so the
+ * annotron entries do not apply.
+ */
+function AttachmentChips({ epicDir, items }: { epicDir: string; items: AttachmentItem[] }) {
+  const [menuPath, setMenuPath] = useState<string | null>(null);
+  return (
+    <div className="flex w-fit flex-wrap gap-1.5">
+      {items.map((a) => (
+        <div key={a.relPath} className="relative inline-flex w-fit items-center">
+          <button
+            type="button"
+            disabled={!a.exists}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuPath((p) => (p === a.path ? null : a.path));
+            }}
+            title={a.exists ? `Open ${a.relPath}` : `${a.relPath} — file is missing`}
+            className={cn(
+              'inline-flex w-fit items-center gap-1 rounded-l border px-2 py-0.5 font-mono text-[11px] transition-colors',
+              a.exists
+                ? 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground'
+                : 'border-border bg-muted/50 italic text-muted-foreground opacity-70',
+            )}
+          >
+            <Paperclip className="h-3 w-3 opacity-70" />
+            <span>{a.label}</span>
+            {a.exists && (
+              <ChevronDown className={cn('h-2.5 w-2.5 opacity-70 transition-transform', menuPath === a.path && 'rotate-180')} />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              postMessage({ type: 'removeAttachment', epicDir, relPath: a.relPath });
+            }}
+            title={`Remove ${a.label}`}
+            aria-label={`Remove ${a.label}`}
+            className="inline-flex items-center self-stretch rounded-r border border-l-0 border-border bg-card px-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+          {menuPath === a.path && (
+            <ArtifactMenu
+              epicDir={epicDir}
+              name={a.label}
+              path={a.path}
+              inEpicFolder={false}
+              onClose={() => setMenuPath(null)}
+            />
+          )}
+        </div>
+      ))}
     </div>
   );
 }

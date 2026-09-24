@@ -1123,6 +1123,7 @@ The user invoked you with epic id \`$ARGUMENTS\`.
    - If the step has \`feedback\` from a prior rejection, address it explicitly in this revision.
    - Check \`history\` entries for rejection reasons and context.
 2. Read \`${epicRoot}/$ARGUMENTS/inputs.json\` for capability inputs (Jira ticket, Figma URL, files glob, GitHub repo, etc.).
+   - If \`${epicRoot}/$ARGUMENTS/attachments.json\` exists, read every file listed under \`epic\`, and under \`steps.<this step>\` (paths are relative to the epic folder). These are documents the user attached by hand.
 ${artifactInstruction}
 4. When finished, summarize what you produced and tell the user to click **"Mark step done"** in the AIDLC panel to advance the pipeline.
 

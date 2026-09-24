@@ -311,7 +311,10 @@ Claude — but still follow the structural contract below.
 
 1. Read \`${epicRoot}/<epic>/state.json\` for prior feedback/history and address
    any rejection reasons in this revision.
-2. Read \`${epicRoot}/<epic>/inputs.json\` for capability inputs.
+2. Read \`${epicRoot}/<epic>/inputs.json\` for capability inputs. If
+   \`${epicRoot}/<epic>/attachments.json\` exists, also read every file listed
+   under \`epic\`, and under \`steps.<phase>\` for the chosen phase (paths are
+   relative to the epic folder) — documents the user attached by hand.
 3. Before writing, read the blank template for that artifact at
    \`.aidlc/aidlc-templates/<templatesId>/<FILE>\` and follow its structure —
    \`<templatesId>\` is the pipeline's \`derived_from\` when it has one (a
@@ -359,7 +362,8 @@ procedure exactly as \`/aidlc <epic> ${phase.id}\` would:
    ones — and only fall back to \`.claude/skills/<id>.md\` and
    \`.claude/agents/<id>.md\` when none is declared. Adopt them (unless the
    active standard is \`none\`), then follow the structural contract: read
-   state/inputs, write to
+   state/inputs (and the files \`attachments.json\` lists under \`epic\` and
+   \`steps.${phase.id}\`, when it exists), write to
    \`${epicRoot}/<epic>/artifacts/${phase.artifact}\` (or the step's declared
    artifact), and tell the user to click **"Mark step done"**.
 

@@ -648,6 +648,25 @@ export interface StepArtifact {
   optional?: boolean;
 }
 
+/** A document the user added by hand — an epic input or a step attachment. */
+export interface AttachmentItem {
+  /** Absolute path — send it back as `path` to open the file. */
+  path: string;
+  /** Path relative to the epic folder — send it back as `relPath` to remove it. */
+  relPath: string;
+  /** File name in the epic folder. */
+  label: string;
+  addedAt: string;
+  exists: boolean;
+}
+
+export interface EpicAttachments {
+  /** Copied to `inputs/`; every step reads them. */
+  epic: AttachmentItem[];
+  /** Copied to `attachments/<step>/`; keyed by step name (or agent when unnamed). */
+  steps: Record<string, AttachmentItem[]>;
+}
+
 export interface EpicStepDetailFull {
   agent: string;
   /** Phase id / slash command name (e.g. `plan`, `test-plan`) when the
@@ -736,6 +755,9 @@ export interface EpicSummary {
   inputs: Record<string, string>;
   epicDir: string;
   existingArtifacts: string[];
+  /** Documents added by hand. Absent on an artifacts-only folder, and on a
+   *  host bundle that predates the field — the card then offers no attach. */
+  attachments?: EpicAttachments;
   createdAt: string;
   /** Canonical (uppercase) tags from state.json. Optional so an older host
    *  bundle that predates tags renders as "no tags" rather than crashing. */

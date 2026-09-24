@@ -43,6 +43,7 @@ import { installWorkflowGlobalsCommand } from './installWorkflowGlobalsCommand';
 import { uninstallWorkflowGlobalsCommand } from './uninstallWorkflowGlobalsCommand';
 import { readYaml } from './yamlIO';
 import { agentActivity } from './agentActivity';
+import { attachmentsPromptSuffix } from './epicAttachmentsHost';
 import { StandardPickerWebview } from './standardPickerWebview';
 import { startEpicCommand, editEpicDescriptionCommand, changeEpicWorkflowCommand } from './epicWizard';
 import { analyzeRequirementsCommand } from './requirementWizard';
@@ -452,9 +453,9 @@ export function registerV2WorkspaceCommands(
 
       ensureCommandFiles(root);
 
-      const prompt = fb
+      const prompt = (fb
         ? `${slash} ${id} — Update artifact per feedback: "${fb.replace(/"/g, '\\"')}"`
-        : `${slash} ${id}`;
+        : `${slash} ${id}`) + attachmentsPromptSuffix(root, id, step);
 
       // GH-73 Problem B: Always create fresh terminal; never reuse existing
       // one since it might be at shell prompt, not Claude REPL.

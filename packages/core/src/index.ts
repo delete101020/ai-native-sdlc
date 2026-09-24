@@ -201,6 +201,22 @@ export type {
   LedgerRun,
 } from './epics/FollowUpHooks';
 
+// ── Attachments: documents a person adds to an epic or step by hand ──
+export {
+  ATTACHMENTS_FILE,
+  EPIC_INPUTS_DIR,
+  STEP_ATTACHMENTS_DIR,
+  readEpicAttachments,
+  addEpicInput,
+  attachStepFile,
+  removeAttachment,
+  attachmentsForStep,
+  attachmentsPromptSection,
+  placeStepOutput,
+  stepFolderName,
+} from './epics/EpicAttachments';
+export type { Attachment, EpicAttachments } from './epics/EpicAttachments';
+
 export { collectContext } from './epics/ContextCollector';
 export type { EpicContext } from './epics/ContextCollector';
 export { generatePlan, renderPlanMarkdown } from './epics/PlanGenerator';
