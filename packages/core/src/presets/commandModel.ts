@@ -31,7 +31,7 @@ import { artifactLanguageSection, commandBodyPredatesArtifactLanguage } from '..
 import { strictModeSection } from '../loader/strictMode';
 import { commandBodyIsStale } from './commandBodyFreshness';
 import type { PipelineConfig, WorkspaceConfig } from '../schema/WorkspaceSchema';
-import { normalizeStep, stepDagId } from '../schema/WorkspaceSchema';
+import { normalizeStep, resolveStepSkills, stepDagId } from '../schema/WorkspaceSchema';
 import type { RunState } from '../runs/RunState';
 import { isStepOptional } from '../runs/runProgress';
 
@@ -140,6 +140,8 @@ export function resolveComposition(
   config: WorkspaceConfig,
   pipelineId: string,
   phaseId: string,
+  /** The alternative picked for this step (its run state `skill`), if any. */
+  chosenSkill?: string,
 ): PhaseComposition {
   const pipeline = config.pipelines.find((p) => p.id === pipelineId);
   if (!pipeline) {
@@ -150,11 +152,9 @@ export function resolveComposition(
     return { found: false, phaseId, pipelineId };
   }
   const step = normalizeStep(stepCfg);
-  let skills = step.skills;
-  if (!skills || skills.length === 0) {
-    const agent = config.agents.find((a) => a.id === step.agent);
-    skills = agent?.skills ?? [];
-  }
+  const agent = config.agents.find((a) => a.id === step.agent);
+  // A step with alternatives (`default_skill`) composes one of them, never all.
+  const skills = resolveStepSkills(step, agent?.skills ?? [], chosenSkill);
   return {
     found: true,
     phaseId,
@@ -298,6 +298,9 @@ The first token is the **epic id**; an optional second token is the **phase**.
 2. In that pipeline's \`steps\`, find the step whose \`name\` (or \`agent\` when
    unnamed) === the chosen phase. That step's \`agent\` + \`skills\` are the
    wiring. If the step omits \`skills\`, use the referenced agent's \`skills:\`.
+   If the step sets \`default_skill\`, its \`skills\` are alternatives: load
+   **only one** — the step's \`skill\` in \`.aidlc/runs/<epic>.json\` when it
+   is one of them, else \`default_skill\`. Never load the others.
 3. Load the persona from \`.claude/agents/<agent>.md\` (fall back to
    \`~/.claude/agents/<agent>.md\`), and each skill from
    \`.claude/skills/<skill>.md\` (fall back to \`~/.claude/skills/<skill>.md\`).

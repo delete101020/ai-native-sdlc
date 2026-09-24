@@ -360,8 +360,10 @@ export function registerRun(program: Command): void {
     .option('--json',             'Suppress decorative output; print a final JSON summary to stdout (claude stream goes to stderr)')
     .option('--message <text>',   'Override the user message sent to claude (default: context pairs)')
     .option('--dry-run',          'Print the assembled prompt without spawning claude')
+    .option('--skill <id>',       'On steps that offer alternative skills (default_skill), run this one')
     .action(async (runId: string, opts: {
       until?: string; autoApprove?: boolean; requireComplete?: boolean; json?: boolean; message?: string; dryRun?: boolean;
+      skill?: string;
     }, actionCmd: Command) => {
       const root = resolveWorkspaceRoot(actionCmd);
       // In --json mode decorative stdout is silenced so the only thing on stdout
@@ -485,7 +487,7 @@ function execSummary(runId: string, outcome: ExecOutcome, exitCode: number, stat
 async function execLoop(
   root: string,
   runId: string,
-  opts: { until?: string; autoApprove?: boolean; json?: boolean; message?: string; dryRun?: boolean },
+  opts: { until?: string; autoApprove?: boolean; json?: boolean; message?: string; dryRun?: boolean; skill?: string },
 ): Promise<ExecOutcome> {
   // Resolve --until against the initial state (keeps the CLI's nice not-found
   // error + exit). The engine reloads state each iteration on its own.
@@ -499,7 +501,7 @@ async function execLoop(
   return runExecLoop(
     root,
     runId,
-    { untilIdx, autoApprove: opts.autoApprove, message: opts.message, dryRun: opts.dryRun },
+    { untilIdx, autoApprove: opts.autoApprove, message: opts.message, dryRun: opts.dryRun, skill: opts.skill },
     cliExecHooks(runId, claudeOut),
   );
 }

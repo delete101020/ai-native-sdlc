@@ -112,6 +112,14 @@ export interface StepRecord {
    * work is built on top of it.
    */
   dirty?: StepDirtyMark;
+  /**
+   * The skill this step was last launched with, when its `skills` are
+   * alternatives (`default_skill` set). Doubles as the choice remembered for
+   * the next launch and as provenance: reject/approve history entries copy
+   * it, so a step whose revisions ran on different skills still says which
+   * one produced the output that was judged.
+   */
+  skill?: string;
   /** Optional human feedback supplied at rerun time. Carried forward. */
   feedback?: string;
   /** Reason supplied with the most recent rejection. Cleared on rerun. */
@@ -147,6 +155,8 @@ export type StepHistoryEntry =
        * step's idx for an in-place rerun; lower idx for a cascade.
        */
       sentBackToIdx: number;
+      /** {@link StepRecord.skill} of the revision that was rejected. */
+      skill?: string;
     }
   | {
       kind: 'rerun';
@@ -168,6 +178,8 @@ export type StepHistoryEntry =
       kind: 'approve';
       at: string;
       revision: number;
+      /** {@link StepRecord.skill} of the revision that was approved. */
+      skill?: string;
     }
   | {
       /**

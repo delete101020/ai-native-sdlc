@@ -65,6 +65,7 @@ import {
   openRunStateCommand,
   deleteRunCommand,
   deleteEpicCommand,
+  recordLaunchedSkill,
 } from './runCommands';
 
 /**
@@ -451,6 +452,7 @@ export function registerV2WorkspaceCommands(
       if (!root) { return; }
 
       ensureCommandFiles(root);
+      recordLaunchedSkill(root, id, step, slash);
 
       const prompt = fb
         ? `${slash} ${id} — Update artifact per feedback: "${fb.replace(/"/g, '\\"')}"`

@@ -476,6 +476,8 @@ export interface PipelineStepSummary {
   description?: string;
   /** Skills this step makes available to the agent. */
   skills?: string[];
+  /** Set when `skills` are alternatives to pick one of; preselected at run. */
+  default_skill?: string;
   enabled: boolean;
   produces: string[];
   /** Content markers asserted against the produced files (E1). */
@@ -556,6 +558,8 @@ export type StepHistoryEntry =
       revision: number;
       reason?: string;
       sentBackToIdx: number;
+      /** Skill the rejected revision ran, on a step with alternatives. */
+      skill?: string;
     }
   | {
       kind: 'rerun';
@@ -575,6 +579,8 @@ export type StepHistoryEntry =
       kind: 'approve';
       at: string;
       revision: number;
+      /** Skill the approved revision ran, on a step with alternatives. */
+      skill?: string;
     }
   | {
       // A "Mark step done" taken back — same revision, nothing rerun.
@@ -659,6 +665,13 @@ export interface EpicStepDetailFull {
   /** Resolved slash command for this step (`/implement` or
    *  `/sdlc-parallel-full-implement`), from workspace.yaml slash_commands. */
   slashCommand?: string;
+  /** Set when the step's skills are alternatives (`default_skill`): the
+   *  skills the card offers, each with the command that runs it. */
+  skillChoices?: Array<{ id: string; slashCommand: string; description?: string }>;
+  /** The alternative preselected: last launched, else the default. */
+  selectedSkill?: string;
+  /** The step's `default_skill`. */
+  defaultSkill?: string;
   /** Basename of the step's first `produces:` path — the file the user
    *  expects to see written by this step (e.g. `PRD.md`). Falls back to
    *  the agent meta artifact when the step doesn't declare one. */

@@ -284,6 +284,38 @@ It works the same in `workspace.yaml` and in an epic's own `pipeline.yaml`.
 You can also set it in the step's config modal in the Builder. It is display
 text only and never reaches the prompt.
 
+### `default_skill` — one step, interchangeable skills
+
+A step's `skills:` normally means *all of these*: every listed skill is loaded
+for the step. When two skills are alternative ways to do the same step — two
+review skills that differ only in the tool they drive — loading both makes the
+model run both procedures, or blend them. `default_skill` turns the list into
+*one of these*:
+
+```yaml
+steps:
+  - agent: cr-reviewer
+    name: cr-review
+    skills: [cr-review, cr-review-ocr]
+    default_skill: cr-review
+```
+
+- The epic card shows a **Skill** picker on the step, preselected with the
+  default. *Run with Claude* (and *Update with feedback*, *Rerun with Claude*)
+  launches the picked skill's command, `/<skill-id> <epic>` — so each
+  alternative needs its own command file.
+- The pick is remembered on the step, and the unattended runner (*Run to
+  completion*, `aidlc run exec`) uses it, else the default. `aidlc run exec
+  --skill <id>` overrides it for every step that offers that skill.
+- Each approve / reject in the step's history records which skill produced the
+  output being judged, so two skills can be compared on the same step.
+- `default_skill` must be one of the step's `skills`. Both alternatives write
+  the same `produces` and must satisfy the same `produces_contains`.
+
+The Builder sets it both in the workflow modal (creating or editing a
+workflow) and in a step's config modal: pick two or more skills, then choose
+*one of them — default …* under the list.
+
 ### `produces_contains` — the gate on what is *in* the artifact
 
 A step's `produces` says which files must exist before it can advance.

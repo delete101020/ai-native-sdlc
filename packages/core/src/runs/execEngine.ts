@@ -31,6 +31,7 @@ import { estimateCostUsd, ratesFromConfig, providerAliases } from './pricing';
 import { resolveProviderModel } from '../presets/models';
 import type { RunState } from './RunState';
 import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
+import { normalizeStep, resolveStepSkills, stepSkillAlternatives } from '../schema/WorkspaceSchema';
 import { resolveArtifactLanguage } from '../loader/artifactLanguage';
 import { resolveEpicStrictMode } from '../loader/strictMode';
 import { composeAgentPrompt, type ComposedPrompt } from '../loader/promptComposer';
@@ -72,6 +73,12 @@ export interface ExecOptions {
    * effect at the next step boundary, and the caller says so.
    */
   shouldCancel?: () => boolean;
+  /**
+   * Skill to run on a step whose `skills` are alternatives (`default_skill`
+   * set), in place of the one remembered on the step or the default. Applies
+   * to every step that offers it, and is ignored by steps that do not.
+   */
+  skill?: string;
 }
 
 /**
@@ -325,9 +332,9 @@ export async function runExecLoop(
   }
 }
 
-/** Skill text for an agent — concatenated when it declares multiple skills. */
-function loadAgentSkills(ws: ReturnType<typeof WorkspaceLoader.load>, agent: AgentConfig): string {
-  return agent.skills.map((id) => ws.skills.load(id)).join('\n\n---\n\n');
+/** Skill text for a step — concatenated when it runs several skills. */
+function loadSkills(ws: ReturnType<typeof WorkspaceLoader.load>, skillIds: readonly string[]): string {
+  return skillIds.map((id) => ws.skills.load(id)).join('\n\n---\n\n');
 }
 
 /**
@@ -344,6 +351,8 @@ function loadAgentSkills(ws: ReturnType<typeof WorkspaceLoader.load>, agent: Age
 function buildStepPrompt(
   ws: ReturnType<typeof WorkspaceLoader.load>,
   agent: AgentConfig,
+  /** What the step runs — see {@link resolveStepSkills}. */
+  skillIds: readonly string[],
   runner: AidlcRunner,
   root: string,
   /** Epic whose depth setting applies. Runs are keyed by epic id. */
@@ -351,7 +360,7 @@ function buildStepPrompt(
 ): ComposedPrompt {
   const harness = harnessCapabilities(runner);
   return composeAgentPrompt({
-    skills: loadAgentSkills(ws, agent),
+    skills: loadSkills(ws, skillIds),
     persona: ws.personas.load(agent.id),
     instructions: harness.projectInstructions
       ? null
@@ -396,6 +405,16 @@ async function execStep(
     return false;
   }
 
+  // The step's own `skills` narrow the agent's, and a step with alternatives
+  // runs exactly one of them: the one asked for, else the one last launched,
+  // else its default. Loading all of them would have the model run every
+  // procedure, or blend them.
+  const stepCfg = pipeline.steps[stepIdx];
+  const norm = stepCfg ? normalizeStep(stepCfg) : undefined;
+  const alternatives = norm ? stepSkillAlternatives(norm) : undefined;
+  const chosen = opts.skill && alternatives?.options.includes(opts.skill) ? opts.skill : stepRec.skill;
+  const skillIds = norm ? resolveStepSkills(norm, agent.skills, chosen) : [...agent.skills];
+
   // Resolved before the prompt because the prompt depends on what this
   // runner's harness already supplies.
   let runner: AidlcRunner;
@@ -407,7 +426,7 @@ async function execStep(
     return false;
   }
   try {
-    prompt = buildStepPrompt(ws, agent, runner, root, state.runId);
+    prompt = buildStepPrompt(ws, agent, skillIds, runner, root, state.runId);
   } catch (err) {
     hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to load skills for agent "${agentId}": ${errMsg(err)}` });
     return false;
@@ -423,7 +442,7 @@ async function execStep(
 
   if (opts.dryRun) {
     hooks.onDryRunPreview?.({
-      skills: agent.skills.join(', '),
+      skills: skillIds.join(', '),
       skillText,
       userMessage,
       env,
@@ -434,7 +453,7 @@ async function execStep(
 
   hooks.onStepStart?.({
     stepIdx, agent: agentId, revision: stepRec.revision,
-    skills: agent.skills, model: agent.model, context: userMessage,
+    skills: skillIds, model: agent.model, context: userMessage,
     dirtyUpstream: dirtyUpstreamOf({ state, pipeline, stepIdx })
       .map((d) => ({ stepIdx: d.stepIdx, step: d.step, byStep: d.dirty.byStep })),
   });
@@ -476,6 +495,7 @@ async function execStep(
     const rec = freshState.steps[stepIdx];
     rec.runner = agent.runner;
     rec.model = resolvedModel;
+    if (alternatives) { rec.skill = skillIds[0]; }
     rec.usage = result.usage;
     if (typeof result.costUsd === 'number') {
       // A cost the CLI reported always wins: it knows about cache hits and the

@@ -206,6 +206,7 @@ export function applyAdaptation(
     };
     if (norm.description) { step.description = norm.description; }
     if (norm.skills && norm.skills.length > 0) { step.skills = norm.skills; }
+    if (norm.default_skill) { step.default_skill = norm.default_skill; }
     if (norm.auto_review_runner) { step.auto_review_runner = norm.auto_review_runner; }
 
     const insertAt = anchor

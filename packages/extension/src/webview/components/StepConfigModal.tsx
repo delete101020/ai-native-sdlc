@@ -14,6 +14,9 @@ export interface StepConfigDraft {
   /** Subset of the agent's `skills:` array — which skills this step makes
    *  available to the persona. Omitted when no skills are picked. */
   skills: string[];
+  /** Makes `skills` alternatives picked at run time, this one preselected.
+   *  Empty = every picked skill is available at once. */
+  default_skill: string;
   /** Node ids (name ?? agent) this step runs after. Drives the DAG column. */
   depends_on: string[];
   human_review: boolean;
@@ -50,6 +53,7 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
     step.auto_review_timeout_ms != null ? String(step.auto_review_timeout_ms) : '',
   );
   const [pickedSkills, setPickedSkills] = useState<string[]>(step.skills ?? []);
+  const [defaultSkill, setDefaultSkill] = useState(step.default_skill ?? '');
   // Drop any stale deps that no longer match a sibling node id.
   const [pickedDeps, setPickedDeps] = useState<string[]>(
     () => (step.depends_on ?? []).filter((d) => siblingNodeIds.includes(d)),
@@ -101,6 +105,8 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
       produces: splitLines(produces),
       produces_contains: splitLines(producesContains),
       skills: pickedSkills,
+      // Alternatives need at least two to choose between.
+      default_skill: pickedSkills.length > 1 && pickedSkills.includes(defaultSkill) ? defaultSkill : '',
       depends_on: pickedDeps,
       human_review: humanReview,
       auto_review: autoReview,
@@ -281,6 +287,24 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
             <p className="mt-1 text-[10px] italic text-muted-foreground">
               Leave empty to inherit the agent's full skill set at runtime.
             </p>
+            {pickedSkills.length > 1 && (
+              <div className="mt-2 flex items-center gap-2">
+                <label className="text-[10.5px] text-muted-foreground" htmlFor="step-default-skill">
+                  Run
+                </label>
+                <select
+                  id="step-default-skill"
+                  value={pickedSkills.includes(defaultSkill) ? defaultSkill : ''}
+                  onChange={(e) => setDefaultSkill(e.target.value)}
+                  className="rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10.5px] text-foreground"
+                >
+                  <option value="">all picked skills together</option>
+                  {pickedSkills.map((s) => (
+                    <option key={s} value={s}>one of them — default {s}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         )}
 

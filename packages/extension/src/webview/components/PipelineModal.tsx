@@ -19,6 +19,8 @@ export interface PipelineStepDraft {
   name?: string;
   /** Skills scoped to this step. Subset of the agent's `skills:` array. */
   skills?: string[];
+  /** Makes `skills` alternatives picked at run time, this one preselected. */
+  default_skill?: string;
   human_review: boolean;
   auto_review: boolean;
   auto_review_runner?: string;
@@ -104,6 +106,11 @@ export function PipelineModal({
           agent: s.agent,
           name: name || undefined,
           skills: s.skills && s.skills.length > 0 ? s.skills : undefined,
+          // Alternatives need at least two to choose between.
+          default_skill:
+            s.default_skill && (s.skills ?? []).length > 1 && s.skills!.includes(s.default_skill)
+              ? s.default_skill
+              : undefined,
           human_review: s.human_review,
           auto_review: s.auto_review,
           auto_review_runner: s.auto_review ? (s.auto_review_runner ?? '').trim() : undefined,
@@ -541,6 +548,22 @@ function StepRow({
               );
             })}
           </div>
+          {pickedSkills.length > 1 && (
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="text-[10.5px] text-muted-foreground">Run</span>
+              <select
+                value={step.default_skill && pickedSkills.includes(step.default_skill) ? step.default_skill : ''}
+                onChange={(e) => onChange({ default_skill: e.target.value || undefined })}
+                title="All picked skills load together, or the step runs one of them — picked on the epic card, this one preselected"
+                className="rounded border border-border bg-card px-1.5 py-0.5 font-mono text-[10.5px] text-foreground"
+              >
+                <option value="">all picked skills together</option>
+                {pickedSkills.map((s) => (
+                  <option key={s} value={s}>one of them — default {s}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       )}
       {/* Model / capability summary so the user sees what the

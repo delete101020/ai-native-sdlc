@@ -73,6 +73,12 @@ function renameSkillOn(obj: Record<string, unknown>, oldId: string, newId: strin
     obj.skill = newId;
     moved = true;
   }
+  // A step's preselected alternative names one of its `skills` — left behind,
+  // it fails validation as soon as the list moves.
+  if (obj.default_skill === oldId) {
+    obj.default_skill = newId;
+    moved = true;
+  }
   return moved;
 }
 

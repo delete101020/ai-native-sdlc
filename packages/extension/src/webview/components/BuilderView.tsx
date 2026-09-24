@@ -181,6 +181,7 @@ export function BuilderView({
                     agent: s.agent,
                     name: s.name,
                     skills: s.skills,
+                    default_skill: s.default_skill,
                     human_review: s.human_review,
                     auto_review: s.auto_review,
                     auto_review_runner: s.auto_review_runner,
