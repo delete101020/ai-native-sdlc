@@ -18,9 +18,22 @@ export interface ModelPrice {
   cw_1h: number;
 }
 
+// Rates from https://platform.claude.com/docs/en/about-claude/pricing (checked
+// 2026-09-25). Matching is substring-in-order, so a point release must sit
+// above its base id: 'claude-opus-5' is a substring of 'claude-opus-5-5'.
 export const PRICING: Record<string, ModelPrice> = {
+  // Fable / Mythos 5.1 — cache reads at 0.025x input.
+  'claude-fable-5-1':  { in: 10.0, out: 50.0, cr: 0.25, cw_5m: 12.50, cw_1h: 20.0 },
+  'claude-mythos-5-1': { in: 10.0, out: 50.0, cr: 0.25, cw_5m: 12.50, cw_1h: 20.0 },
+  'claude-fable-5':    { in: 10.0, out: 50.0, cr: 1.00, cw_5m: 12.50, cw_1h: 20.0 },
+  'claude-mythos-5':   { in: 10.0, out: 50.0, cr: 1.00, cw_5m: 12.50, cw_1h: 20.0 },
+  // Opus 5.5 — cache reads at 0.05x input.
+  'claude-opus-5-5':   { in:  4.0, out: 20.0, cr: 0.20, cw_5m:  5.00, cw_1h:  8.0 },
+  'claude-opus-5':     { in:  5.0, out: 25.0, cr: 0.50, cw_5m:  6.25, cw_1h: 10.0 },
+  'claude-sonnet-5':   { in:  2.0, out: 10.0, cr: 0.20, cw_5m:  2.50, cw_1h:  4.0 },
   // Opus 4.5+ — reduced pricing. Must be listed before 'claude-opus-4' so the
   // prefix-substring match hits the more specific entries first.
+  'claude-opus-4-8':   { in:  5.0, out: 25.0, cr: 0.50, cw_5m:  6.25, cw_1h: 10.0 },
   'claude-opus-4-7':   { in:  5.0, out: 25.0, cr: 0.50, cw_5m:  6.25, cw_1h: 10.0 },
   'claude-opus-4-6':   { in:  5.0, out: 25.0, cr: 0.50, cw_5m:  6.25, cw_1h: 10.0 },
   'claude-opus-4-5':   { in:  5.0, out: 25.0, cr: 0.50, cw_5m:  6.25, cw_1h: 10.0 },
