@@ -526,9 +526,9 @@
           <div id="model-selector-wrap">
             <select id="model-selector" title="Select model for agent">
               <option value="">Default</option>
-              <option value="claude-opus-4-8">Opus 4.8</option>
-              <option value="claude-sonnet-5">Sonnet 5</option>
-              <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
+              <option value="opus">Opus</option>
+              <option value="sonnet">Sonnet</option>
+              <option value="haiku">Haiku</option>
             </select>
           </div>
           <label id="ask-mode-wrap" title="Force Ask Mode even with comments (for Q&A over edits)" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim-6);">
@@ -709,7 +709,14 @@ let annotations = [];
 let pendingNew = [];
 
 // Agent model & metrics
+// Aliases (`opus` / `sonnet` / `haiku`) always resolve to the current
+// generation. A pinned id saved by an older build (e.g. `claude-opus-4-8`) is
+// migrated to its tier's alias so it does not stay stuck on that generation.
 let selectedModel = localStorage.getItem('annotron-model') || '';
+if (selectedModel.startsWith('claude-')) {
+  selectedModel = ['opus', 'sonnet', 'haiku'].find((t) => selectedModel.includes(t)) || '';
+  localStorage.setItem('annotron-model', selectedModel);
+}
 let forceAskMode = localStorage.getItem('annotron-ask-mode') === 'true';
 let agentMetricsData = { model: '', tokensUsed: 0, tokensMax: 200000, contextUsed: 0, contextMax: 65536 };
 
@@ -734,9 +741,9 @@ const infoTokens = document.getElementById('info-tokens');
 function updateInfoBar() {
   // Update model display
   const modelDisplay = selectedModel ?
-    (selectedModel.includes('opus') ? 'Opus 4.8' :
-     selectedModel.includes('sonnet') ? 'Sonnet 5' :
-     selectedModel.includes('haiku') ? 'Haiku 4.5' :
+    (selectedModel.includes('opus') ? 'Opus' :
+     selectedModel.includes('sonnet') ? 'Sonnet' :
+     selectedModel.includes('haiku') ? 'Haiku' :
      selectedModel) : 'Default';
   infoModel.textContent = modelDisplay;
 

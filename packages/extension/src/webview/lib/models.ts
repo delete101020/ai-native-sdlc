@@ -7,10 +7,11 @@
  * the two in sync when a tier's alias changes (it should not; that is the point
  * of aliases).
  *
- * Aliases come first and are the recommendation: Claude Code resolves `sonnet`
- * / `opus` / `haiku` to the current generation of each tier, so an agent
- * created today survives the next model release. Pinned ids stay available for
- * anyone who needs one specific generation.
+ * Only aliases are offered: Claude Code resolves `sonnet` / `opus` / `haiku`
+ * to the current generation of each tier, so an agent created today survives
+ * the next model release. A pinned id listed here would go stale with every
+ * release — anyone who needs one specific generation writes it into the
+ * agent's `model:` by hand, and the edit modal keeps it as-is.
  */
 export interface ModelChoice {
   value: string;
@@ -22,7 +23,4 @@ export const MODELS: ModelChoice[] = [
   { value: 'sonnet', label: 'sonnet', hint: 'Balanced — current Sonnet (recommended)' },
   { value: 'opus',   label: 'opus',   hint: 'Most capable, slower — current Opus' },
   { value: 'haiku',  label: 'haiku',  hint: 'Fastest, cheapest — current Haiku' },
-  { value: 'claude-sonnet-5', label: 'claude-sonnet-5', hint: 'Pinned id' },
-  { value: 'claude-opus-5',   label: 'claude-opus-5',   hint: 'Pinned id' },
-  { value: 'claude-haiku-4-5-20251001', label: 'claude-haiku-4-5', hint: 'Pinned id' },
 ];

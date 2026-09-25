@@ -318,17 +318,15 @@ async function pickSkillSource(): Promise<SkillSource | undefined> {
 
 // ── addAgent ────────────────────────────────────────────────────────────
 
-// Aliases first, and they are the defaults: Claude Code resolves `sonnet` /
-// `opus` / `haiku` to the current generation of that tier, so an agent created
-// today does not need editing after the next model release. Pinned ids stay
-// available below for anyone who needs a specific generation.
+// Aliases only: Claude Code resolves `sonnet` / `opus` / `haiku` to the current
+// generation of that tier, so an agent created today does not need editing
+// after the next model release. Pinned ids are left out because they go stale
+// with every release — anyone who needs one specific generation writes it into
+// the agent's `model:` by hand.
 const MODEL_CHOICES = [
   { label: CODING_MODEL,   description: 'Balanced — current Sonnet (recommended)', value: CODING_MODEL },
   { label: PLANNING_MODEL, description: 'Most capable, slower — current Opus', value: PLANNING_MODEL },
   { label: FAST_MODEL,     description: 'Fastest, cheapest — current Haiku', value: FAST_MODEL },
-  { label: 'claude-sonnet-5', description: 'Pinned id', value: 'claude-sonnet-5' },
-  { label: 'claude-opus-5',   description: 'Pinned id', value: 'claude-opus-5' },
-  { label: 'claude-haiku-4-5', description: 'Pinned id', value: 'claude-haiku-4-5-20251001' },
 ];
 
 export async function addAgentCommand(): Promise<void> {

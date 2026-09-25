@@ -100,7 +100,7 @@ def declare_skill_or_agent(file_path):
             'id': skill_id,
             'name': frontmatter.get('name', skill_id),
             'skills': frontmatter.get('skills', []) or [],
-            'model': frontmatter.get('model', 'claude-sonnet-5'),
+            'model': frontmatter.get('model', 'sonnet'),
             'description': description,
             'capabilities': frontmatter.get('capabilities', []) or []
         })
