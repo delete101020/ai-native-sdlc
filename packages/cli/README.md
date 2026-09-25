@@ -192,7 +192,7 @@ description of each.
 
 ```
 aidlc agent add --id <id> --name <n> --skill <skillId>
-                [--model claude-sonnet-4-5]
+                [--model sonnet]
                 [--capabilities files,github,jira]
                 [--description "…"]
                 [--runner default|codex|custom] [--runner-path .aidlc/runners/foo.js]
@@ -227,8 +227,20 @@ providers:
 ```
 
 `model_aliases` translates a `model:` value for one runner. Without it, a Claude
-tier alias (`opus` / `sonnet` / `haiku`) resolves to no `--model` at all and the
-provider CLI applies its own default. AIDLC ships **no** built-in tier map: saying
+tier alias (`opus` / `sonnet` / `haiku`) resolves to no `--model` at all on a
+provider runner, and the provider CLI applies its own default.
+
+The `default` runner passes the agent's `model:` to Claude Code as `--model`, so
+each step runs on the model its agent asks for rather than your session's
+default. Tier aliases go through as-is and follow the current generation; to pin
+one, declare it under `providers.default.model_aliases`:
+
+```yaml
+providers:
+  default:
+    model_aliases:
+      opus: claude-opus-5-5
+``` AIDLC ships **no** built-in tier map: saying
 `sonnet` equals some other vendor's model is a claim about your work that only you
 can make, and a guessed model id fails the run outright.
 
