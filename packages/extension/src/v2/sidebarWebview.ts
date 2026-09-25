@@ -38,6 +38,7 @@ import {
   USER_CONFIG_RELPATH,
   EPIC_ID_PREFIX_PATTERN,
   writeTwoLayerCommands,
+  isActiveStatus,
 } from '@aidlc/core';
 import type { PipelineConfig, DiscoveredAsset, EpicIdPrefixSource } from '@aidlc/core';
 import { listEpics } from './epicsList';
@@ -416,9 +417,17 @@ function listActiveRuns(root: string, epicIds: ReadonlySet<string>): ActiveRun[]
     return RunStateStore.list(root)
       .filter((r) => r.status === 'running')
       .map((r) => {
-        const step = r.steps[r.currentStepIdx];
+        // A DAG run keeps several steps open at once and `currentStepIdx` stays
+        // on the lowest of them — so after a fan-out's merge opened, the card
+        // still named the solo step still in flight upstream, as if the run
+        // had never moved. The card names the furthest open step instead.
+        let shownIdx = r.currentStepIdx;
+        for (let i = r.steps.length - 1; i >= 0; i--) {
+          if (isActiveStatus(r.steps[i].status)) { shownIdx = i; break; }
+        }
+        const step = r.steps[shownIdx];
         const pipeline = pipelinesById.get(r.pipelineId);
-        const stepConfig = pipeline?.steps?.[r.currentStepIdx];
+        const stepConfig = pipeline?.steps?.[shownIdx];
         const norm = stepConfig ? normalizeStep(stepConfig) : null;
         const agent = step?.agent ?? '';
 
@@ -426,7 +435,7 @@ function listActiveRuns(root: string, epicIds: ReadonlySet<string>): ActiveRun[]
           runId: r.runId,
           epicId: epicIds.has(r.runId) ? r.runId : undefined,
           pipelineId: r.pipelineId,
-          currentStepIdx: r.currentStepIdx,
+          currentStepIdx: shownIdx,
           totalSteps: r.steps.length,
           currentAgent: agent,
           stepAgents: r.steps.map((s) => s.agent),
