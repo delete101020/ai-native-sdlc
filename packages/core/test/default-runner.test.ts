@@ -19,7 +19,7 @@ vi.mock('child_process', () => ({
 }));
 
 // Import AFTER the mock is registered.
-import { DefaultRunner } from '../src';
+import { DefaultRunner, claudeModelArg } from '../src';
 import type { RunnerContext } from '../src';
 
 function ctx(overrides: Partial<RunnerContext> = {}): RunnerContext {
@@ -93,5 +93,41 @@ describe('DefaultRunner — stream-json parsing', () => {
     const res = await p;
     expect(res.success).toBe(false);
     expect(res.costUsd).toBeUndefined();
+  });
+});
+
+describe('DefaultRunner — model', () => {
+  beforeEach(() => {
+    lastArgs = [];
+  });
+
+  it("passes the agent's model as --model", async () => {
+    const p = new DefaultRunner().run(ctx({ model: 'sonnet' }));
+    const i = lastArgs.indexOf('--model');
+    expect(lastArgs[i + 1]).toBe('sonnet');
+    lastChild.emit('close', 0);
+    await p;
+  });
+
+  it('omits --model when the agent names none', async () => {
+    const p = new DefaultRunner().run(ctx());
+    expect(lastArgs).not.toContain('--model');
+    lastChild.emit('close', 0);
+    await p;
+  });
+});
+
+describe('claudeModelArg', () => {
+  it('keeps a tier alias as-is so Claude Code maps it to the current generation', () => {
+    expect(claudeModelArg(' opus ')).toBe('opus');
+  });
+
+  it('applies a declared alias pin', () => {
+    expect(claudeModelArg('Opus', { opus: 'claude-opus-5-5' })).toBe('claude-opus-5-5');
+  });
+
+  it('returns undefined for a blank model', () => {
+    expect(claudeModelArg('  ')).toBeUndefined();
+    expect(claudeModelArg(undefined)).toBeUndefined();
   });
 });

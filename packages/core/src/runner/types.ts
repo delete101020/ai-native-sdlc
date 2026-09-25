@@ -31,10 +31,10 @@ export interface RunnerContext {
   /**
    * Model the workspace asked this agent to run on (`agent.model`), verbatim.
    *
-   * A runner is free to ignore it, and `DefaultRunner` deliberately does: Claude
-   * Code already resolves the tier itself, and passing `--model` where we never
-   * passed one would change which model answers — a quality change, not a
-   * feature. Provider runners need it, because `sonnet` means nothing to them.
+   * `DefaultRunner` passes it to Claude Code as `--model` (tier aliases as-is,
+   * Claude Code maps them to the current generation); without it every step
+   * ran on the user's session default, whatever the agent asked for. Provider
+   * runners translate it, because `sonnet` means nothing to them.
    */
   model?: string;
   /**

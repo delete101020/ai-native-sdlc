@@ -66,6 +66,7 @@ import {
   deleteRunCommand,
   deleteEpicCommand,
   recordLaunchedSkill,
+  launchModelFor,
 } from './runCommands';
 
 /**
@@ -480,7 +481,12 @@ export function registerV2WorkspaceCommands(
       // POSIX single-quote escape: the only risky character in single-
       // quoted strings is the single quote itself, replaced with '\''.
       const escaped = prompt.replace(/'/g, "'\\''");
-      const oneShot = `claude '${escaped}'`;
+      // The step's own model, so a `sonnet` step does not run on whatever the
+      // session defaults to. Quoted: a pinned id like `claude-opus-5-5[1m]`
+      // would otherwise be read as a glob.
+      const model = launchModelFor(root, id, step);
+      const modelFlag = model ? ` --model '${model.replace(/'/g, "'\\''")}'` : '';
+      const oneShot = `claude${modelFlag} '${escaped}'`;
 
       // From here on the UI knows this step has an agent on it. Registered
       // before the command is sent, so even an immediate failure has an entry

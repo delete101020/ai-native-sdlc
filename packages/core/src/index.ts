@@ -351,7 +351,7 @@ export type {
 } from './loader/AssetDiscovery';
 
 export { RunnerRegistry } from './runner/RunnerRegistry';
-export { DefaultRunner } from './runner/DefaultRunner';
+export { DefaultRunner, claudeModelArg } from './runner/DefaultRunner';
 export type { DefaultRunnerOptions } from './runner/DefaultRunner';
 export { CodexRunner } from './runner/CodexRunner';
 export type { CodexRunnerOptions } from './runner/CodexRunner';

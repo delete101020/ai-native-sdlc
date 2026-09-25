@@ -53,8 +53,10 @@ import {
   renderRunReport,
   PipelineRunError,
   AutoReviewerError,
+  claudeModelArg,
+  providerAliases,
 } from '@aidlc/core';
-import type { PipelineConfig, RunState } from '@aidlc/core';
+import type { PipelineConfig, ProviderConfig, RunState } from '@aidlc/core';
 
 import { readYaml } from './yamlIO';
 import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
@@ -1105,6 +1107,31 @@ export function recordLaunchedSkill(root: string, runId: string, stepIdx: number
     saveRun(root, chooseStepSkill({ state, pipeline, stepIdx, skill }), state);
   } catch {
     // Not a step with alternatives, or not one of them: nothing to record.
+  }
+}
+
+/**
+ * The `--model` a Run with Claude launch passes, taken from the agent that owns
+ * the step — the same model the unattended runner uses. Without it the
+ * terminal runs the user's session default, so a `sonnet` step ran on Opus.
+ * `undefined` (no flag) for an agent that names no model, one on another
+ * runner, or a launch we cannot pin to a step.
+ */
+export function launchModelFor(root: string, runId: string, stepIdx: number | null): string | undefined {
+  try {
+    const state = RunStateStore.load(root, runId);
+    if (!state) { return undefined; }
+    const agentId = state.steps[stepIdx ?? state.currentStepIdx]?.agent;
+    const doc = readYaml(root);
+    const agent = doc?.agents.find((a) => a.id === agentId);
+    if (!agent) { return undefined; }
+    const runner = typeof agent.runner === 'string' && agent.runner.trim() ? agent.runner.trim() : 'default';
+    if (runner !== 'default') { return undefined; }
+    const model = typeof agent.model === 'string' ? agent.model : undefined;
+    const providers = doc?.providers as Record<string, ProviderConfig> | undefined;
+    return claudeModelArg(model, providerAliases(providers, 'default'));
+  } catch {
+    return undefined;
   }
 }
 

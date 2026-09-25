@@ -63,11 +63,13 @@ export class DefaultRunner implements AidlcRunner {
     // --output-format stream-json --verbose: emit NDJSON events as they happen
     //   so we keep streaming text live AND get a final `result` event carrying
     //   `total_cost_usd` (claude's own accurate cost) for the budget guard.
+    const model = claudeModelArg(ctx.model, ctx.modelAliases);
     const args = [
       '--print',
       '--output-format', 'stream-json',
       '--verbose',
       '--append-system-prompt', ctx.skill,
+      ...(model ? ['--model', model] : []),
       ...(this.opts.extraArgs ?? []),
       userMessage,
     ];
@@ -128,4 +130,18 @@ interface StreamEvent {
   message?: { content?: Array<{ type: string; text?: string }> };
   total_cost_usd?: number;
   result?: string;
+}
+
+/**
+ * The `--model` value for a Claude Code launch, or `undefined` to leave the
+ * session default in charge. Without the flag Claude Code runs whatever model
+ * the user's own session defaults to, so an agent declared `model: sonnet`
+ * would silently run on Opus. A tier alias is passed as-is — Claude Code maps
+ * it to the current generation — unless `providers.default.model_aliases`
+ * pins it to a specific id.
+ */
+export function claudeModelArg(model?: string, aliases?: Record<string, string>): string | undefined {
+  const trimmed = model?.trim();
+  if (!trimmed) { return undefined; }
+  return aliases?.[trimmed.toLowerCase()]?.trim() || trimmed;
 }
