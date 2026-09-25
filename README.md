@@ -29,10 +29,11 @@ Code transcript.
 
 ## ✨ What's New in v4.0 — AIDLC Native on the Marketplace (this fork)
 
-Covers 4.0.0 – 4.0.22. The full, per-release record is in [`packages/extension/CHANGELOG.md`](packages/extension/CHANGELOG.md).
+Covers 4.0.0 – 4.0.23. The full, per-release record is in [`packages/extension/CHANGELOG.md`](packages/extension/CHANGELOG.md).
 
 - **🏷️ Published as AIDLC Native** — extension `delete101020.aidlc-native` on the VS Code Marketplace and Open VSX, CLI `@delete101020/aidlc` on npm (the command is still `aidlc`). Commands and settings moved from `aidlc.*` to `aidlcNative.*`, so it installs side by side with upstream `hueanmy.aidlc`. Your `aidlc.*` settings are copied over on first activation; keybindings have to be renamed by hand.
 - **🔁 Rerun without throwing work away** — **Rerun with Claude** on a step that already passed reopens that step alone: approved steps downstream keep their artifacts and history and get a `dirty` mark until they are approved again. **Undo mark done** takes back a mis-click while nothing downstream has started, and **Re-verify** runs a step's auto-review again on the artifact as it stands.
+- **🔀 Pick one skill of several** — a step can list interchangeable skills and run exactly one: `skills: [cr-review, cr-review-ocr]` with `default_skill: cr-review`. The epic card gets a Skill picker, default preselected, that **Run / Update / Rerun with Claude** follow; the pick is saved on the step's run state, and approve / reject history records which skill produced the revision, so two skills can be compared in `aidlc run report`. `aidlc run exec --skill <id>` overrides the pick headlessly. Without `default_skill`, a step's `skills` still all apply at once. **Behavior change:** autopilot now loads a step's own `skills:` rather than every skill its agent declares; a step with no `skills:` still gets the agent's full set.
 - **🧩 Pipelines can say more** — `optional: true` on a step (rejecting it never fails the epic), `on_failure: continue` honoured by `aidlc run exec`, optional `produces` entries (`{ path, optional: true }`, which needs 4.0.19+ everywhere the workspace is used), and a step `description` shown on the step card.
 - **📊 Progress counts in stages** — steps are ranked through `depends_on`, so a fan-out round counts as one unit of work and one finished peer completes it. A run whose leftover parallel peers lead nowhere now finishes instead of sitting at 100% *in progress*.
 - **⚡ Plan usage in the status bar** — how much of each Claude plan window is used (`5h 2% · 1w 38% · Fable 61%`, read the way `/usage` reads), with a reset countdown, a burn rate and amber/red thresholds. **Switch Claude Account** shows the same figure for every saved account.
@@ -283,7 +284,7 @@ aidlc run rerun    <runId> [--feedback …]
 aidlc run request-update <runId> <step> [--feedback …]   # reopen an approved step for changes
 aidlc run delete   <runId> [--force]
 aidlc run open     <runId> [--path]
-aidlc run exec     <runId> [--until …] [--auto-approve] [--require-complete] [--json] [--dry-run]
+aidlc run exec     <runId> [--until …] [--auto-approve] [--require-complete] [--skill <id>] [--json] [--dry-run]
 aidlc run verify   <runId> [--json]              # re-check recorded artifacts still exist (drift check)
 aidlc run report   <runId> [--format md|json] [--output <file>]
 ```
