@@ -1,5 +1,45 @@
 # Changelog
 
+## 4.0.23
+
+A step can offer several interchangeable skills and run just one of them,
+picked on the epic card.
+
+### Added
+
+- **Pick one skill of several.** A step can list alternative skills with a
+  default, for example two review skills that differ only in the tool they
+  drive:
+
+  ```yaml
+  skills: [cr-review, cr-review-ocr]
+  default_skill: cr-review
+  ```
+
+  The step card shows a *Skill* picker with the default preselected, and
+  *Run with Claude*, *Update with feedback* and *Rerun with Claude* launch
+  the picked skill's `/<skill-id>` command. The pick is saved on the step's
+  run state. Without `default_skill`, a step's `skills` still all apply at
+  once.
+- **Set the default in the Builder.** The workflow popup and the step config
+  popup set `default_skill`. Saving a workflow, recipes and renaming a skill
+  all keep it.
+- **Compare skills in history.** Approve and reject entries record which
+  skill produced the revision being judged. The step card and
+  `aidlc run report` show it.
+- **`aidlc run exec --skill <id>`** overrides the pick on steps that offer
+  alternative skills. The `/aidlc` dispatcher and generated step commands use
+  one alternative, never all of them.
+
+### Changed
+
+- **Autopilot loads the step's own skills.** *Run to completion* and
+  `aidlc run exec` now give a step only the skills in its `skills:`, as the
+  schema always described, not every skill its agent declares. Before, a
+  `build-plan` step on an agent that also carries `implement` got both skills
+  in its prompt. A step that declares no `skills:` still gets the agent's
+  full set.
+
 ## 4.0.22
 
 Popups stay open until you close them, and a parallel run whose leftover
