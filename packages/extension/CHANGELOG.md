@@ -1,5 +1,43 @@
 # Changelog
 
+## 4.0.24
+
+Steps now run on the model their agent asks for, model pickers stop listing
+ids that go stale, and cost figures price the Claude 5 generation correctly.
+
+### Fixed
+
+- **Steps run on their agent's model.** *Run with Claude*, *Update with
+  feedback*, *Rerun with Claude* and `aidlc run exec` never passed `--model`,
+  so every step ran on your Claude Code session's default — a step whose
+  agent says `model: sonnet` ran on Opus. They now pass the agent's model.
+  Tier aliases (`sonnet` / `opus` / `haiku`) go through as-is, so they keep
+  following the current generation. To pin a tier to one specific model:
+
+  ```yaml
+  providers:
+    default:
+      model_aliases:
+        opus: claude-opus-5-5
+  ```
+
+  An agent that names no model still runs on the session default.
+- **Cost figures for the Claude 5 generation.** Opus 5.5, Opus 5, Sonnet 5,
+  Fable 5 / 5.1 and Mythos 5 / 5.1 were priced at the fallback rate, and
+  Opus 4.8 at the legacy Opus 4 rate (3× too high). The token cost table now
+  carries their published rates, including cache reads and writes.
+
+### Changed
+
+- **Model pickers offer only aliases.** The Add / Edit Agent popups and the
+  *Add Agent* wizard list `sonnet`, `opus` and `haiku` only. Pinned ids went
+  stale with every release. An agent that already has a pinned id keeps it,
+  and you can still type one into `model:` by hand.
+- **Annotron's model dropdown** uses the same aliases. A pinned id saved by an
+  earlier version is switched to its tier's alias.
+- Skills auto-declared as agents default to `model: sonnet` rather than
+  `claude-sonnet-5`.
+
 ## 4.0.23
 
 A step can offer several interchangeable skills and run just one of them,
