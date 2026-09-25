@@ -187,6 +187,18 @@ const PipelineStepObjectSchema = z
      * string); the normalizer coerces it into a single-entry array.
      */
     skills: z.array(z.string().min(1)).optional(),
+    /**
+     * Turns `skills` from "all of these" into "one of these": the person
+     * picks which skill runs before launching the step, and this one is
+     * preselected — and is what the unattended runner uses when nobody
+     * picked. For interchangeable implementations of one step (two review
+     * skills that differ only in the tool they drive), where loading both
+     * would have the model run both procedures, or blend them.
+     *
+     * Must be one of `skills`. Omitted = every listed skill is available at
+     * once, as before.
+     */
+    default_skill: z.string().min(1).optional(),
     /** Artifact paths required from upstream. Gate-checked before work AND on Mark step done. */
     requires: z.array(z.string().min(1)).default([]),
     /**
@@ -234,6 +246,10 @@ const PipelineStepObjectSchema = z
       /** Open a PR after pushing (only valid when push=true). */
       open_pr: z.boolean().default(true),
     }).optional(),
+  })
+  .refine((s) => !s.default_skill || (s.skills ?? []).includes(s.default_skill), {
+    message: '`default_skill` must be one of the step\'s `skills`.',
+    path: ['default_skill'],
   })
   .refine((s) => !s.auto_review || !!s.auto_review_runner, {
     message: 'Step with `auto_review: true` must set `auto_review_runner` (path to a JS/TS validator module).',
@@ -334,6 +350,8 @@ export interface NormalizedStep {
   description?: string;
   /** Skill ids this step makes available — overrides the agent's defaults. */
   skills?: string[];
+  /** Set when `skills` are alternatives to pick one of — see the schema. */
+  default_skill?: string;
   enabled: boolean;
   /** Rejecting this step never fails the run — see the schema for semantics. */
   optional: boolean;
@@ -419,6 +437,9 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
       ? { description: obj.description.trim() }
       : {}),
     skills,
+    ...(typeof obj.default_skill === 'string' && skills?.includes(obj.default_skill)
+      ? { default_skill: obj.default_skill }
+      : {}),
     enabled: typeof obj.enabled === 'boolean' ? obj.enabled : true,
     optional: obj.optional === true,
     produces,
@@ -435,6 +456,32 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
     human_review: obj.human_review === true,
     ...(git && { git }),
   };
+}
+
+/**
+ * The skills a step offers as alternatives, or undefined when its skills (if
+ * any) all apply at once. Alternatives exist only when `default_skill` is set.
+ */
+export function stepSkillAlternatives(
+  norm: Pick<NormalizedStep, 'skills' | 'default_skill'>,
+): { options: string[]; defaultSkill: string } | undefined {
+  if (!norm.default_skill || !norm.skills?.includes(norm.default_skill)) { return undefined; }
+  return { options: norm.skills, defaultSkill: norm.default_skill };
+}
+
+/**
+ * The skills a step actually runs with. For a step with alternatives that is
+ * exactly one: `chosen` when it is still among them, else `default_skill`.
+ * Otherwise the step's own `skills`, falling back to the agent's.
+ */
+export function resolveStepSkills(
+  norm: Pick<NormalizedStep, 'skills' | 'default_skill'>,
+  agentSkills: readonly string[],
+  chosen?: string,
+): string[] {
+  const alt = stepSkillAlternatives(norm);
+  if (alt) { return [chosen && alt.options.includes(chosen) ? chosen : alt.defaultSkill]; }
+  return norm.skills && norm.skills.length > 0 ? [...norm.skills] : [...agentSkills];
 }
 
 /**

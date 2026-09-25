@@ -13,6 +13,8 @@ export {
   producesEntries,
   stepAgentId,
   stepDagId,
+  stepSkillAlternatives,
+  resolveStepSkills,
   collectWorkspaceRefIssues,
 } from './schema/WorkspaceSchema';
 export type {
@@ -404,6 +406,7 @@ export {
   rejectStep,
   rerunStep,
   requestStepUpdate,
+  chooseStepSkill,
   canRerunApprovedStep,
   rerunApprovedStep,
   dirtyUpstreamOf,

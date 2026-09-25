@@ -18,6 +18,7 @@ import {
   canRerunApprovedStep,
   dirtyUpstreamOf,
   normalizeStep,
+  stepSkillAlternatives,
   resolvePath,
   expandHome,
   mirrorRunStateToEpic,
@@ -89,6 +90,15 @@ export interface EpicSummary {
     /** Resolved slash command for this step (`/implement` or
      *  `/sdlc-parallel-full-implement`), matched against workspace.yaml. */
     slashCommand?: string;
+    /**
+     * Set when the step's skills are alternatives (`default_skill`): what the
+     * card offers to run. `slashCommand` is then the selected one's.
+     */
+    skillChoices?: Array<{ id: string; slashCommand: string; description?: string }>;
+    /** The alternative preselected on the card: last launched, else the default. */
+    selectedSkill?: string;
+    /** The step's `default_skill`, so the card can label it. */
+    defaultSkill?: string;
     /** Basename of the first `produces:` path — surfaced as the step's
      *  artifact label on the Epic detail panel. */
     artifact?: string;
@@ -806,6 +816,8 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const stepDependsByIdx = new Map<number, string[]>();
     const stepNameByIdx = new Map<number, string>();
     const stepSkillsByIdx = new Map<number, string[]>();
+    const stepAltByIdx = new Map<number, { options: string[]; defaultSkill: string }>();
+    const stepSelectedSkillByIdx = new Map<number, string>();
     const stepDescriptionByIdx = new Map<number, string>();
     const stepArtifactByIdx = new Map<number, string>();
     const stepArtifactPathByIdx = new Map<number, string>();
@@ -822,11 +834,21 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         stepDependsByIdx.set(i, norm.depends_on);
         if (norm.name) { stepNameByIdx.set(i, norm.name); }
         if (norm.skills && norm.skills.length > 0) { stepSkillsByIdx.set(i, norm.skills); }
+        const alt = stepSkillAlternatives(norm);
+        if (alt) { stepAltByIdx.set(i, alt); }
         // What the card says the step does: its own `description`, else the
         // description of the one skill it runs. Several skills leave it to the
-        // agent's description — picking one of them would be a guess.
+        // agent's description — picking one of them would be a guess — unless
+        // they are alternatives, where the one selected is the one that runs.
+        const remembered = runState?.steps.find((r) => r.stepIdx === i)?.skill;
+        const selected = alt
+          ? (remembered && alt.options.includes(remembered) ? remembered : alt.defaultSkill)
+          : undefined;
         const description = norm.description
-          ?? (norm.skills?.length === 1 ? skillDescription(norm.skills[0]) : undefined);
+          ?? (selected
+            ? skillDescription(selected)
+            : norm.skills?.length === 1 ? skillDescription(norm.skills[0]) : undefined);
+        if (selected) { stepSelectedSkillByIdx.set(i, selected); }
         if (description) { stepDescriptionByIdx.set(i, description); }
         // Surface the produced artifact for the per-step detail panel —
         // `step.produces[0]` is the canonical artifact path on built-in
@@ -1026,7 +1048,23 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         agent,
         name: stepNameByIdx.get(i),
         ...(stepDescriptionByIdx.has(i) ? { description: stepDescriptionByIdx.get(i) } : {}),
-        slashCommand: slashForStep(stepNameByIdx.get(i), stepSkillsByIdx.get(i)),
+        // An alternative runs its own command, whatever the step is named —
+        // the step name resolves to one fixed command file.
+        slashCommand: stepSelectedSkillByIdx.has(i)
+          ? `/${stepSelectedSkillByIdx.get(i)}`
+          : slashForStep(stepNameByIdx.get(i), stepSkillsByIdx.get(i)),
+        ...(() => {
+          const alt = stepAltByIdx.get(i);
+          if (!alt) { return {}; }
+          return {
+            skillChoices: alt.options.map((id) => {
+              const description = skillDescription(id);
+              return { id, slashCommand: `/${id}`, ...(description ? { description } : {}) };
+            }),
+            selectedSkill: stepSelectedSkillByIdx.get(i),
+            defaultSkill: alt.defaultSkill,
+          };
+        })(),
         artifact: stepArtifactByIdx.get(i),
         ...(artifactRel === undefined
           ? {}

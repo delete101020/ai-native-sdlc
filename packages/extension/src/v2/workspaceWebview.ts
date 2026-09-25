@@ -287,6 +287,7 @@ import {
   rejectStepInlineCommand,
   rerunStepInlineCommand,
   requestStepUpdateInlineCommand,
+  chooseStepSkillInlineCommand,
   rerunApprovedStepInlineCommand,
   startPipelineRunInlineCommand,
 } from './runCommands';
@@ -816,6 +817,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
             name: norm.name,
             description: norm.description,
             skills: norm.skills,
+            default_skill: norm.default_skill,
             enabled: norm.enabled,
             produces: norm.produces,
             produces_contains: norm.produces_contains,
@@ -1103,6 +1105,9 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
       stepName: s.name,
       stepDescription: s.description,
       slashCommand: s.slashCommand,
+      skillChoices: s.skillChoices,
+      selectedSkill: s.selectedSkill,
+      defaultSkill: s.defaultSkill,
       artifact: s.artifact,
       artifactPath: s.artifactPath,
       artifactExists: s.artifactExists,
@@ -2949,6 +2954,14 @@ export class WorkspaceWebview {
         agentActivity.end(runId, stepIdx);
         return;
       }
+      case 'chooseStepSkill': {
+        const runId = String(msg.runId ?? '');
+        const stepIdx = Number(msg.stepIdx);
+        const skill = String(msg.skill ?? '');
+        if (!runId || !Number.isInteger(stepIdx) || !skill) { return; }
+        await chooseStepSkillInlineCommand(runId, stepIdx, skill);
+        return;
+      }
       case 'requestStepUpdate': {
         const runId = String(msg.runId ?? '');
         const stepIdx = Number(msg.stepIdx);
@@ -3440,6 +3453,18 @@ export class WorkspaceWebview {
           delete obj.skills;
           delete obj.skill;
         }
+      }
+      // `default_skill` makes the skills alternatives. Only a modal that sends
+      // the key edits it (empty = back to "all of them"); either way it goes
+      // when the skill it names is no longer on the step, which the schema
+      // would otherwise reject on the next load.
+      if (inlineConfig && 'default_skill' in inlineConfig) {
+        const d = inlineConfig.default_skill;
+        if (typeof d === 'string' && d.trim()) { obj.default_skill = d.trim(); } else { delete obj.default_skill; }
+      }
+      if (typeof obj.default_skill === 'string') {
+        const listed = Array.isArray(obj.skills) ? (obj.skills as unknown[]).map(String) : [];
+        if (!listed.includes(obj.default_skill)) { delete obj.default_skill; }
       }
       // Same for `depends_on` — the inline modal sends the full edge set;
       // an empty array roots the step (drops it to the first column).
@@ -5090,9 +5115,14 @@ export class WorkspaceWebview {
 
       // Compose the step's linked skill content into the body so the command
       // is self-contained (mirrors how presets use `builtinClaudeCommand`).
-      const skillIds = Array.isArray(step.skills)
+      const listedSkills = Array.isArray(step.skills)
         ? (step.skills as unknown[]).map(String).filter((s) => s.length > 0)
         : [];
+      // Alternatives (`default_skill`) each run through their own `/<skill>`
+      // command; the step's command carries the default alone, never a blend.
+      const skillIds = typeof step.default_skill === 'string' && listedSkills.includes(step.default_skill)
+        ? [step.default_skill]
+        : listedSkills;
       const skillBodies: string[] = [];
       for (const skillId of skillIds) {
         const decl = doc.skills.find((s) => String(s.id) === skillId);
@@ -5190,6 +5220,9 @@ export class WorkspaceWebview {
       };
       if (stepName) { step.name = stepName; }
       if (skillsArr.length > 0) { step.skills = skillsArr; }
+      if (typeof r.default_skill === 'string' && skillsArr.length > 1 && skillsArr.includes(r.default_skill)) {
+        step.default_skill = r.default_skill;
+      }
       // Parallel structure defined via the modal's "Runs after" picker.
       if (dependsOnArr.length > 0) { step.depends_on = dependsOnArr; }
       if (auto_review) { step.auto_review_runner = runner; }
@@ -5445,6 +5478,9 @@ export class WorkspaceWebview {
       if (stepName) { step.name = stepName; }
       if (carry?.description) { step.description = carry.description; }
       if (skillsArr.length > 0) { step.skills = skillsArr; }
+      if (typeof r.default_skill === 'string' && skillsArr.length > 1 && skillsArr.includes(r.default_skill)) {
+        step.default_skill = r.default_skill;
+      }
       // Carry DAG edges. The modal doesn't let the user edit deps, but a
       // save-without-deps would silently flatten the workflow's columns,
       // so we round-trip whatever the webview sent.
@@ -5587,6 +5623,10 @@ export class WorkspaceWebview {
             ? ((s as { skills: unknown[] }).skills as unknown[])
             : undefined;
           if (skills && skills.length > 0) { inflated.skills = skills; }
+          const defaultSkill = typeof s === 'object' && s ? (s as { default_skill?: unknown }).default_skill : undefined;
+          if (typeof defaultSkill === 'string' && skills?.map(String).includes(defaultSkill)) {
+            inflated.default_skill = defaultSkill;
+          }
           const runner = typeof s === 'string'
             ? undefined
             : (s as { auto_review_runner?: unknown }).auto_review_runner;

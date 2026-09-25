@@ -54,13 +54,13 @@ function renderHistory(history: StepHistoryEntry[]): string[] {
   return history.map((h) => {
     switch (h.kind) {
       case 'reject':
-        return `  - ✘ rejected (rev ${h.revision})${h.reason ? `: ${h.reason}` : ''}`;
+        return `  - ✘ rejected (rev ${h.revision}${h.skill ? `, ${h.skill}` : ''})${h.reason ? `: ${h.reason}` : ''}`;
       case 'rerun':
         return `  - ↺ rerun → rev ${h.revision}${h.feedback ? ` (feedback: ${h.feedback})` : ''}`;
       case 'auto_review':
         return `  - 🤖 auto-review ${h.decision} (rev ${h.revision}): ${h.reason}`;
       case 'approve':
-        return `  - ✔ approved (rev ${h.revision})`;
+        return `  - ✔ approved (rev ${h.revision}${h.skill ? `, ${h.skill}` : ''})`;
       case 'undo':
         return `  - ↶ mark-done undone (rev ${h.revision}, was ${h.from})`;
       default:

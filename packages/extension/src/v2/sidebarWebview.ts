@@ -50,6 +50,7 @@ import {
   rejectStepInlineCommand,
   rerunStepInlineCommand,
   requestStepUpdateInlineCommand,
+  chooseStepSkillInlineCommand,
   rerunApprovedStepInlineCommand,
   startPipelineRunInlineCommand,
 } from './runCommands';
@@ -775,6 +776,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         if (reopened && msg.andRun === true && slash) {
           await vscode.commands.executeCommand('aidlcNative.runStepWithFeedback', slash, runId, feedback, stepIdx);
         }
+        return;
+      }
+      case 'chooseStepSkill': {
+        const runId = String(msg.runId ?? '');
+        const stepIdx = Number(msg.stepIdx);
+        const skill = String(msg.skill ?? '');
+        if (!runId || !Number.isInteger(stepIdx) || !skill) { return; }
+        await chooseStepSkillInlineCommand(runId, stepIdx, skill);
+        this.refresh();
         return;
       }
       case 'requestStepUpdate': {

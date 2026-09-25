@@ -44,6 +44,7 @@ import {
   rejectStep,
   rerunStep,
   requestStepUpdate,
+  chooseStepSkill,
   submitAutoReviewVerdict,
   retryAutoReview,
   runAutoReview,
@@ -1053,6 +1054,57 @@ export async function requestStepUpdateInlineCommand(
     );
   } catch (err) {
     surfaceRunError(err);
+  }
+}
+
+// ── chooseStepSkill ──────────────────────────────────────────────────────
+
+/**
+ * Remember which alternative skill a step runs next — picked on the epic card,
+ * read back by Run with Claude and by the unattended runner alike.
+ */
+export async function chooseStepSkillInlineCommand(
+  runId: string,
+  stepIdx: number,
+  skill: string,
+): Promise<void> {
+  const root = requireRoot('Choose Step Skill');
+  if (!root) { return; }
+  const state = RunStateStore.load(root, runId);
+  if (!state) { return; }
+  const pipeline = loadPipeline(root, state.pipelineId);
+  if (!pipeline) {
+    void vscode.window.showErrorMessage(
+      `Run "${runId}" references pipeline "${state.pipelineId}" which is no longer in workspace.yaml.`,
+    );
+    return;
+  }
+  try {
+    saveRun(root, chooseStepSkill({ state, pipeline, stepIdx, skill }), state);
+  } catch (err) {
+    surfaceRunError(err);
+  }
+}
+
+/**
+ * Note which alternative a Run with Claude launch is about to run, so the step
+ * records the skill even when the card's default was never touched — the
+ * history stamps it on the verdict, and without it a default run is
+ * indistinguishable from one that predates the choice. Quiet: a launch is not
+ * the place to report on bookkeeping, and anything off here just records
+ * nothing.
+ */
+export function recordLaunchedSkill(root: string, runId: string, stepIdx: number | null, slash: string): void {
+  if (stepIdx === null || !slash.startsWith('/')) { return; }
+  try {
+    const state = RunStateStore.load(root, runId);
+    const pipeline = state ? loadPipeline(root, state.pipelineId) : undefined;
+    if (!state || !pipeline) { return; }
+    const skill = slash.slice(1);
+    if (state.steps[stepIdx]?.skill === skill) { return; }
+    saveRun(root, chooseStepSkill({ state, pipeline, stepIdx, skill }), state);
+  } catch {
+    // Not a step with alternatives, or not one of them: nothing to record.
   }
 }
 

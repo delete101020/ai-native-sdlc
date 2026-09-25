@@ -28,7 +28,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
-import { normalizeStep } from '../schema/WorkspaceSchema';
+import { normalizeStep, stepSkillAlternatives } from '../schema/WorkspaceSchema';
 import type { RunState, StepRecord, StepStatus, AutoReviewVerdict, StepHistoryEntry, StepDirtyMark } from './RunState';
 import { resolvePath, stepIdentity, RUN_STATE_SCHEMA_VERSION } from './RunState';
 import { isActiveStatus, isRunComplete, isStepOptional } from './runProgress';
@@ -490,6 +490,7 @@ export function submitAutoReviewVerdict(args: {
       revision: nextStep.revision,
       reason: verdict.reason,
       sentBackToIdx: idx,
+      ...(nextStep.skill ? { skill: nextStep.skill } : {}),
     });
     next.status = 'running';
     settleOptionalRejection(next, idx, pipeline);
@@ -646,6 +647,7 @@ export function rejectStep(args: {
       revision: next.steps[idx].revision,
       reason,
       sentBackToIdx: targetIdx as number,
+      ...(next.steps[idx].skill ? { skill: next.steps[idx].skill } : {}),
     });
 
     // Choose between sequential index-range and DAG transitive-descendants
@@ -725,6 +727,7 @@ export function rejectStep(args: {
       revision: step.revision,
       reason,
       sentBackToIdx: idx,
+      ...(step.skill ? { skill: step.skill } : {}),
     }),
   };
   next.status = 'running';
@@ -775,6 +778,39 @@ export function rerunStep(args: {
     }),
   };
   next.status = 'running';
+  return next;
+}
+
+/**
+ * Pick which of a step's alternative skills (`default_skill`) it runs next.
+ *
+ * Only the choice moves: status, revision and history stay as they are — the
+ * history records a skill once its output is judged, not when it is picked.
+ * Refused for a step with no alternatives, and for a skill not among them.
+ */
+export function chooseStepSkill(args: {
+  state: RunState;
+  pipeline: PipelineConfig;
+  stepIdx: number;
+  skill: string;
+}): RunState {
+  const { state, pipeline, stepIdx, skill } = args;
+  if (!Number.isInteger(stepIdx) || stepIdx < 0 || stepIdx >= state.steps.length) {
+    throw new PipelineRunError(`Invalid stepIdx ${stepIdx}`);
+  }
+  const target = state.steps[stepIdx];
+  const cfg = pipeline.steps[target.stepIdx];
+  const alt = cfg ? stepSkillAlternatives(normalizeStep(cfg)) : undefined;
+  if (!alt) {
+    throw new PipelineRunError(`Step "${target.agent}" has no alternative skills to choose from.`);
+  }
+  if (!alt.options.includes(skill)) {
+    throw new PipelineRunError(
+      `Skill "${skill}" is not one of step "${target.agent}"'s alternatives (${alt.options.join(', ')}).`,
+    );
+  }
+  const next = clone(state);
+  next.steps[stepIdx] = { ...target, skill };
   return next;
 }
 
@@ -1122,6 +1158,7 @@ function advance(next: RunState, idx: number, pipeline: PipelineConfig): RunStat
       kind: 'approve',
       at: finishedAt,
       revision: approved.revision,
+      ...(approved.skill ? { skill: approved.skill } : {}),
     }),
   };
 

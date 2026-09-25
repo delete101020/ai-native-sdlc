@@ -59,6 +59,7 @@ export function PipelineCard({
       agent: s.agent,
       name: s.name,
       skills: s.skills,
+      default_skill: s.default_skill,
       human_review: s.human_review,
       auto_review: s.auto_review,
       auto_review_runner: s.auto_review_runner,
@@ -612,7 +613,14 @@ function DagNode({
                 <span className="opacity-60">agent:</span>&nbsp;{stripAidlcPrefix(step.agent)}
               </Badge>
             )}
-            {step.skills?.filter((s: string) => s !== step.name && s !== `aidlc-${step.name}`).map((s: string) => (
+            {step.default_skill && step.skills ? (
+              // Alternatives: every one is listed, the skill named like the
+              // step included — hiding it would hide the default.
+              <Badge title={`Runs one of these skills, picked on the epic card — default ${step.default_skill}`}>
+                <span className="opacity-60">skill:</span>&nbsp;
+                {step.skills.map((s: string) => stripAidlcPrefix(s) + (s === step.default_skill ? '*' : '')).join(' | ')}
+              </Badge>
+            ) : step.skills?.filter((s: string) => s !== step.name && s !== `aidlc-${step.name}`).map((s: string) => (
               <Badge key={s} title={`Skill — ${s}`}>
                 <span className="opacity-60">skill:</span>&nbsp;{stripAidlcPrefix(s)}
               </Badge>
@@ -781,7 +789,14 @@ function FlowNode({
                 <span className="opacity-60">agent:</span>&nbsp;{stripAidlcPrefix(step.agent)}
               </Badge>
             )}
-            {step.skills?.filter((s: string) => s !== step.name && s !== `aidlc-${step.name}`).map((s: string) => (
+            {step.default_skill && step.skills ? (
+              // Alternatives: every one is listed, the skill named like the
+              // step included — hiding it would hide the default.
+              <Badge title={`Runs one of these skills, picked on the epic card — default ${step.default_skill}`}>
+                <span className="opacity-60">skill:</span>&nbsp;
+                {step.skills.map((s: string) => stripAidlcPrefix(s) + (s === step.default_skill ? '*' : '')).join(' | ')}
+              </Badge>
+            ) : step.skills?.filter((s: string) => s !== step.name && s !== `aidlc-${step.name}`).map((s: string) => (
               <Badge key={s} title={`Skill — ${s}`}>
                 <span className="opacity-60">skill:</span>&nbsp;{stripAidlcPrefix(s)}
               </Badge>

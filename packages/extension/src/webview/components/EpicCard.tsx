@@ -1154,7 +1154,7 @@ function StepDetail({
   focusedIdx,
   focused,
   meta,
-  slashCommand,
+  slashCommand: resolvedSlashCommand,
   activity,
   otherActivities,
   stepLabel,
@@ -1208,6 +1208,14 @@ function StepDetail({
   const [artifactMenuOpen, setArtifactMenuOpen] = useState(false);
   // Which "Also produced" file has its menu open, by path.
   const [extraMenuPath, setExtraMenuPath] = useState<string | null>(null);
+  // A step whose skills are alternatives runs the one picked here. Held
+  // locally too, so the command and the Run button follow the pick at once
+  // rather than after the host's state write comes back round.
+  const skillChoices = focused.skillChoices;
+  const [pickedSkill, setPickedSkill] = useState(focused.selectedSkill);
+  useEffect(() => { setPickedSkill(focused.selectedSkill); }, [focused.selectedSkill, focusedIdx]);
+  const slashCommand =
+    skillChoices?.find((c) => c.id === pickedSkill)?.slashCommand ?? resolvedSlashCommand;
   // A step may declare several `produces` entries. The first is the headline
   // artifact rendered above; the rest are listed beside it, because otherwise
   // the only way to reach them is to know their paths by heart.
@@ -1379,6 +1387,34 @@ function StepDetail({
                 </div>
               ))}
             </div>
+          </>
+        )}
+
+        {skillChoices && skillChoices.length > 0 && epic.runId && (
+          <>
+            <DetailLabel icon={<Brain className="h-3 w-3" />} text="Skill" />
+            <select
+              value={pickedSkill ?? ''}
+              disabled={!!activity}
+              title={
+                activity
+                  ? 'An agent is working on this step — pick after it finishes'
+                  : skillChoices.find((c) => c.id === pickedSkill)?.description
+              }
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                const skill = e.target.value;
+                setPickedSkill(skill);
+                postMessage({ type: 'chooseStepSkill', runId: epic.runId!, stepIdx: focusedIdx, skill });
+              }}
+              className="w-fit rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[11px] text-foreground disabled:opacity-50"
+            >
+              {skillChoices.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.id}{c.id === focused.defaultSkill ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
           </>
         )}
 
@@ -1891,6 +1927,7 @@ function HistoryLabel({ entry }: { entry: StepHistoryEntry }) {
               → step {entry.sentBackToIdx + 1}
             </span>
           )}
+          {entry.skill && <span className="ml-1 font-mono font-normal text-muted-foreground">· {entry.skill}</span>}
         </span>
       );
     case 'rerun':
@@ -1902,7 +1939,12 @@ function HistoryLabel({ entry }: { entry: StepHistoryEntry }) {
         </span>
       );
     case 'approve':
-      return <span className="font-semibold text-success">Approved</span>;
+      return (
+        <span className="font-semibold text-success">
+          Approved
+          {entry.skill && <span className="ml-1 font-mono font-normal text-muted-foreground">· {entry.skill}</span>}
+        </span>
+      );
     case 'undo':
       return (
         <span className="font-semibold text-muted-foreground">
