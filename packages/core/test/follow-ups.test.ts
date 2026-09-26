@@ -19,6 +19,9 @@ import {
   openManifestFollowUp,
   openFollowUpEpic,
   readEpicFollowUps,
+  followUpDefaults,
+  nextManualFollowUpKey,
+  withFollowUpProvenance,
   FOLLOW_UPS_FILE,
   type PipelineConfig,
 } from '../src';
@@ -132,5 +135,82 @@ describe('readEpicFollowUps', () => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, FOLLOW_UPS_FILE), JSON.stringify(MANIFEST));
     expect(parseFollowUps(readEpicFollowUps(root, null, 'P')!).items).toHaveLength(2);
+  });
+});
+
+describe('nextManualFollowUpKey', () => {
+  it('takes the first free F<n>, ignoring case and manifest keys', () => {
+    expect(nextManualFollowUpKey([])).toBe('F1');
+    expect(nextManualFollowUpKey(['f1', 'E-A', 'F3'])).toBe('F2');
+  });
+});
+
+describe('withFollowUpProvenance', () => {
+  it('writes the edge last, over anything the caller passed', () => {
+    expect(withFollowUpProvenance({ a: '1', from_epic: 'X' }, 'P', 'F1'))
+      .toEqual({ a: '1', from_epic: 'P', follow_up_key: 'F1' });
+  });
+});
+
+describe('followUpDefaults', () => {
+  function parent(root: string, pipelineYaml?: string, state: Record<string, unknown> = {}): void {
+    const dir = path.join(root, 'docs', 'epics', 'CR-Y01');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({
+      id: 'CR-Y01', title: 'Cắt seal', pipeline: 'CR-Y01', tags: ['SPRINT-10', 'team 2'], ...state,
+    }));
+    if (pipelineYaml) { fs.writeFileSync(path.join(dir, 'pipeline.yaml'), pipelineYaml); }
+  }
+  const OWN = 'id: CR-Y01\nderived_from: cr-squad\nsteps:\n  - agent: cr-ba\n    name: cr-intake\n  - agent: cr-dev\n    name: cr-build\n';
+  const DOC = {
+    pipelines: [{ id: 'cr-squad', steps: [] }],
+    recipes: [
+      { id: 'cr-full', from: 'cr-squad', steps: ['cr-intake', 'cr-solo-ba', 'cr-build'] },
+      { id: 'cr-small', from: 'cr-squad', steps: ['cr-intake', 'cr-build'] },
+      { id: 'cr-internal', from: 'cr-squad', steps: ['cr-intake', 'cr-build'] },
+    ],
+  };
+
+  it('keys the child F1, inherits tags, and traces the parent back to its recipe', () => {
+    const root = tmpRoot();
+    parent(root, OWN);
+    expect(followUpDefaults(root, DOC, 'CR-Y01')).toEqual({
+      parentEpicId: 'CR-Y01',
+      parentTitle: 'Cắt seal',
+      key: 'F1',
+      epicId: 'CR-Y01-F1',
+      tags: ['SPRINT-10', 'TEAM-2'],
+      target: { kind: 'recipe', id: 'cr-small' },
+    });
+  });
+
+  it('falls back to the source pipeline when no recipe has the same steps', () => {
+    const root = tmpRoot();
+    parent(root, OWN);
+    const d = followUpDefaults(root, { ...DOC, recipes: [] }, 'CR-Y01');
+    expect(d.target).toEqual({ kind: 'pipeline', id: 'cr-squad' });
+  });
+
+  it('offers a shared pipeline as-is, and no target when nothing is known', () => {
+    const root = tmpRoot();
+    parent(root, undefined, { pipeline: 'shared' });
+    expect(followUpDefaults(root, { pipelines: [{ id: 'shared', steps: [] }] }, 'CR-Y01').target)
+      .toEqual({ kind: 'pipeline', id: 'shared' });
+    expect(followUpDefaults(root, null, 'CR-Y01').target).toBeUndefined();
+  });
+
+  it('counts past follow-ups already opened, and folders already taken', () => {
+    const root = tmpRoot();
+    parent(root, OWN);
+    const item = { ...parseFollowUps(MANIFEST).items[0], key: 'F1' };
+    openManifestFollowUp({ workspaceRoot: root, doc: null, parentEpicId: 'CR-Y01', item, pipeline: PIPELINE });
+    fs.mkdirSync(path.join(root, 'docs', 'epics', 'CR-Y01-F2'));
+    const d = followUpDefaults(root, DOC, 'CR-Y01');
+    expect(d.key).toBe('F2');
+    expect(d.epicId).toBe('CR-Y01-F2-2');
+  });
+
+  it('refuses a parent that is not an epic', () => {
+    expect(() => followUpDefaults(tmpRoot(), null, 'NOPE')).toThrow(/not found/);
   });
 });

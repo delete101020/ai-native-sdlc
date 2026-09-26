@@ -230,6 +230,8 @@ import {
   followUpsOf,
   followUpChildId,
   openManifestFollowUp,
+  followUpDefaults,
+  withFollowUpProvenance,
   FOLLOW_UPS_FILE,
   type FollowUpItem,
   FOLLOW_UP_HOOKS_LEDGER,
@@ -2912,6 +2914,20 @@ export class WorkspaceWebview {
         await this.openManifestFollowUps(epicId);
         return;
       }
+      case 'newFollowUpEpic': {
+        const epicId = String(msg.epicId ?? '').trim();
+        const root = epicId ? this.getRootOrWarn() : undefined;
+        if (!epicId || !root) { return; }
+        let followUp;
+        try {
+          followUp = followUpDefaults(root, readYaml(root), epicId);
+        } catch (err) {
+          void vscode.window.showWarningMessage(`AIDLC: ${err instanceof Error ? err.message : String(err)}`);
+          return;
+        }
+        void this.panel.webview.postMessage({ type: 'openFollowUpModal', followUp });
+        return;
+      }
       case 'syncFollowUps': {
         const epicId = String(msg.epicId ?? '').trim();
         const root = epicId ? this.getRootOrWarn() : undefined;
@@ -4316,6 +4332,23 @@ export class WorkspaceWebview {
     let targetId = String(targetRaw.id ?? '').trim();
     if (!targetId) { return; }
     if (targetKind !== 'pipeline' && targetKind !== 'agent' && targetKind !== 'recipe') { return; }
+    const recipeId = targetKind === 'recipe' ? targetId : null;
+
+    // A follow-up of another epic: check the parent and take the next free key
+    // now, before a recipe writes a pipeline for an epic that cannot be opened.
+    // The key is derived here rather than trusted from the form, so two
+    // follow-ups opened at once cannot both claim `F1`.
+    const followUpRaw = draft.followUp as Record<string, unknown> | undefined;
+    const parentEpicId = followUpRaw ? String(followUpRaw.parentEpicId ?? '').trim() : '';
+    let followUpKey = '';
+    if (parentEpicId) {
+      try {
+        followUpKey = followUpDefaults(root, readYaml(root), parentEpicId).key;
+      } catch (err) {
+        void vscode.window.showWarningMessage(`AIDLC: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+    }
 
     // Recipe target → assemble a right-sized pipeline named after the epic,
     // write it to workspace.yaml, then continue as a normal pipeline.
@@ -4406,7 +4439,7 @@ export class WorkspaceWebview {
         description,
         target: { kind: targetKind as 'pipeline' | 'agent', id: targetId },
         agents,
-        inputs,
+        inputs: parentEpicId ? withFollowUpProvenance(inputs, parentEpicId, followUpKey) : inputs,
         extraProjects: extraProjects && extraProjects.length > 0 ? extraProjects : undefined,
         pipeline: pipelineCfg,
         // Absent means strict — an older webview bundle that does not send the
@@ -4428,6 +4461,23 @@ export class WorkspaceWebview {
       }
       void vscode.window.showWarningMessage(
         `Epic could not be scaffolded: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+
+    if (parentEpicId) {
+      // Same hook a manifest batch runs, so whatever mirrors a parent's
+      // follow-ups elsewhere hears about this one too. Its failure does not
+      // undo the epic just opened.
+      void runFollowUpsOpened(
+        root,
+        parentEpicId,
+        [{ follow_up_key: followUpKey, epic: epicId, recipe: recipeId }],
+        'opened',
+      );
+      this.refresh();
+      void vscode.window.showInformationMessage(
+        `Follow-up "${epicId}" of ${parentEpicId} parked — nothing runs until you start it.`,
       );
       return;
     }

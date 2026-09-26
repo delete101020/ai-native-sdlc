@@ -520,6 +520,20 @@ export interface PipelineSummary {
   pinnedByEpic?: string;
 }
 
+/**
+ * Start-Epic pre-filled to park work found in `parentEpicId` as an epic of its
+ * own (mirrors core `FollowUpDefaults`, sent by the host on `openFollowUpModal`).
+ */
+export interface FollowUpContext {
+  parentEpicId: string;
+  parentTitle: string;
+  key: string;
+  epicId: string;
+  tags: string[];
+  /** The workflow the parent runs on, when it can still be picked. */
+  target?: { kind: 'recipe' | 'pipeline'; id: string };
+}
+
 /** A task-type recipe surfaced in the Start-Epic modal (mirrors host RecipeSummary). */
 export interface RecipeSummary {
   id: string;

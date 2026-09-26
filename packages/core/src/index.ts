@@ -159,6 +159,10 @@ export {
   followUpsOf,
   followUpChildId,
   openManifestFollowUp,
+  withFollowUpProvenance,
+  nextManualFollowUpKey,
+  followUpDefaults,
+  MANUAL_FOLLOW_UP_KEY_PREFIX,
   FOLLOW_UPS_FILE,
   FOLLOW_UP_INTENT,
 } from './epics/FollowUps';
@@ -168,6 +172,8 @@ export type {
   OpenedFollowUp,
   OpenManifestFollowUpArgs,
   OpenManifestFollowUpResult,
+  FollowUpDefaults,
+  FollowUpTarget,
 } from './epics/FollowUps';
 export {
   FOLLOW_UP_HOOK_KEYS,

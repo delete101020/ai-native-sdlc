@@ -2529,6 +2529,18 @@ function EpicActions({
           Open follow-up epic
         </button>
       )}
+      {/* Work found mid-epic, parked beside it as an epic of its own. Offered
+          in every status: the point is to write it down while in the middle of
+          the parent, not after its closing step. */}
+      <button
+        type="button"
+        onClick={() => postMessage({ type: 'newFollowUpEpic', epicId: epic.id })}
+        title="Park work that turned up while doing this epic as a follow-up epic — linked back here, nothing runs until you start it."
+        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        <GitBranchPlus className="h-3 w-3" />
+        New follow-up epic
+      </button>
       {/* Any step can hand work forward by writing followups.json. Shown on a
           done epic too — that is where a closing step leaves it. */}
       {epic.hasFollowUps && (

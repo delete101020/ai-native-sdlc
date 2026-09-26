@@ -299,7 +299,19 @@ aidlc epic start <id> --pipeline <pipelineId>   # or use an existing pipeline as
 aidlc epic start <id> … --tag payment --tag "thanh toán"   # tag it at creation
 aidlc epic tag <id>                             # print this epic's tags
 aidlc epic tag <id> payment "release q3"        # add tags (also --add/--remove/--set/--clear)
+aidlc epic follow-up <parent> --title "…" [--desc "…"]   # park work found mid-epic as <parent>-F<n>
 ```
+
+**Follow-ups opened by hand.** Work that turns up while an epic is in flight —
+a CR in build finds a second screen that needs the same change — goes into
+`epic follow-up <parent>`. It scaffolds `<parent>-F1` (then `F2`, …) with
+`from_epic` and `follow_up_key` in its `inputs.json`, so the parent's card links
+to it exactly as it does to manifest and incident follow-ups. The child runs
+the way the parent does (the recipe that assembled the parent's pipeline, else
+the pipeline it was derived from) and inherits its tags; override with
+`--recipe` / `--pipeline`, `--tag`, `--no-inherit-tags`, `--epic <id>`. Nothing
+runs: the child waits at its first step until someone starts it. The
+extension's card offers the same as **New follow-up epic**.
 
 **Tags** are free text in and one canonical form on disk: uppercase, ASCII,
 dash-separated — `"thanh toán VNPay"` is stored as `THANH-TOAN-VNPAY`, and the

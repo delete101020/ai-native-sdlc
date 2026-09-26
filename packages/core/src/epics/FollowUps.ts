@@ -21,6 +21,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 import { z } from 'zod';
 
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
@@ -28,6 +29,8 @@ import { stepAgentId } from '../schema/WorkspaceSchema';
 import { scaffoldEpic, epicsRoot, EpicScaffoldError } from '../runs/EpicScaffold';
 import type { ScaffoldEpicResult } from '../runs/EpicScaffold';
 import { FOLLOW_UPS_FILE } from '../schema/FollowUpHookSchema';
+import { EPIC_PIPELINE_FILENAME } from '../loader/EpicPipelineStore';
+import { normalizeTags } from '../loader/epicTags';
 
 // Defined beside the hook schema, which has to recognise the manifest's step
 // without importing this module (and, through it, the scaffold).
@@ -224,11 +227,7 @@ export function openManifestFollowUp(args: OpenManifestFollowUpArgs): OpenManife
     target: { kind: 'pipeline', id: pipeline.id },
     agents,
     // Provenance last, so a manifest cannot overwrite the edge it is drawn from.
-    inputs: {
-      ...item.inputs,
-      from_epic: parentEpicId,
-      follow_up_key: item.key,
-    },
+    inputs: withFollowUpProvenance(item.inputs, parentEpicId, item.key),
     pipeline,
     seedArtifacts: { [FOLLOW_UP_INTENT]: item.intent.endsWith('\n') ? item.intent : `${item.intent}\n` },
     ...(item.strictMode !== undefined ? { strictMode: item.strictMode } : {}),
@@ -238,5 +237,155 @@ export function openManifestFollowUp(args: OpenManifestFollowUpArgs): OpenManife
     ...result,
     epicId,
     intentPath: path.join(result.artifactsDir, FOLLOW_UP_INTENT),
+  };
+}
+
+/**
+ * `inputs` with the edge back to the parent added — last, so nothing the caller
+ * passes can overwrite the edge the child is drawn from.
+ */
+export function withFollowUpProvenance(
+  inputs: Record<string, string>,
+  parentEpicId: string,
+  key: string,
+): Record<string, string> {
+  return { ...inputs, from_epic: parentEpicId, follow_up_key: key };
+}
+
+// ── Follow-ups opened by hand ────────────────────────────────────────────────
+//
+// A manifest is written by the step that closes an epic. Work also turns up in
+// the middle of one — a CR in build finds a second screen that needs the same
+// change — and the person who finds it wants it parked beside its parent now,
+// not remembered until the closing step. These are the defaults for that: the
+// same `from_epic` edge, a key of its own, and the parent's workflow and tags,
+// so the note costs a title and a sentence.
+
+/** Prefix of the keys given to follow-ups opened by hand: `F1`, `F2`, … */
+export const MANUAL_FOLLOW_UP_KEY_PREFIX = 'F';
+
+/**
+ * The next free `F<n>` key. Compared case-insensitively, as manifest keys are,
+ * so a hand-opened `F1` and a manifest item `f1` never share a child id.
+ */
+export function nextManualFollowUpKey(taken: Iterable<string>): string {
+  const used = new Set([...taken].map((k) => k.toUpperCase()));
+  for (let n = 1; n < 10000; n++) {
+    const key = `${MANUAL_FOLLOW_UP_KEY_PREFIX}${n}`;
+    if (!used.has(key)) { return key; }
+  }
+  throw new EpicScaffoldError('Could not find a free follow-up key.');
+}
+
+/** What a follow-up runs on — the same two shapes Start Epic offers. */
+export interface FollowUpTarget {
+  kind: 'recipe' | 'pipeline';
+  id: string;
+}
+
+export interface FollowUpDefaults {
+  parentEpicId: string;
+  parentTitle: string;
+  /** `follow_up_key` for the child — the next free `F<n>`. */
+  key: string;
+  /** `<parent>-<key>`, free on disk. */
+  epicId: string;
+  /** The parent's tags: a follow-up usually lands in the same sprint and team. */
+  tags: string[];
+  /** The workflow the parent runs on, when one can still be picked. Absent = the person chooses. */
+  target?: FollowUpTarget;
+}
+
+interface PipelineLike { id?: unknown; derived_from?: unknown; steps?: unknown }
+interface RecipeLike { id?: unknown; from?: unknown; steps?: unknown }
+
+function stepIds(steps: unknown): string[] {
+  if (!Array.isArray(steps)) { return []; }
+  return steps.map((s) => {
+    if (typeof s === 'string') { return s; }
+    const o = (s ?? {}) as { name?: unknown; agent?: unknown };
+    return String(o.name ?? o.agent ?? '');
+  });
+}
+
+/**
+ * The workflow a new epic would pick to run the way the parent does.
+ *
+ * An epic's own pipeline records one run; it is not something to start another
+ * epic on. So it is traced back: to the recipe that assembled it (same source,
+ * same steps — the first such recipe, since two recipes may list the same
+ * steps), else to the pipeline it was derived from. A parent on a shared
+ * pipeline gets that pipeline.
+ */
+function parentTarget(
+  own: PipelineLike | null,
+  pipelines: PipelineLike[],
+  recipes: RecipeLike[],
+): FollowUpTarget | undefined {
+  if (!own) { return undefined; }
+  const source = typeof own.derived_from === 'string' ? own.derived_from : '';
+  if (!source) {
+    return typeof own.id === 'string' && own.id ? { kind: 'pipeline', id: own.id } : undefined;
+  }
+  const steps = stepIds(own.steps).join('\n');
+  const recipe = recipes.find((r) =>
+    (r.from === undefined || r.from === source) && stepIds(r.steps).join('\n') === steps);
+  if (recipe && typeof recipe.id === 'string') { return { kind: 'recipe', id: recipe.id }; }
+  if (pipelines.some((p) => p.id === source)) { return { kind: 'pipeline', id: source }; }
+  return undefined;
+}
+
+/**
+ * Defaults for a follow-up of `parentEpicId` opened by hand.
+ *
+ * `doc` should carry the workspace's `pipelines` and `recipes`. The parent's
+ * own pipeline is read from its epic directory first — that is where an epic
+ * keeps it — and from `doc.pipelines` only when the file is not there.
+ */
+export function followUpDefaults(
+  workspaceRoot: string,
+  doc: { state?: unknown; pipelines?: unknown; recipes?: unknown } | null,
+  parentEpicId: string,
+): FollowUpDefaults {
+  const root = epicsRoot(workspaceRoot, doc);
+  const dir = path.join(root, parentEpicId);
+  const stateFile = path.join(dir, 'state.json');
+  if (!fs.existsSync(stateFile)) {
+    throw new EpicScaffoldError(`Epic "${parentEpicId}" not found — no state.json in ${dir}.`);
+  }
+  let state: { title?: unknown; tags?: unknown; pipeline?: unknown };
+  try {
+    state = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as typeof state;
+  } catch (err) {
+    throw new EpicScaffoldError(
+      `Epic "${parentEpicId}" has an unreadable state.json: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const pipelines = (Array.isArray(doc?.pipelines) ? doc.pipelines : []) as PipelineLike[];
+  const recipes = (Array.isArray(doc?.recipes) ? doc.recipes : []) as RecipeLike[];
+  let own: PipelineLike | null = null;
+  const ownFile = path.join(dir, EPIC_PIPELINE_FILENAME);
+  if (fs.existsSync(ownFile)) {
+    try {
+      const parsed = yaml.load(fs.readFileSync(ownFile, 'utf8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) { own = parsed as PipelineLike; }
+    } catch { /* unreadable — fall back to the workspace's copy below */ }
+  }
+  if (!own && typeof state.pipeline === 'string') {
+    own = pipelines.find((p) => p.id === state.pipeline) ?? null;
+  }
+
+  const key = nextManualFollowUpKey(followUpsOf(workspaceRoot, doc, parentEpicId).map((f) => f.key ?? ''));
+  const taken = fs.existsSync(root) ? fs.readdirSync(root) : [];
+  const target = parentTarget(own, pipelines, recipes);
+
+  return {
+    parentEpicId,
+    parentTitle: typeof state.title === 'string' ? state.title : '',
+    key,
+    epicId: followUpChildId(parentEpicId, key, taken),
+    tags: normalizeTags(state.tags),
+    ...(target ? { target } : {}),
   };
 }

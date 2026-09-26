@@ -14,6 +14,8 @@ import {
   heuristicClassify,
   scaffoldEpic,
   EpicScaffoldError,
+  followUpDefaults,
+  withFollowUpProvenance,
   setEpicDescription,
   EpicDescriptionError,
   planEpicWorkflowSwitch,
@@ -194,23 +196,14 @@ export function registerEpic(program: Command): void {
 
       // Resolve the target pipeline — either an existing one, or one assembled
       // from a recipe (chosen directly or via classification) and written back.
-      let pipelineCfg: PipelineConfig;
-      if (opts.pipeline) {
-        const found = (doc.pipelines as Array<Record<string, unknown>>)
-          .find((p) => String(p.id) === opts.pipeline);
-        if (!found) {
-          console.error(chalk.red(`Pipeline "${opts.pipeline}" not found in workspace.yaml.`));
-          process.exit(1);
-        }
-        pipelineCfg = found as unknown as PipelineConfig;
-      } else {
+      let recipeId = opts.recipe;
+      if (!opts.pipeline) {
         if (config.recipes.length === 0) {
           console.error(chalk.red('No recipes defined — task-type suggestion needs them.'));
           console.error(chalk.dim('  Back-fill from your existing pipeline: aidlc recipe init'));
           console.error(chalk.dim('  Or apply the preset that ships them:    aidlc preset apply sdlc'));
           process.exit(1);
         }
-        let recipeId = opts.recipe;
         if (!recipeId) {
           const brief = (opts.brief ?? []).join(' ').trim();
           // Instant heuristic first (provisional), then refine with the LLM —
@@ -224,34 +217,10 @@ export function registerEpic(program: Command): void {
           recipeId = verdict.recipeId;
           console.log(chalk.dim(`Classified → ${chalk.bold(recipeId)} (${verdict.confidence}, ${verdict.source})`));
         }
-        if (opts.from) {
-          const recipe = config.recipes.find((r) => r.id === recipeId);
-          if (recipe) { recipe.from = opts.from; }
-        }
-        const pipelineId = recipePipelineId({ recipeId, epicId, taken: existingIds(doc.pipelines) });
-        try {
-          pipelineCfg = assemblePipeline(config, { recipeId, pipelineId });
-        } catch (err) {
-          if (err instanceof PipelineAssembleError) {
-            console.error(chalk.red('Could not assemble pipeline: ') + chalk.dim(err.message));
-            process.exit(1);
-          }
-          throw err;
-        }
-        doc.pipelines.push(pipelineCfg as unknown as Record<string, unknown>);
-        // The epic owns this pipeline: keep it in the epic's own file so two
-        // people starting epics never collide on one append point in workspace.yaml.
-        stageEpicPipeline(doc, pipelineCfg.id, epicId);
-        try {
-          validateWorkspace(doc, '.aidlc/workspace.yaml');
-        } catch (err) {
-          console.error(chalk.red('Assembled pipeline failed validation — not written:'));
-          console.error(chalk.dim(err instanceof Error ? err.message : String(err)));
-          process.exit(1);
-        }
-        writeYaml(root, doc);
-        console.log(chalk.dim(`Assembled pipeline ${chalk.bold(pipelineCfg.id)} from recipe ${chalk.bold(recipeId)}`));
       }
+      const pipelineCfg = resolveEpicPipeline(root, doc, config, {
+        pipeline: opts.pipeline, recipe: recipeId, from: opts.from,
+      }, epicId);
 
       const agents = Array.isArray(pipelineCfg.steps)
         ? (pipelineCfg.steps as unknown[]).map(stepAgentId)
@@ -292,21 +261,121 @@ export function registerEpic(program: Command): void {
           console.log(chalk.dim('  Depth:    strict_mode: false — phases stay proportional to the work'));
         }
 
-        // Resolve the slash command Claude actually has for the first step.
-        // Commands are registered in workspace.yaml `slash_commands` and
-        // namespaced to the *source* pipeline (e.g. `/sdlc-parallel-full-implement`),
-        // not the per-epic pipeline — so we can't just print `/<agent>`. Match
-        // by the step's DAG name + agent, falling back to a bare `/<name>`.
-        const firstStep = (Array.isArray(pipelineCfg.steps) ? pipelineCfg.steps[0] : undefined) as
-          { name?: string; agent?: string } | undefined;
-        const firstName = firstStep?.name ?? firstStep?.agent ?? agents[0];
-        const slashCmds = (Array.isArray(doc.slash_commands) ? doc.slash_commands : []) as
-          Array<{ name?: string; agent?: string }>;
-        const match = slashCmds.find(
-          (c) => typeof c.name === 'string' && c.name.endsWith(`-${firstName}`) && c.agent === agents[0],
-        ) ?? slashCmds.find((c) => typeof c.name === 'string' && c.name.endsWith(`-${firstName}`));
-        const runCmd = match?.name ?? `/${firstName}`;
+        const runCmd = firstStepCommand(doc, pipelineCfg, agents);
         console.log(`\nRun ${chalk.cyan(`${runCmd} ${epicId}`)} in Claude to begin.`);
+      } catch (err) {
+        if (err instanceof EpicScaffoldError) {
+          console.error(chalk.red(err.message));
+          process.exit(1);
+        }
+        throw err;
+      }
+    });
+
+  // ── follow-up ────────────────────────────────────────────────────────────────
+  //
+  // Work that turns up while an epic is in flight, parked beside it as an epic
+  // of its own. Nothing runs: the child waits at its first step like any epic
+  // just started, and the parent's card links to it through `from_epic`.
+  cmd
+    .command('follow-up <parentEpic>')
+    .description('Open a follow-up epic of <parentEpic> to park work found while doing it — nothing runs yet')
+    .requiredOption('--title <title>', 'what the follow-up is')
+    .option('--desc <description>', 'the note: what turned up, and why it is not part of the parent')
+    .option('--recipe <id>', 'recipe for the follow-up (default: the one the parent runs on)')
+    .option('--pipeline <id>', 'use an existing pipeline as-is (default: the parent\'s workflow)')
+    .option('--from <pipelineId>', 'override the recipe\'s source pipeline')
+    .option('--epic <id>', 'id for the follow-up (default: <parentEpic>-F<n>)')
+    .option('--input <kv>', 'capability input as key=value (repeatable)', collectKv, [] as string[])
+    .option('--tag <tag>', 'extra tag (repeatable) — added to the ones inherited from the parent', collectKv, [] as string[])
+    .option('--no-inherit-tags', 'do not copy the parent\'s tags')
+    .option('--no-strict', 'work to the size of this epic — no invented NFR / risk / alternatives sections')
+    .option('--json', 'output the result as JSON')
+    .action((parentEpic: string, opts: {
+      title: string; desc?: string; recipe?: string; pipeline?: string; from?: string; epic?: string;
+      input: string[]; tag: string[]; inheritTags: boolean; strict: boolean; json?: boolean;
+    }, actionCmd: Command) => {
+      const root = resolveWorkspaceRoot(actionCmd);
+      const doc  = requireYaml(root);
+
+      if (opts.recipe && opts.pipeline) {
+        console.error(chalk.red('Pick at most one of --recipe <id> or --pipeline <id>.'));
+        process.exit(1);
+      }
+
+      let config;
+      try {
+        config = validateWorkspace(doc, '.aidlc/workspace.yaml');
+      } catch (err) {
+        console.error(chalk.red('workspace.yaml is invalid — fix it before opening a follow-up:'));
+        console.error(chalk.dim(err instanceof Error ? err.message : String(err)));
+        process.exit(1);
+      }
+
+      let defaults;
+      try {
+        defaults = followUpDefaults(root, doc, parentEpic);
+      } catch (err) {
+        console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+        process.exit(1);
+      }
+
+      const epicId = opts.epic?.trim() || defaults.epicId;
+      const target = opts.pipeline
+        ? { pipeline: opts.pipeline }
+        : opts.recipe
+          ? { recipe: opts.recipe }
+          : defaults.target?.kind === 'pipeline'
+            ? { pipeline: defaults.target.id }
+            : defaults.target
+              ? { recipe: defaults.target.id }
+              : undefined;
+      if (!target) {
+        console.error(chalk.red(`Could not tell which workflow "${parentEpic}" runs on.`));
+        console.error(chalk.dim('  Pass one: --recipe <id> or --pipeline <id>'));
+        process.exit(1);
+      }
+      const pipelineCfg = resolveEpicPipeline(root, doc, config, { ...target, from: opts.from, quiet: opts.json }, epicId);
+
+      const agents = Array.isArray(pipelineCfg.steps)
+        ? (pipelineCfg.steps as unknown[]).map(stepAgentId)
+        : [];
+      const inputs: Record<string, string> = {};
+      for (const kv of opts.input) {
+        const eq = kv.indexOf('=');
+        if (eq > 0) { inputs[kv.slice(0, eq).trim()] = kv.slice(eq + 1).trim(); }
+      }
+      const tags = normalizeTags([...(opts.inheritTags ? defaults.tags : []), ...opts.tag]);
+
+      try {
+        const { epicDir } = scaffoldEpic({
+          workspaceRoot: root,
+          doc,
+          epicId,
+          title: opts.title.trim(),
+          description: opts.desc?.trim() ?? '',
+          target: { kind: 'pipeline', id: pipelineCfg.id },
+          agents,
+          inputs: withFollowUpProvenance(inputs, parentEpic, defaults.key),
+          pipeline: pipelineCfg,
+          strictMode: opts.strict,
+          tags,
+        });
+
+        if (opts.json) {
+          console.log(JSON.stringify({
+            epicId, epicDir, pipeline: pipelineCfg.id, fromEpic: parentEpic, followUpKey: defaults.key, tags,
+          }, null, 2));
+          return;
+        }
+        console.log(chalk.green('✔') + ` Opened follow-up ${chalk.bold(epicId)} of ${chalk.bold(parentEpic)}`);
+        console.log(chalk.dim(`  Pipeline: ${pipelineCfg.id}`));
+        console.log(chalk.dim(`  Steps:    ${agents.join(' → ')}`));
+        console.log(chalk.dim(`  Dir:      ${epicDir}`));
+        if (tags.length > 0) {
+          console.log(chalk.dim('  Tags:     ') + chalk.cyan(tags.join(' ')));
+        }
+        console.log(`\nParked — nothing runs yet. When it is time: ${chalk.cyan(`${firstStepCommand(doc, pipelineCfg, agents)} ${epicId}`)}`);
       } catch (err) {
         if (err instanceof EpicScaffoldError) {
           console.error(chalk.red(err.message));
@@ -919,6 +988,90 @@ function printSteps(plan: EpicStepEditPlan): void {
 function collectKv(value: string, acc: string[]): string[] {
   acc.push(value);
   return acc;
+}
+
+/**
+ * The slash command Claude actually has for a pipeline's first step.
+ *
+ * Commands are registered in workspace.yaml `slash_commands` and namespaced to
+ * the *source* pipeline (e.g. `/sdlc-parallel-full-implement`), not the
+ * per-epic pipeline — so `/<agent>` would be wrong. Matched by the step's DAG
+ * name + agent, falling back to a bare `/<name>`.
+ */
+function firstStepCommand(
+  doc: ReturnType<typeof requireYaml>,
+  pipelineCfg: PipelineConfig,
+  agents: string[],
+): string {
+  const firstStep = (Array.isArray(pipelineCfg.steps) ? pipelineCfg.steps[0] : undefined) as
+    { name?: string; agent?: string } | undefined;
+  const firstName = firstStep?.name ?? firstStep?.agent ?? agents[0];
+  const slashCmds = (Array.isArray(doc.slash_commands) ? doc.slash_commands : []) as
+    Array<{ name?: string; agent?: string }>;
+  const match = slashCmds.find(
+    (c) => typeof c.name === 'string' && c.name.endsWith(`-${firstName}`) && c.agent === agents[0],
+  ) ?? slashCmds.find((c) => typeof c.name === 'string' && c.name.endsWith(`-${firstName}`));
+  return match?.name ?? `/${firstName}`;
+}
+
+/**
+ * The pipeline a new epic runs on: an existing one by id, or one assembled
+ * from a recipe, staged into the epic's own `pipeline.yaml` and written back.
+ * Exits with the reason when neither works. Shared by `start` and `follow-up`
+ * so both produce the same shape.
+ */
+function resolveEpicPipeline(
+  root: string,
+  doc: ReturnType<typeof requireYaml>,
+  config: ReturnType<typeof validateWorkspace>,
+  opts: { pipeline?: string; recipe?: string; from?: string; quiet?: boolean },
+  epicId: string,
+): PipelineConfig {
+  if (opts.pipeline) {
+    const found = (doc.pipelines as Array<Record<string, unknown>>)
+      .find((p) => String(p.id) === opts.pipeline);
+    if (!found) {
+      console.error(chalk.red(`Pipeline "${opts.pipeline}" not found in workspace.yaml.`));
+      process.exit(1);
+    }
+    return found as unknown as PipelineConfig;
+  }
+  const recipeId = opts.recipe ?? '';
+  if (!config.recipes.some((r) => r.id === recipeId)) {
+    console.error(chalk.red(`Recipe "${recipeId}" is not defined in this workspace.`));
+    process.exit(1);
+  }
+  if (opts.from) {
+    const recipe = config.recipes.find((r) => r.id === recipeId);
+    if (recipe) { recipe.from = opts.from; }
+  }
+  const pipelineId = recipePipelineId({ recipeId, epicId, taken: existingIds(doc.pipelines) });
+  let pipelineCfg: PipelineConfig;
+  try {
+    pipelineCfg = assemblePipeline(config, { recipeId, pipelineId });
+  } catch (err) {
+    if (err instanceof PipelineAssembleError) {
+      console.error(chalk.red('Could not assemble pipeline: ') + chalk.dim(err.message));
+      process.exit(1);
+    }
+    throw err;
+  }
+  doc.pipelines.push(pipelineCfg as unknown as Record<string, unknown>);
+  // The epic owns this pipeline: keep it in the epic's own file so two
+  // people starting epics never collide on one append point in workspace.yaml.
+  stageEpicPipeline(doc, pipelineCfg.id, epicId);
+  try {
+    validateWorkspace(doc, '.aidlc/workspace.yaml');
+  } catch (err) {
+    console.error(chalk.red('Assembled pipeline failed validation — not written:'));
+    console.error(chalk.dim(err instanceof Error ? err.message : String(err)));
+    process.exit(1);
+  }
+  writeYaml(root, doc);
+  if (!opts.quiet) {
+    console.log(chalk.dim(`Assembled pipeline ${chalk.bold(pipelineCfg.id)} from recipe ${chalk.bold(recipeId)}`));
+  }
+  return pipelineCfg;
 }
 
 // ── Rendering helpers ─────────────────────────────────────────────────────────

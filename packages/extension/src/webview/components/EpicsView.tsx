@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
+import type { WorkspaceState, EpicSummary, EpicFilter, FollowUpContext } from '@/lib/types';
 import { EpicCard } from './EpicCard';
 import { StartEpicModal } from './StartEpicModal';
 import { ReportSignalModal } from './ReportSignalModal';
@@ -85,6 +85,9 @@ export function EpicsView({
   // the picker never claims an order the list is not in.
   const effectiveSort: EpicSort = sort === 'mine' && !prefix ? DEFAULT_EPIC_SORT : sort;
   const [startEpicOpen, setStartEpicOpen] = useState(false);
+  // Set while Start Epic is open as "New follow-up of <parent>" — cleared on close
+  // so the header's plain Start Epic never inherits a parent.
+  const [followUp, setFollowUp] = useState<FollowUpContext | null>(null);
   const [reportSignalOpen, setReportSignalOpen] = useState(false);
   // Focus comes from two places now: the host deep link, and the incident ⇄
   // follow-up chips on the cards themselves. Both land here so the scroll,
@@ -121,6 +124,11 @@ export function EpicsView({
   useEffect(() => {
     return onHostMessage((msg) => {
       if (msg.type === 'triggerStartEpic' || msg.type === 'openStartEpicModal') {
+        setFollowUp(null);
+        setStartEpicOpen(true);
+      }
+      if (msg.type === 'openFollowUpModal' && msg.followUp && typeof msg.followUp === 'object') {
+        setFollowUp(msg.followUp as FollowUpContext);
         setStartEpicOpen(true);
       }
       if (msg.type === 'openReportSignalModal') {
@@ -315,7 +323,7 @@ export function EpicsView({
           </button>
           <button
             type="button"
-            onClick={() => setStartEpicOpen(true)}
+            onClick={() => { setFollowUp(null); setStartEpicOpen(true); }}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -521,6 +529,10 @@ export function EpicsView({
 
       {startEpicOpen && (
         <StartEpicModal
+          // Keyed so switching between a plain start and a follow-up remounts
+          // the form: its fields are seeded once, from the props at mount.
+          key={followUp?.epicId ?? 'start'}
+          followUp={followUp ?? undefined}
           pipelines={state.pipelines}
           recipes={state.recipes ?? []}
           agentMeta={state.agentMeta}
@@ -534,7 +546,7 @@ export function EpicsView({
           workspaceName={state.workspaceName}
           onReportSignal={() => setReportSignalOpen(true)}
           onSubmit={(draft) => postMessage({ type: 'startEpicInline', draft })}
-          onClose={() => setStartEpicOpen(false)}
+          onClose={() => { setStartEpicOpen(false); setFollowUp(null); }}
         />
       )}
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, Wand2, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch, Gauge, AlertTriangle } from 'lucide-react';
+import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, Wand2, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch, GitBranchPlus, Gauge, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { AgentMeta, ExtraProject, PipelineSummary, RecipeSummary } from '@/lib/types';
+import type { AgentMeta, ExtraProject, FollowUpContext, PipelineSummary, RecipeSummary } from '@/lib/types';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
 import { pickAndReadFile, pickFolder } from '@/lib/pickFile';
 import { postMessage, onHostMessage } from '@/lib/bridge';
@@ -54,6 +54,12 @@ export interface StartEpicDraft {
    * run, this picks how far each one goes.
    */
   strictMode: boolean;
+  /**
+   * Set when this epic is a follow-up of another. The host writes the edge
+   * (`from_epic`, `follow_up_key`) itself — the key is re-derived there, so two
+   * follow-ups opened at once cannot both claim `F1`.
+   */
+  followUp?: { parentEpicId: string };
 }
 
 interface Props {
@@ -80,6 +86,11 @@ interface Props {
    *  needs a `signal.json` this modal cannot write. Omitted where no such form
    *  is mounted (the no-folder shell) — the warning still shows. */
   onReportSignal?: () => void;
+  /**
+   * Open as "New follow-up of <parent>": id, tags and workflow pre-filled from
+   * the parent, so parking work found mid-epic costs a title and a note.
+   */
+  followUp?: FollowUpContext;
   onSubmit: (draft: StartEpicDraft) => void;
   onClose: () => void;
 }
@@ -119,22 +130,29 @@ export function StartEpicModal({
   workspaceName,
   hasFolder = true,
   onReportSignal,
+  followUp,
   onSubmit,
   onClose,
 }: Props) {
-  const [selected, setSelected] = useState<Selection>(
-    recipes.length > 0
+  const [selected, setSelected] = useState<Selection>(() => {
+    // A follow-up runs the way its parent does unless the person changes it —
+    // but only when that workflow is still one the picker offers.
+    const t = followUp?.target;
+    if (t?.kind === 'recipe' && recipes.some((r) => r.id === t.id)) { return { kind: 'recipe', id: t.id }; }
+    if (t?.kind === 'pipeline' && pipelines.some((p) => p.id === t.id)) { return { kind: 'pipeline', id: t.id }; }
+    return recipes.length > 0
       ? { kind: 'auto' }
       : pipelines.find((p) => !isEpicOwnedPipeline(p))
         ? { kind: 'pipeline', id: pipelines.find((p) => !isEpicOwnedPipeline(p))!.id }
-        : { kind: 'auto' },
-  );
+        : { kind: 'auto' };
+  });
   // Start empty (nextEpicId is shown only as a placeholder). A pre-filled
   // "EPIC-100" looks like a Jira key and would trigger auto-analysis on open.
-  const [epicId, setEpicId] = useState('');
+  // A follow-up's `<parent>-F<n>` does not, and is the id it should get.
+  const [epicId, setEpicId] = useState(followUp?.epicId ?? '');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
+  const [tags, setTags] = useState<string[]>(followUp?.tags ?? []);
   const [inputs, setInputs] = useState<Record<string, string>>({});
   // Capability inputs are all optional (blank = skip) and every one of them is a
   // path or URL only the user can supply, so the common case is to fill none.
@@ -609,6 +627,7 @@ export function StartEpicModal({
       inputs: cleanInputs,
       extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
       strictMode,
+      ...(followUp ? { followUp: { parentEpicId: followUp.parentEpicId } } : {}),
     });
     onClose();
   };
@@ -616,9 +635,26 @@ export function StartEpicModal({
   const [localEpicsDir, setLocalEpicsDir] = useState(epicsDir);
 
   return (
-    <Modal title="Start epic" maxWidth="max-w-2xl" onClose={onClose} onSubmit={submit}>
+    <Modal
+      title={followUp ? `New follow-up of ${followUp.parentEpicId}` : 'Start epic'}
+      maxWidth="max-w-2xl"
+      onClose={onClose}
+      onSubmit={submit}
+    >
       <div className="space-y-4">
-        {isFirstEpic && hasFolder && (
+        {followUp && (
+          <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-[11px] text-muted-foreground">
+            <GitBranchPlus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+            <div>
+              Parks work found in{' '}
+              <span className="font-mono font-semibold text-foreground">{followUp.parentEpicId}</span>
+              {followUp.parentTitle && <> — {followUp.parentTitle}</>} as an epic of its own, linked back to it.
+              Nothing runs until you start it. Workflow and tags are copied from the parent; change them if this
+              work is a different shape.
+            </div>
+          </div>
+        )}
+        {isFirstEpic && hasFolder && !followUp && (
           <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
             <label className="mb-1.5 flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wider text-primary">
               <FolderOpen className="h-3 w-3" />
@@ -1186,7 +1222,7 @@ export function StartEpicModal({
 
       <ModalFooter>
         <ModalCancelButton onClick={onClose} />
-        <ModalConfirmButton onClick={submit} label="Start epic" disabled={!!error} />
+        <ModalConfirmButton onClick={submit} label={followUp ? 'Open follow-up' : 'Start epic'} disabled={!!error} />
       </ModalFooter>
     </Modal>
   );
