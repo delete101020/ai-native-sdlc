@@ -1,7 +1,7 @@
 /**
  * The Epics list can be ordered five ways. Every order breaks ties the way the
- * host's own list does (newest created, then id), so "Created" is exactly the
- * list the panel started with, and "My epics" never lets `reversed` put other
+ * host's own list does (newest created, then id), "Created" reads oldest first,
+ * and "My epics" never lets `reversed` put other
  * people's work on top.
  */
 import { describe, expect, it } from 'vitest';
@@ -35,8 +35,8 @@ describe('sortEpics', () => {
   const c = epic('C', { createdAt: '2026-09-02T00:00:00Z', title: 'Beta 10' });
 
   it('Created: newest first, reversible', () => {
-    expect(ids(sortEpics([a, b, c], 'created', false, null))).toEqual(['B', 'C', 'A']);
-    expect(ids(sortEpics([a, b, c], 'created', true, null))).toEqual(['A', 'C', 'B']);
+    expect(ids(sortEpics([a, b, c], 'created', false, null))).toEqual(['A', 'C', 'B']);
+    expect(ids(sortEpics([a, b, c], 'created', true, null))).toEqual(['B', 'C', 'A']);
   });
 
   it('Name: case-insensitive, natural', () => {

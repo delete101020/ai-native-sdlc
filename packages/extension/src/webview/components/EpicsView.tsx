@@ -5,14 +5,8 @@ import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
 import { EpicCard } from './EpicCard';
 import { StartEpicModal } from './StartEpicModal';
 import { ReportSignalModal } from './ReportSignalModal';
-import { postMessage, onHostMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
+import { postMessage, onHostMessage } from '@/lib/bridge';
 import { EPIC_SORTS, DEFAULT_EPIC_SORT, isEpicSort, sortEpics, type EpicSort } from '@/lib/epicSort';
-
-/** Shares the panel's persisted UI object with the Builder view — merge, never replace. */
-interface PersistedEpicsUi {
-  epicSort?: EpicSort;
-  epicSortReversed?: boolean;
-}
 
 const FILTERS: { id: EpicFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -75,16 +69,16 @@ export function EpicsView({
 }) {
   const [filter, setFilter] = useState<EpicFilter>('all');
   const [tagFilter, setTagFilter] = useState<string[]>([]);
+  // The host keeps the order: this webview's own state dies with the panel.
   const [sort, setSort] = useState<EpicSort>(() => {
-    const saved = getPersistedUi<PersistedEpicsUi>()?.epicSort;
+    const saved = state.epicSortPref?.sort;
     return isEpicSort(saved) ? saved : DEFAULT_EPIC_SORT;
   });
   const [sortReversed, setSortReversed] = useState<boolean>(
-    () => getPersistedUi<PersistedEpicsUi>()?.epicSortReversed === true,
+    () => state.epicSortPref?.reversed === true,
   );
-  const persistSort = (next: PersistedEpicsUi) => {
-    const prev = getPersistedUi<PersistedEpicsUi>() ?? {};
-    setPersistedUi<PersistedEpicsUi>({ ...prev, ...next });
+  const persistSort = (next: { sort: EpicSort; reversed: boolean }) => {
+    postMessage({ type: 'setEpicSort', ...next });
   };
   const prefix = state.epicIdPrefix ?? null;
   // "My epics" with no prefix would silently read as "Created"; fall back so
@@ -361,7 +355,7 @@ export function EpicsView({
             onChange={(e) => {
               const next = e.target.value as EpicSort;
               setSort(next);
-              persistSort({ epicSort: next });
+              persistSort({ sort: next, reversed: sortReversed });
             }}
             title={EPIC_SORTS.find((s) => s.id === effectiveSort)?.hint}
             className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground focus:border-primary focus:outline-none"
@@ -382,7 +376,7 @@ export function EpicsView({
             onClick={() => {
               const next = !sortReversed;
               setSortReversed(next);
-              persistSort({ epicSortReversed: next });
+              persistSort({ sort, reversed: next });
             }}
             title={sortReversed ? 'Reversed order — click for the default' : 'Reverse the order'}
             aria-pressed={sortReversed}

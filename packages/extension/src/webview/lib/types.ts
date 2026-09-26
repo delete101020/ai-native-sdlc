@@ -828,6 +828,9 @@ export interface WorkspaceState {
   /** Two letters derived from `git config user.name` to offer in that
    * warning, or null when git has no identity here. */
   epicIdPrefixSuggestion: string | null;
+  /** The Epics list order last picked, kept by the host so it outlives the
+   * panel. Null or absent when none was picked. */
+  epicSortPref?: { sort: string; reversed: boolean } | null;
   /** All existing epic ids (folders under epicRoot) — for uniqueness check. */
   existingEpicIds: string[];
   requirementRuns?: RequirementRunSummary[];

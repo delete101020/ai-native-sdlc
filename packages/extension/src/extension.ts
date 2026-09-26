@@ -54,6 +54,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   output.appendLine('Activating AIDLC Flow extension');
 
+  // Before anything can open the workspace panel: it reads its saved UI
+  // choices (the Epics sort) from here.
+  WorkspaceWebview.useUiStore(context.globalState);
+
   // Settings moved from aidlc.* to aidlcNative.* in 4.0.0; copy what the user
   // had and offer a reload, since this activation already read the old state.
   void migrateLegacySettings(context, output);

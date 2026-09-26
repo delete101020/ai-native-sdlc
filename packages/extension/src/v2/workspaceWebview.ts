@@ -617,6 +617,28 @@ interface WorkspaceState {
    * mark a step done that nobody has worked yet — see {@link agentActivity}.
    */
   agentActivity: AgentActivityMap;
+  /** The Epics list order last picked, or null when none was. */
+  epicSortPref?: EpicSortPref | null;
+}
+
+/**
+ * The Epics list order, kept by the host.
+ *
+ * The webview's own `setState` does not outlive the panel — it has no
+ * serializer — so an order kept there was lost on every close.
+ */
+interface EpicSortPref {
+  sort: string;
+  reversed: boolean;
+}
+
+const EPIC_SORT_KEY = 'aidlc.epicSort';
+
+/** Set once on activation; the panel reads and writes its UI choices here. */
+let uiStore: vscode.Memento | undefined;
+
+function savedEpicSort(): EpicSortPref | null {
+  return uiStore?.get<EpicSortPref>(EPIC_SORT_KEY) ?? null;
 }
 
 const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
@@ -696,6 +718,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(),
       epicsDir: DEFAULT_EPICS_DIR,
       agentActivity: agentActivity.snapshot(),
+      epicSortPref: savedEpicSort(),
     };
   }
 
@@ -782,6 +805,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(),
       epicsDir: DEFAULT_EPICS_DIR,
       agentActivity: agentActivity.snapshot(),
+      epicSortPref: savedEpicSort(),
     };
   }
 
@@ -869,6 +893,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     epicMemoryHookEnabled: isEpicMemoryHookEnabled(),
     epicsDir: epicRoot,
     agentActivity: agentActivity.snapshot(),
+    epicSortPref: savedEpicSort(),
   };
 }
 
@@ -1779,6 +1804,11 @@ export class WorkspaceWebview {
     WorkspaceWebview.current?.refresh();
   }
 
+  /** Where the panel keeps UI choices that must survive it closing. */
+  static useUiStore(store: vscode.Memento): void {
+    uiStore = store;
+  }
+
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     private readonly extensionUri: vscode.Uri,
@@ -2212,6 +2242,14 @@ export class WorkspaceWebview {
       // no longer on disk, with nothing the user can do about it.
       case 'refresh': {
         this.refresh();
+        return;
+      }
+
+      // No refresh: the webview already shows the order it is reporting.
+      case 'setEpicSort': {
+        if (typeof msg.sort !== 'string') { return; }
+        const pref: EpicSortPref = { sort: msg.sort, reversed: msg.reversed === true };
+        await uiStore?.update(EPIC_SORT_KEY, pref);
         return;
       }
 

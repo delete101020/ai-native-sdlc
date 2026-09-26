@@ -11,7 +11,7 @@ import type { EpicSummary } from './types';
 export type EpicSort = 'attention' | 'activity' | 'created' | 'name' | 'mine';
 
 export const EPIC_SORTS: { id: EpicSort; label: string; hint: string }[] = [
-  { id: 'created', label: 'Created', hint: 'Newest created first' },
+  { id: 'created', label: 'Created', hint: 'Oldest created first' },
   { id: 'attention', label: 'Needs attention', hint: 'Awaiting review / rejected, then failed, stale, running, pending, done' },
   { id: 'activity', label: 'Last activity', hint: 'Most recently started, finished or reviewed step first' },
   { id: 'mine', label: 'My epics', hint: 'Epics carrying your ID prefix first, by ID' },
@@ -88,7 +88,7 @@ const natural = (a: string, b: string) =>
  * epics on top, since that is the one thing the option is for.
  *
  * Every key breaks ties the way the host's list already does — newest created,
- * then id — so switching back to "Created" is exactly the list it started as.
+ * then id. "Created" itself reads the other way, oldest first.
  */
 export function sortEpics(
   epics: readonly EpicSummary[],
@@ -119,7 +119,9 @@ export function sortEpics(
       }
       case 'created':
       default:
-        return dir * fallback(a, b);
+        // Oldest first, so the list reads as a timeline top to bottom. The
+        // panel's UI state does not survive a close, so this is what it opens on.
+        return -dir * fallback(a, b);
     }
   };
 
