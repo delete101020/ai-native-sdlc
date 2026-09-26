@@ -1,5 +1,30 @@
 # Changelog
 
+## 4.0.26
+
+Work that turns up in the middle of an epic can be parked beside it as a
+follow-up epic, and Undo mark done is gone from the epic card.
+
+### Added
+
+- **New follow-up epic, from any epic card.** A CR in build that finds a second
+  screen needing the same change no longer waits for a closing step to write
+  `followups.json`. The button is offered in every status and opens Start Epic
+  as "New follow-up of <parent>", with the id (`<parent>-F1`, `F2`, …), the
+  parent's tags and the parent's workflow already filled in — the recipe that
+  assembled its pipeline, else the pipeline it was derived from. The new epic is
+  linked back through `from_epic` like manifest and incident follow-ups, runs
+  `on_followups_opened`, and waits at its first step until someone starts it.
+- **`aidlc epic follow-up <parent> --title … [--desc …]`** does the same from
+  the terminal, with `--recipe` / `--pipeline`, `--tag`, `--no-inherit-tags`,
+  `--epic` and `--json`.
+
+### Changed
+
+- **Undo mark done is no longer shown.** Both places the card offered it — the
+  hint below an approved step and the button under the gate — are removed.
+  To reopen a step marked done, use **Request update**.
+
 ## 4.0.25
 
 The Epics list keeps the order you pick, and Active Runs names the step a
