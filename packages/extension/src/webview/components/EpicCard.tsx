@@ -1452,7 +1452,6 @@ function StepDetail({
         stepLabel={stepLabel}
       />
       <DirtyUpstreamWarning focused={focused} />
-      <UndoDoneAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <RequestUpdateAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <RerunStepAction
         epic={epic}
@@ -1562,48 +1561,6 @@ function DetailLabel({ icon, text }: { icon: React.ReactNode; text: string }) {
     <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
       {icon}
       <span>{text}</span>
-    </div>
-  );
-}
-
-/**
- * The way back out of a "Mark step done" that approved this step and moved the
- * run on — `RunGate` has already gone quiet by then, so the offer has to live
- * out here beside Request update.
- *
- * The two are not the same thing, and the copy says so: Request update is for
- * a requirement that changed and costs a revision plus every downstream step;
- * this is for a button pressed by accident and costs nothing. The host decides
- * whether it is still safe (`canUndoDone`) — the moment a following step has
- * produced anything, this disappears and Request update is the only honest
- * option left.
- */
-function UndoDoneAction({
-  epic,
-  focused,
-  focusedIdx,
-}: {
-  epic: EpicSummary;
-  focused: EpicStepDetailFull;
-  focusedIdx: number;
-}) {
-  if (!epic.runId || focused.runStatus !== 'approved' || !focused.canUndoDone) { return null; }
-  return (
-    <div className="mt-3 flex items-center justify-between rounded-md border border-dashed border-border bg-secondary/20 px-3 py-2 text-[11px]">
-      <div className="text-muted-foreground">
-        Marked done by mistake?{' '}
-        <span className="text-foreground/80">Undo</span> reopens it at the same revision — nothing
-        downstream has started yet.
-      </div>
-      <button
-        type="button"
-        onClick={() =>
-          postMessage({ type: 'undoStepDone', runId: epic.runId!, stepIdx: focusedIdx })
-        }
-        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10.5px] font-semibold text-muted-foreground hover:border-foreground/40 hover:text-foreground"
-      >
-        <Undo2 className="h-2.5 w-2.5" /> Undo mark done
-      </button>
     </div>
   );
 }
@@ -2345,23 +2302,6 @@ function RunGate({
           </GateButton>
         )}
       </div>
-
-      {/* The misclick's way out. Mark done is one button away from Run, and
-          until now the only path back was Request update — which bumps the
-          revision and resets everything downstream to undo a wrong click.
-          A row of its own: it steps back from the gate, so it should not read
-          as one more answer to it next to Approve / Reject. */}
-      {focused.canUndoDone && (
-        <div className="flex border-t border-dashed border-border pt-2">
-          <GateButton
-            variant="quiet"
-            title="Put this step back to awaiting work — same revision, no artifact touched"
-            onClick={() => postMessage({ type: 'undoStepDone', runId: epic.runId!, stepIdx: focusedIdx })}
-          >
-            <Undo2 className="h-3 w-3" /> Undo mark done
-          </GateButton>
-        </div>
-      )}
 
       {rejectOpen && epic.runId && (
         <RejectModal
