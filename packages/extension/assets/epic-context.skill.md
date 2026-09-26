@@ -1,6 +1,6 @@
 ---
 name: epic-context
-description: Load and maintain an epic's compact memory so continuing it (with any agent) is cheap on tokens. Reads docs/epics/<epic>/epic-memory.json FIRST as primary context, appends durable decisions/constraints as you work, and records a reflection on how to prompt/work better next time. Invoke /epic-context <epic> when starting or continuing an epic.
+description: Load and maintain an epic's compact memory so continuing it (with any agent) is cheap on tokens. Reads docs/epics/<epic>/epic-memory.json FIRST as primary context, appends durable decisions/constraints as you work, and records a reflection on how to prompt/work better next time. Invoke /epic-context <epic> when starting or continuing an epic (no id = the active epic from .aidlc/user.yaml).
 ---
 
 # /epic-context — cheap, portable epic memory
@@ -20,8 +20,15 @@ Each write is auto-attributed (git identity, hostname fallback) + timestamped.
 
 ## Arguments
 
-`/epic-context <epic>` — e.g. `/epic-context EPIC-001`. Paths are relative to the
+`/epic-context [epic]` — e.g. `/epic-context EPIC-001`. Paths are relative to the
 open project: `EPIC_DIR = docs/epics/<epic>`.
+
+No id given → use the **active epic**: the `active_epic:` line of
+`.aidlc/user.yaml` (set from the VS Code status bar / Go to Epic, or with
+`aidlc epic use <id>`). Read it with
+`grep -m1 '^active_epic:' .aidlc/user.yaml | sed 's/^active_epic:[[:space:]]*//'`.
+Say which epic you picked in one line. If there is no active epic either, ask
+for the id — don't guess from the epics folder.
 
 ## On start (continuing an epic)
 

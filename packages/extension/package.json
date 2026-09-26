@@ -202,6 +202,34 @@
         "category": "AIDLC Native"
       },
       {
+        "command": "aidlcNative.goToEpic",
+        "title": "Go to Epic…",
+        "icon": "$(search)",
+        "category": "AIDLC Native"
+      },
+      {
+        "command": "aidlcNative.openActiveEpic",
+        "title": "Open Active Epic",
+        "icon": "$(target)",
+        "category": "AIDLC Native"
+      },
+      {
+        "command": "aidlcNative.setActiveEpic",
+        "title": "Set Active Epic…",
+        "category": "AIDLC Native"
+      },
+      {
+        "command": "aidlcNative.clearActiveEpic",
+        "title": "Clear Active Epic",
+        "category": "AIDLC Native"
+      },
+      {
+        "command": "aidlcNative.togglePinEpic",
+        "title": "Pin / Unpin Active Epic",
+        "icon": "$(pin)",
+        "category": "AIDLC Native"
+      },
+      {
         "command": "aidlcNative.reportSignal",
         "title": "Report a Signal (open incident epic)",
         "icon": "$(radio-tower)",
@@ -357,6 +385,12 @@
           "minimum": 5,
           "description": "Timeout (seconds) for `claude mcp list` in the MCP Servers panel. Claude health-checks every configured server, so raise this if you have many remote/unauthenticated servers and see a timeout."
         },
+        "aidlcNative.epics.followGitBranch": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When you check out a branch whose name contains an epic id (`feature/EPIC-012-login`), make that epic the active one. Only a change of branch switches it, so an epic you pick by hand stays put.",
+          "scope": "resource"
+        },
         "aidlcNative.workspace.epicsDirectory": {
           "type": "string",
           "default": "docs/epics",
@@ -443,8 +477,20 @@
         }
       }
     },
+    "keybindings": [
+      {
+        "command": "aidlcNative.goToEpic",
+        "key": "ctrl+alt+e",
+        "mac": "cmd+alt+e"
+      }
+    ],
     "menus": {
       "view/title": [
+        {
+          "command": "aidlcNative.goToEpic",
+          "when": "view == aidlcNativeSidebar",
+          "group": "navigation@1"
+        },
         {
           "command": "aidlcNative.openBuilder",
           "when": "view == aidlcNativeSidebar",

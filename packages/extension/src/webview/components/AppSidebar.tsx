@@ -22,6 +22,10 @@ import {
   Languages,
   Fingerprint,
   AlertTriangle,
+  Search,
+  Pin,
+  PinOff,
+  Crosshair,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -176,9 +180,11 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
                   />
                 )}
 
-                {state.recentEpics.length > 0 && (
+                {(state.activeEpic || state.pinnedEpics.length > 0 || state.recentEpics.length > 0) && (
                   <RecentEpicsSection
-                    epics={state.recentEpics}
+                    active={state.activeEpic}
+                    pinned={state.pinnedEpics}
+                    recent={state.recentEpics}
                     epicsCount={state.epicsCount}
                     collapsed={collapsed.recentEpics}
                     onToggle={() => toggleSection('recentEpics')}
@@ -810,13 +816,22 @@ function AgentActivityLine({
   );
 }
 
+/**
+ * The personal working set: the active epic, the pinned ones, then the few
+ * opened most recently. Kept in `.aidlc/user.yaml`, shared with the status bar
+ * and the Go to Epic picker (Ctrl+Alt+E), which is the way to everything else.
+ */
 function RecentEpicsSection({
-  epics,
+  active,
+  pinned,
+  recent,
   epicsCount,
   collapsed,
   onToggle,
 }: {
-  epics: RecentEpicRef[];
+  active: RecentEpicRef | null;
+  pinned: RecentEpicRef[];
+  recent: RecentEpicRef[];
   epicsCount: number;
   collapsed: boolean;
   onToggle: () => void;
@@ -824,45 +839,122 @@ function RecentEpicsSection({
   return (
     <div>
       <SectionHeader
-        label="Recent Epics"
+        label="My Epics"
         collapsed={collapsed}
         onToggle={onToggle}
         trailing={
-          <button
-            type="button"
-            onClick={() => postMessage({ type: 'openEpicsList' })}
-            className="text-[10px] text-muted-foreground hover:text-primary"
-          >
-            All {epicsCount} →
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => postMessage({ type: 'goToEpic' })}
+              title="Go to Epic… (Ctrl+Alt+E)"
+              className="text-muted-foreground hover:text-primary"
+            >
+              <Search className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => postMessage({ type: 'openEpicsList' })}
+              className="text-[10px] text-muted-foreground hover:text-primary"
+            >
+              All {epicsCount} →
+            </button>
+          </div>
         }
       />
       {!collapsed && (
-        <div className="mt-1.5 space-y-1">
-          {epics.map((e) => (
-            <div
-              key={e.id}
-              role="button"
-              tabIndex={0}
-              title={`Open ${e.id} in the Epics view`}
-              onClick={() => postMessage({ type: 'openEpic', id: e.id })}
-              onKeyDown={(ev) => {
-                if (ev.key === 'Enter' || ev.key === ' ') {
-                  ev.preventDefault();
-                  postMessage({ type: 'openEpic', id: e.id });
-                }
-              }}
-              className="flex cursor-pointer items-center gap-2 rounded-md border border-border bg-card/50 px-2.5 py-1.5 text-[11px] transition-colors hover:bg-accent"
-            >
-              <EpicDot status={e.status} />
-              <span className="font-mono text-[10px] font-bold text-primary truncate">{e.id}</span>
-              {e.title && (
-                <span className="truncate text-muted-foreground">· {e.title}</span>
-              )}
-            </div>
-          ))}
+        <div className="mt-1.5 space-y-2">
+          {active && (
+            <EpicGroup label="Active">
+              <EpicRow epic={active} isActive isPinned={false} />
+            </EpicGroup>
+          )}
+          {pinned.length > 0 && (
+            <EpicGroup label="Pinned">
+              {pinned.map((e) => <EpicRow key={e.id} epic={e} isActive={false} isPinned />)}
+            </EpicGroup>
+          )}
+          {recent.length > 0 && (
+            <EpicGroup label="Recent">
+              {recent.map((e) => <EpicRow key={e.id} epic={e} isActive={false} isPinned={false} />)}
+            </EpicGroup>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function EpicGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <div className="px-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function EpicRow({
+  epic: e,
+  isActive,
+  isPinned,
+}: {
+  epic: RecentEpicRef;
+  isActive: boolean;
+  isPinned: boolean;
+}) {
+  // The row opens the epic; the hover buttons must not also do that.
+  const act = (type: 'togglePinEpic' | 'setActiveEpic') => (ev: ReactMouseEvent) => {
+    ev.stopPropagation();
+    postMessage({ type, id: e.id });
+  };
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      title={`Open ${e.id} in the Epics view`}
+      onClick={() => postMessage({ type: 'openEpic', id: e.id })}
+      onKeyDown={(ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          postMessage({ type: 'openEpic', id: e.id });
+        }
+      }}
+      className={cn(
+        'group flex cursor-pointer items-center gap-2 rounded-md border bg-card/50 px-2.5 py-1.5 text-[11px] transition-colors hover:bg-accent',
+        isActive ? 'border-primary/60' : 'border-border',
+      )}
+    >
+      <EpicDot status={e.status} />
+      <span className="font-mono text-[10px] font-bold text-primary truncate">{e.id}</span>
+      {e.title && (
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">· {e.title}</span>
+      )}
+      <span className="ml-auto flex shrink-0 items-center gap-1">
+        {!isActive && (
+          <button
+            type="button"
+            onClick={act('setActiveEpic')}
+            title="Make this the active epic"
+            className="hidden text-muted-foreground hover:text-primary group-hover:inline-flex"
+          >
+            <Crosshair className="h-3 w-3" />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={act('togglePinEpic')}
+          title={isPinned ? 'Unpin' : 'Pin'}
+          className={cn(
+            'text-muted-foreground hover:text-primary',
+            isPinned ? 'inline-flex' : 'hidden group-hover:inline-flex',
+          )}
+        >
+          {isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+        </button>
+      </span>
     </div>
   );
 }

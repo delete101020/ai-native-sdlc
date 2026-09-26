@@ -639,6 +639,9 @@ const EPIC_SORT_KEY = 'aidlc.epicSort';
 /** Set once on activation; the panel reads and writes its UI choices here. */
 let uiStore: vscode.Memento | undefined;
 
+/** Backs `WorkspaceWebview.onDidOpenEpic`; module-level so it outlives any panel. */
+const openEpicEmitter = new vscode.EventEmitter<string>();
+
 function savedEpicSort(): EpicSortPref | null {
   return uiStore?.get<EpicSortPref>(EPIC_SORT_KEY) ?? null;
 }
@@ -1780,7 +1783,11 @@ export class WorkspaceWebview {
   static openEpic(extensionUri: vscode.Uri, epicId: string): void {
     WorkspaceWebview.show(extensionUri, 'epics');
     WorkspaceWebview.current?.focusEpic(epicId);
+    openEpicEmitter.fire(epicId);
   }
+
+  /** Fires with the id on every {@link openEpic} — feeds the Recent epics list. */
+  static readonly onDidOpenEpic = openEpicEmitter.event;
 
   /**
    * Open the Builder panel and select one of its internal tabs

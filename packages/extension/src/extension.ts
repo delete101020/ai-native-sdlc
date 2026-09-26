@@ -29,6 +29,7 @@ import { installAnnotationTools } from './v2/annotationToolsInstaller';
 import { registerClaudeAccounts } from './v2/claudeAccounts';
 import { registerClaudePlanUsage } from './v2/claudeUsage';
 import { migrateLegacySettings } from './v2/settingsMigration';
+import { EpicFocusController } from './v2/epicFocus';
 import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './v2/epicsDirSync';
 import {
   WORKSPACE_DIR,
@@ -140,6 +141,11 @@ export function activate(context: vscode.ExtensionContext): void {
       { webviewOptions: { retainContextWhenHidden: true } },
     ),
   );
+
+  // Active / pinned / recent epics: status bar, Go to Epic picker, branch
+  // following. The sidebar lists the same working set, so it redraws with it.
+  const epicFocus = new EpicFocusController(context, context.extensionUri);
+  context.subscriptions.push(epicFocus, epicFocus.onDidChange(() => sidebar.refresh()));
 
   // Manual refresh command for skills/agents/workspace state. Users can invoke
   // from command palette if file watcher detection is delayed (e.g., global

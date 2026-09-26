@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+With dozens of epics, the one you are working on is a keystroke away instead of
+a scroll through the Epics list.
+
+### Added
+
+- **Go to Epic… (Ctrl+Alt+E / Cmd+Alt+E).** A quick pick over every epic,
+  searched by id, title, description and `#tag`, with the active, pinned and
+  recent epics on top. Enter opens the epic and makes it active; the eye button
+  opens it without switching, the pin button pins it in place. Also in the
+  sidebar title bar and the My Epics header.
+- **Active epic in the status bar.** Shows the epic being worked on, its status
+  and step in the tooltip; click to switch. `/epic-context` with no id now
+  continues the active epic.
+- **Follows the git branch.** Checking out `feature/EPIC-012-…` makes EPIC-012
+  active. Only a change of branch switches it, so a hand-picked epic stays put.
+  Turn off with `aidlcNative.epics.followGitBranch`.
+- **Pinned and recent epics.** The sidebar's Recent Epics becomes **My Epics**:
+  Active, Pinned, then the last three you opened (not the three newest). Hover a
+  row to pin it or make it active.
+- **`aidlc epic current | use <id> | pin <id> | unpin <id>`** read and change
+  the same working set from the terminal; `current` prints a bare id for
+  scripts.
+
+The working set lives in `.aidlc/user.yaml` (`active_epic`, `pinned_epics`,
+`recent_epics`) beside `epic_id_prefix`: per checkout, gitignored, and readable
+by the CLI and by skills in a Claude terminal.
+
 ## 4.0.26
 
 Work that turns up in the middle of an epic can be parked beside it as a

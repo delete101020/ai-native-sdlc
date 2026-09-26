@@ -26,6 +26,11 @@ import {
   epicsRoot,
   readGitUserName,
   readUserConfig,
+  ensureUserConfigIgnored,
+  USER_CONFIG_IGNORE_LINE,
+  readEpicFocus,
+  setActiveEpic,
+  setEpicPinned,
   resolveEpicIdPrefix,
   resolveEpicIdPrefixChain,
   suggestEpicId,
@@ -690,6 +695,82 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
       });
       console.log(suggestEpicId(existing, prefix));
     });
+
+  // ── working set: current / use / pin / unpin ──────────────────────────────
+  //
+  // The personal short list kept in .aidlc/user.yaml — the same one the
+  // extension's status bar, sidebar and Go to Epic picker show. `current`
+  // prints a bare id so a skill or script can do `EPIC=$(aidlc epic current)`.
+  const requireKnownEpic = (root: string, id: string): string => {
+    const all = listEpics(root, readYaml(root)).map((e) => e.id);
+    // Accept any casing — ids are typed from memory — but store the real one.
+    const hit = all.find((x) => x.toLowerCase() === id.toLowerCase());
+    if (!hit) {
+      console.error(chalk.red(`Epic "${id}" not found.`));
+      if (all.length > 0) { console.error(chalk.dim(`Available: ${all.join(', ')}`)); }
+      process.exit(1);
+    }
+    return hit;
+  };
+  const noteIgnored = (root: string): void => {
+    if (ensureUserConfigIgnored(root)) {
+      console.log(chalk.dim(`  Added ${USER_CONFIG_IGNORE_LINE} to .gitignore — it is yours, not the team's.`));
+    }
+  };
+
+  cmd
+    .command('current')
+    .description('Print the active epic id (from .aidlc/user.yaml); exits 1 when none is set')
+    .option('--json', 'Print active, pinned and recent as JSON')
+    .action((opts: { json?: boolean }, actionCmd: Command) => {
+      const root = resolveWorkspaceRoot(actionCmd);
+      const focus = readEpicFocus(root);
+      if (opts.json) { console.log(JSON.stringify(focus, null, 2)); return; }
+      if (!focus.active) { process.exit(1); }
+      console.log(focus.active);
+    });
+
+  cmd
+    .command('use [id]')
+    .description('Make an epic the active one — what skills like /epic-context pick up when given no id')
+    .option('--clear', 'unset the active epic')
+    .action((id: string | undefined, opts: { clear?: boolean }, actionCmd: Command) => {
+      const root = resolveWorkspaceRoot(actionCmd);
+      if (opts.clear) {
+        setActiveEpic(root, null);
+        console.log(chalk.green('✔') + ' No active epic.');
+        return;
+      }
+      if (!id) {
+        console.error(chalk.red('Give an epic id, or --clear.'));
+        process.exit(1);
+      }
+      const epicId = requireKnownEpic(root, id);
+      setActiveEpic(root, epicId);
+      console.log(chalk.green('✔') + ` Active epic: ${chalk.bold(epicId)}`);
+      noteIgnored(root);
+    });
+
+  for (const [name, pinned] of [['pin', true], ['unpin', false]] as const) {
+    cmd
+      .command(`${name} [id]`)
+      .description(pinned
+        ? 'Pin an epic to the top of the sidebar and Go to Epic picker; bare `pin` lists pins'
+        : 'Unpin an epic')
+      .action((id: string | undefined, _opts: unknown, actionCmd: Command) => {
+        const root = resolveWorkspaceRoot(actionCmd);
+        if (!id) {
+          const list = readEpicFocus(root).pinned;
+          console.log(list.length > 0 ? chalk.cyan(list.join(' ')) : chalk.dim('(nothing pinned)'));
+          return;
+        }
+        const epicId = pinned ? requireKnownEpic(root, id) : id;
+        setEpicPinned(root, epicId, pinned);
+        console.log(chalk.green('✔') + ` ${pinned ? 'Pinned' : 'Unpinned'} ${chalk.bold(epicId)}`);
+        if (pinned) { noteIgnored(root); }
+      });
+  }
+
   cmd
     .command('strict <epicId> [value]')
     .description('Show or set an epic\'s depth of work (strict_mode in its state.json)')

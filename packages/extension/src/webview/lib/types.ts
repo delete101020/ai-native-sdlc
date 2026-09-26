@@ -392,6 +392,11 @@ export interface SidebarState {
   skillsCount: number;
   pipelinesCount: number;
   epicsCount: number;
+  /** The active epic (`.aidlc/user.yaml`), when it still exists. */
+  activeEpic: RecentEpicRef | null;
+  /** Pinned epics in pin order, the active one left out. */
+  pinnedEpics: RecentEpicRef[];
+  /** Up to 3 recently opened epics, active and pinned left out. */
   recentEpics: RecentEpicRef[];
   slashCommands: SlashCommandRef[];
   builtinTemplates: TemplateRef[];

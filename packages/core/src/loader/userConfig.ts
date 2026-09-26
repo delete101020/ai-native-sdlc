@@ -60,6 +60,8 @@ const HEADER = [
   '# Settings for this checkout only — NOT committed (see .gitignore).',
   '# epic_id_prefix is your own two letters, so the epics you open are filed',
   '# under you and never collide with a colleague\'s numbering.',
+  '# active_epic / pinned_epics / recent_epics are your own working set; the',
+  '# extension and `aidlc epic use|pin` keep them, and hand edits are fine.',
   '',
 ].join('\n');
 
@@ -69,9 +71,24 @@ const HEADER = [
  * @param prefix Two letters, or `null` to go back to the unprefixed scheme.
  */
 export function writeUserEpicIdPrefix(root: string, prefix: string | null): void {
+  updateUserConfig(root, (doc) => {
+    if (prefix) { doc.epic_id_prefix = prefix.toUpperCase(); }
+    else { delete doc.epic_id_prefix; }
+  });
+}
+
+/**
+ * Read the file, let `mutate` change the parsed document, write it back.
+ *
+ * Every key the caller does not touch survives, so one feature's save can never
+ * drop a setting another feature put there.
+ */
+export function updateUserConfig(
+  root: string,
+  mutate: (doc: Record<string, unknown>) => void,
+): void {
   const doc = readUserConfig(root) ?? {};
-  if (prefix) { doc.epic_id_prefix = prefix.toUpperCase(); }
-  else { delete doc.epic_id_prefix; }
+  mutate(doc);
 
   const file = userConfigPath(root);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -123,7 +140,7 @@ export function ensureUserConfigIgnored(root: string): boolean {
     const sep = existing === '' || existing.endsWith('\n') ? '' : '\n';
     fs.writeFileSync(
       file,
-      `${existing}${sep}\n# Per-checkout AIDLC settings (epic_id_prefix) — never shared\n${USER_CONFIG_IGNORE_LINE}\n`,
+      `${existing}${sep}\n# Per-checkout AIDLC settings (epic_id_prefix, active/pinned epics) — never shared\n${USER_CONFIG_IGNORE_LINE}\n`,
       'utf8',
     );
     return true;

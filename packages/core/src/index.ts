@@ -319,9 +319,25 @@ export {
   ensureUserConfigIgnored,
   readGitUserName,
   readUserConfig,
+  updateUserConfig,
   userConfigPath,
   writeUserEpicIdPrefix,
 } from './loader/userConfig';
+// The personal working set — active, pinned and recent epics — kept in user.yaml.
+export {
+  ACTIVE_EPIC_KEY,
+  PINNED_EPICS_KEY,
+  RECENT_EPICS_KEY,
+  RECENT_EPICS_LIMIT,
+  epicFocusFrom,
+  epicIdFromBranch,
+  pushRecent,
+  readEpicFocus,
+  recordEpicOpened,
+  setActiveEpic,
+  setEpicPinned,
+} from './loader/epicFocus';
+export type { EpicFocus } from './loader/epicFocus';
 // Per-epic depth of work, and the prompt section that states it.
 export {
   STRICT_MODE_HEADING,

@@ -35,6 +35,7 @@ import {
   readGitUserName,
   writeUserEpicIdPrefix,
   ensureUserConfigIgnored,
+  readEpicFocus,
   USER_CONFIG_RELPATH,
   EPIC_ID_PREFIX_PATTERN,
   writeTwoLayerCommands,
@@ -119,6 +120,8 @@ interface PipelineRef {
   onFailure: 'stop' | 'continue';
 }
 
+interface EpicRef { id: string; title: string; status: string; statePath: string }
+
 interface SidebarState {
   hasFolder: boolean;
   workspaceName: string;
@@ -127,8 +130,15 @@ interface SidebarState {
   skillsCount: number;
   pipelinesCount: number;
   epicsCount: number;
-  /** Last 3 epics with status, for the "Recent Epics" mini-list. */
-  recentEpics: Array<{ id: string; title: string; status: string; statePath: string }>;
+  /** The active epic from `.aidlc/user.yaml`, when it still exists on disk. */
+  activeEpic: EpicRef | null;
+  /** Pinned epics in pin order, the active one left out. */
+  pinnedEpics: EpicRef[];
+  /**
+   * Up to 3 recently opened epics, active and pinned left out. Newest-created
+   * epics stand in until something has been opened.
+   */
+  recentEpics: EpicRef[];
   slashCommands: Array<{ name: string; target: string }>;
   /** Workspace templates split by source — built-in (extension) vs project. */
   builtinTemplates: TemplateRef[];
@@ -218,7 +228,7 @@ function buildState(
       workspaceName: '',
       configExists: false,
       agentsCount: 0, skillsCount: 0, pipelinesCount: 0,
-      epicsCount: 0, recentEpics: [],
+      epicsCount: 0, activeEpic: null, pinnedEpics: [], recentEpics: [],
       slashCommands: [],
       builtinTemplates: [], projectTemplates: [],
       activeRuns: [],
@@ -250,16 +260,36 @@ function buildState(
   const discovered = discoverAssets(root);
   const claudeSkills = discovered.skills.filter((s) => s.scope !== 'aidlc');
   const claudeAgents = discovered.agents.filter((a) => a.scope !== 'aidlc');
-  const recentEpics = allEpics.slice(0, 3).map((e) => ({
+  // The personal working set (active / pinned / recent) from .aidlc/user.yaml.
+  // Ids of epics deleted since are skipped here rather than cleaned up there.
+  const focus = readEpicFocus(root);
+  const byId = new Map(allEpics.map((e) => [e.id, e] as const));
+  const toRef = (e: (typeof allEpics)[number]): EpicRef => ({
     id: e.id,
     title: e.title,
     status: e.status,
     statePath: e.statePath,
-  }));
+  });
+  const focusedEpic = focus.active ? byId.get(focus.active) : undefined;
+  const pinnedEpics = focus.pinned
+    .filter((id) => id !== focusedEpic?.id)
+    .map((id) => byId.get(id))
+    .filter((e): e is (typeof allEpics)[number] => !!e)
+    .map(toRef);
+  const taken = new Set([focusedEpic?.id, ...pinnedEpics.map((e) => e.id)]);
+  const opened = focus.recent
+    .filter((id) => !taken.has(id))
+    .map((id) => byId.get(id))
+    .filter((e): e is (typeof allEpics)[number] => !!e);
+  const recentEpics = (opened.length > 0 ? opened : allEpics.filter((e) => !taken.has(e.id)))
+    .slice(0, 3)
+    .map(toRef);
+  const activeEpicRef = focusedEpic ? toRef(focusedEpic) : null;
 
-  // GH-67: read extra_projects from the most recent in-progress epic for sidebar display.
+  // GH-67: read extra_projects from the epic being worked on — the active one,
+  // else the most recent in-progress one — for sidebar display.
   let sidebarExtraProjects: Array<{ type: string; ref: string; label: string; mode?: string }> | undefined;
-  const activeEpic = allEpics.find((e) => e.status === 'in_progress') ?? allEpics[0];
+  const activeEpic = focusedEpic ?? allEpics.find((e) => e.status === 'in_progress') ?? allEpics[0];
   if (activeEpic) {
     const raw = activeEpic.inputs?.extra_projects;
     if (raw) {
@@ -288,7 +318,7 @@ function buildState(
       agentsCount: countDistinct([], claudeAgents),
       skillsCount: countDistinct([], claudeSkills),
       pipelinesCount: 0,
-      epicsCount: allEpics.length, recentEpics,
+      epicsCount: allEpics.length, activeEpic: activeEpicRef, pinnedEpics, recentEpics,
       slashCommands: [],
       builtinTemplates, projectTemplates,
       activeRuns,
@@ -327,6 +357,8 @@ function buildState(
     skillsCount: countDistinct(doc.skills.map((s) => String(s.id)), claudeSkills),
     pipelinesCount: doc.pipelines.length,
     epicsCount: allEpics.length,
+    activeEpic: activeEpicRef,
+    pinnedEpics,
     recentEpics,
     slashCommands: doc.slash_commands.map((c) => ({
       name: typeof c.name === 'string' ? c.name : '',
@@ -650,6 +682,19 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const id = String(msg.id ?? '');
         if (!id) { return; }
         WorkspaceWebview.openEpic(this.extensionUri, id);
+        return;
+      }
+      case 'goToEpic':
+        await vscode.commands.executeCommand('aidlcNative.goToEpic');
+        return;
+      case 'togglePinEpic': {
+        const id = String(msg.id ?? '');
+        if (id) { await vscode.commands.executeCommand('aidlcNative.togglePinEpic', id); }
+        return;
+      }
+      case 'setActiveEpic': {
+        const id = String(msg.id ?? '');
+        if (id) { await vscode.commands.executeCommand('aidlcNative.setActiveEpic', id); }
         return;
       }
       case 'openEpicState': {
