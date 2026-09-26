@@ -29,7 +29,7 @@ Code transcript.
 
 ## ✨ What's New in v4.0 — AIDLC Native on the Marketplace (this fork)
 
-Covers 4.0.0 – 4.0.26. The full, per-release record is in [`packages/extension/CHANGELOG.md`](packages/extension/CHANGELOG.md).
+Covers 4.0.0 – 4.0.27. The full, per-release record is in [`packages/extension/CHANGELOG.md`](packages/extension/CHANGELOG.md).
 
 - **🏷️ Published as AIDLC Native** — extension `delete101020.aidlc-native` on the VS Code Marketplace and Open VSX, CLI `@delete101020/aidlc` on npm (the command is still `aidlc`). Commands and settings moved from `aidlc.*` to `aidlcNative.*`, so it installs side by side with upstream `hueanmy.aidlc`. Your `aidlc.*` settings are copied over on first activation; keybindings have to be renamed by hand.
 - **🔁 Rerun without throwing work away** — **Rerun with Claude** on a step that already passed reopens that step alone: approved steps downstream keep their artifacts and history and get a `dirty` mark until they are approved again. **Re-verify** runs a step's auto-review again on the artifact as it stands.
@@ -38,7 +38,7 @@ Covers 4.0.0 – 4.0.26. The full, per-release record is in [`packages/extension
 - **🧩 Pipelines can say more** — `optional: true` on a step (rejecting it never fails the epic), `on_failure: continue` honoured by `aidlc run exec`, optional `produces` entries (`{ path, optional: true }`, which needs 4.0.19+ everywhere the workspace is used), and a step `description` shown on the step card.
 - **📊 Progress counts in stages** — steps are ranked through `depends_on`, so a fan-out round counts as one unit of work and one finished peer completes it. A run whose leftover parallel peers lead nowhere now finishes instead of sitting at 100% *in progress*.
 - **⚡ Plan usage in the status bar** — how much of each Claude plan window is used (`5h 2% · 1w 38% · Fable 61%`, read the way `/usage` reads), with a reset countdown, a burn rate and amber/red thresholds. **Switch Claude Account** shows the same figure for every saved account.
-- **🗂️ A tidier Epics panel** — tags on epics (`aidlc epic tag`, filter chips), a sort picker (needs attention, last activity, created, my epics, name), incident families folded into one row, an editable description (`aidlc epic describe`), **New follow-up epic** to park work found mid-epic as `<parent>-F<n>` (`aidlc epic follow-up`), **Change workflow** until the first step moves (`aidlc epic workflow`), every file a step writes listed under **Also produced**, and `.html` artifacts rendered instead of opened as markup.
+- **🗂️ A tidier Epics panel** — **Go to Epic** (`Ctrl+Alt+E`) to search every epic, an **active epic** in the status bar that follows your git branch, pinned and recent epics in the sidebar (`aidlc epic use | pin`), tags on epics (`aidlc epic tag`, filter chips), a sort picker (needs attention, last activity, created, my epics, name), incident families folded into one row, an editable description (`aidlc epic describe`), **New follow-up epic** to park work found mid-epic as `<parent>-F<n>` (`aidlc epic follow-up`), **Change workflow** until the first step moves (`aidlc epic workflow`), every file a step writes listed under **Also produced**, and `.html` artifacts rendered instead of opened as markup.
 - **🔧 Fewer ways to break a workspace** — renaming an agent or a skill updates every reference to it, `aidlc validate` checks slash commands, parallel steps each track their own running agent, and popups close only from X, *Cancel* or Esc.
 
 ---
@@ -417,8 +417,8 @@ To run unreleased changes. **The extension:**
 
 ```sh
 pnpm install
-pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.26.vsix
-code --install-extension packages/extension/aidlc-native-4.0.26.vsix
+pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.27.vsix
+code --install-extension packages/extension/aidlc-native-4.0.27.vsix
 ```
 
 Reload the window afterwards. A `.vsix` installs over the Marketplace copy (same
@@ -429,7 +429,7 @@ id), and the next Marketplace update replaces it again.
 ```sh
 pnpm -r compile
 cd packages/cli && pnpm bundle && npm link               # `aidlc` on your PATH
-aidlc --version                                          # 4.0.26
+aidlc --version                                          # 4.0.27
 ```
 
 To pick up later changes, re-run the same two commands — `npm link` points at

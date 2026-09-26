@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.0.27
 
 With dozens of epics, the one you are working on is a keystroke away instead of
 a scroll through the Epics list.
