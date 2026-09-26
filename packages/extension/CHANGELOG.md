@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.0.25
+
+The Epics list keeps the order you pick, and Active Runs names the step a
+parallel run has actually reached.
+
+### Fixed
+
+- **The Epics sort survives closing the panel.** The chosen order and its
+  reverse toggle were lost every time the workspace panel closed, so the list
+  reset on each visit. They are now saved with the extension and restored on
+  open, across VS Code restarts too.
+- **Active Runs names a DAG run's furthest open step.** A run with several
+  steps open at once kept naming the earliest of them, as if a fan-out had
+  never moved past its first step. The card now shows the furthest open step.
+
+### Changed
+
+- **"Created" reads oldest first.** The default Epics order now lists the
+  oldest epic at the top; the reverse toggle gives newest first.
+
 ## 4.0.24
 
 Steps now run on the model their agent asks for, model pickers stop listing

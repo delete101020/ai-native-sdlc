@@ -29,7 +29,7 @@ Code transcript.
 
 ## ✨ What's New in v4.0 — AIDLC Native on the Marketplace (this fork)
 
-Covers 4.0.0 – 4.0.24. The full, per-release record is in [`packages/extension/CHANGELOG.md`](packages/extension/CHANGELOG.md).
+Covers 4.0.0 – 4.0.25. The full, per-release record is in [`packages/extension/CHANGELOG.md`](packages/extension/CHANGELOG.md).
 
 - **🏷️ Published as AIDLC Native** — extension `delete101020.aidlc-native` on the VS Code Marketplace and Open VSX, CLI `@delete101020/aidlc` on npm (the command is still `aidlc`). Commands and settings moved from `aidlc.*` to `aidlcNative.*`, so it installs side by side with upstream `hueanmy.aidlc`. Your `aidlc.*` settings are copied over on first activation; keybindings have to be renamed by hand.
 - **🔁 Rerun without throwing work away** — **Rerun with Claude** on a step that already passed reopens that step alone: approved steps downstream keep their artifacts and history and get a `dirty` mark until they are approved again. **Undo mark done** takes back a mis-click while nothing downstream has started, and **Re-verify** runs a step's auto-review again on the artifact as it stands.
@@ -417,8 +417,8 @@ To run unreleased changes. **The extension:**
 
 ```sh
 pnpm install
-pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.24.vsix
-code --install-extension packages/extension/aidlc-native-4.0.24.vsix
+pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.25.vsix
+code --install-extension packages/extension/aidlc-native-4.0.25.vsix
 ```
 
 Reload the window afterwards. A `.vsix` installs over the Marketplace copy (same
@@ -429,7 +429,7 @@ id), and the next Marketplace update replaces it again.
 ```sh
 pnpm -r compile
 cd packages/cli && pnpm bundle && npm link               # `aidlc` on your PATH
-aidlc --version                                          # 4.0.24
+aidlc --version                                          # 4.0.25
 ```
 
 To pick up later changes, re-run the same two commands — `npm link` points at
