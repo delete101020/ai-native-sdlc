@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.0.28
 
 The sidebar keeps one list of the epics you care about and folds away what you
 set once.
@@ -42,6 +42,11 @@ set once.
   repository. Map Claude tiers to Copilot models under
   `providers.copilot.model_aliases`. Copilot bills premium requests, not
   tokens, so its steps count as unpriced in the budget.
+- **Recipe chip on epic cards.** An epic now records the recipe it was started
+  with (`recipe:` in its `pipeline.yaml`), and the card header shows it. The chip
+  turns amber with "· modified" once the steps no longer match that recipe. A
+  follow-up epic starts from its parent's recipe. Epics created before this show
+  no chip.
 
 ### Removed
 
@@ -57,6 +62,9 @@ set once.
   revision left behind. If a step reports success but none of its `produces`
   files was created or changed, it fails with the file names instead of going
   to review with the old artifact.
+- Approved artifacts are committed to the epic branch again when the workspace
+  is opened through a symlinked path (for example under `/var` on macOS).
+  Before, every file looked outside the repo and nothing was committed.
 
 ## 4.0.27
 
