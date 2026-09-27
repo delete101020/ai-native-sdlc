@@ -273,6 +273,25 @@ export function EpicCard({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
+          {/* In the header, not the expanded details: a step the recipe leaves
+              out reads as missed unless the reader can see which recipe ran. */}
+          {epic.recipe && (
+            <span
+              className={cn(
+                'inline-flex max-w-[12rem] items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium',
+                epic.recipe.modified
+                  ? 'border-warning/40 bg-warning/10 text-warning'
+                  : 'border-border/60 bg-muted/40 text-muted-foreground',
+              )}
+              title={epic.recipe.modified
+                ? `Started with recipe ${epic.recipe.id}; its steps have since been edited and no longer match the recipe.`
+                : `Started with recipe ${epic.recipe.id}. Steps the recipe leaves out were skipped on purpose.`}
+            >
+              <Workflow className="h-3 w-3 shrink-0" />
+              <span className="truncate">{epic.recipe.id}</span>
+              {epic.recipe.modified && <span className="shrink-0">· modified</span>}
+            </span>
+          )}
           <div className="flex items-center gap-1.5" title={progressTitle(epic)}>
             <div className="h-1.5 w-20 overflow-hidden rounded-full bg-secondary">
               <div
@@ -327,6 +346,7 @@ export function EpicCard({
                 <strong className="text-foreground">{epic.pipeline}</strong>
               </span>
             )}
+
             {!epic.pipeline && epic.agent && (
               <span>
                 Agent: <strong className="text-foreground">{epic.agent}</strong>

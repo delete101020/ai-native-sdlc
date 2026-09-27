@@ -122,6 +122,21 @@ describe('splitEpicPipelines', () => {
     expect(reread.pipelines).toEqual(d.pipelines);
   });
 
+  it('keeps the recipe label and keys it does not know through a step edit', () => {
+    writeEpic('EPIC-001', { 'pipeline.yaml': yaml.dump({
+      id: 'EPIC-001', derived_from: 'cr-squad', recipe: 'cr-internal', team_note: 'kept', steps: [STEP],
+    }) });
+    const d = doc();
+    mergeEpicPipelines(root, d);
+    // The shape a step edit writes back: the same object, steps replaced.
+    d.pipelines[0] = { ...d.pipelines[0], steps: [STEP, { ...STEP, name: 'build' }] };
+    writeEpicPipelines(splitEpicPipelines(root, d).external);
+
+    const reread = yaml.load(fs.readFileSync(epicPipelinePath(root, null, 'EPIC-001'), 'utf8')) as Record<string, unknown>;
+    expect(reread).toMatchObject({ recipe: 'cr-internal', team_note: 'kept', derived_from: 'cr-squad' });
+    expect((reread.steps as unknown[]).length).toBe(2);
+  });
+
   it('keeps a pipeline inline when nobody staged it', () => {
     const d = doc([{ id: 'EPIC-001', steps: [STEP] }]);
     const split = splitEpicPipelines(root, d);

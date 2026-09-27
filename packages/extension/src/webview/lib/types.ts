@@ -762,6 +762,8 @@ export interface EpicSummary {
   stepDetails: EpicStepDetailFull[];
   currentStep: number;
   pipeline: string | null;
+  /** Recipe the epic was started with; `modified` = steps have since drifted from it. */
+  recipe?: { id: string; modified: boolean };
   agent: string | null;
   runId: string | null;
   inputs: Record<string, string>;

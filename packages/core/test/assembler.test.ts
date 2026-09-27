@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
   assemblePipeline,
+  pipelineRecipeLabel,
   PipelineAssembleError,
   collectWorkspaceRefIssues,
   validateWorkspace,
@@ -79,6 +80,12 @@ describe('assemblePipeline', () => {
     const p = assemblePipeline(ws, { recipeId: 'plan-then-build' });
     const implement = p.steps.find((s) => (s as { name: string }).name === 'implement') as { depends_on: string[] };
     expect(implement.depends_on).toEqual(['plan']);
+  });
+
+  it('labels the pipeline with its source and the recipe that picked the steps', () => {
+    const p = assemblePipeline(workspace(), { recipeId: 'bugfix', pipelineId: 'EPIC-1' });
+    expect(p.derived_from).toBe('sdlc-full');
+    expect(p.recipe).toBe('bugfix');
   });
 
   it('defaults the assembled pipeline id to the recipe id', () => {
@@ -177,5 +184,24 @@ describe('collectWorkspaceRefIssues', () => {
     ws.recipes.push({ id: 'y', steps: ['plan'], gates: { design: { human_review: false } } });
     const issues = collectWorkspaceRefIssues(ws);
     expect(issues.some((i) => i.code === 'unknown-recipe-gate')).toBe(true);
+  });
+});
+
+describe('pipelineRecipeLabel', () => {
+  const recipes = [{ id: 'bugfix', steps: ['implement', 'test-report'] }];
+  const steps = [{ name: 'implement', agent: 'developer' }, { name: 'test-report', agent: 'qa' }];
+
+  it('reports the recorded recipe, unmodified while the steps still match', () => {
+    expect(pipelineRecipeLabel({ recipe: 'bugfix', steps }, recipes)).toEqual({ id: 'bugfix', modified: false });
+  });
+
+  it('flags a step list that no longer matches the recipe', () => {
+    expect(pipelineRecipeLabel({ recipe: 'bugfix', steps: steps.slice(0, 1) }, recipes))
+      .toEqual({ id: 'bugfix', modified: true });
+  });
+
+  it('shows a recipe the workspace no longer defines as-is, and nothing without a label', () => {
+    expect(pipelineRecipeLabel({ recipe: 'gone', steps }, recipes)).toEqual({ id: 'gone', modified: false });
+    expect(pipelineRecipeLabel({ steps }, recipes)).toBeUndefined();
   });
 });

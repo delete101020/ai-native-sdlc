@@ -40,6 +40,7 @@ export type {
 export {
   assemblePipeline,
   recipePipelineId,
+  pipelineRecipeLabel,
   PipelineAssembleError,
 } from './runs/PipelineAssembler';
 export type { AssembleOptions } from './runs/PipelineAssembler';

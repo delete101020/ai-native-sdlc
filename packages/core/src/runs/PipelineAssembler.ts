@@ -150,6 +150,7 @@ export function assemblePipeline(
   const assembled: PipelineConfig = {
     id: opts.pipelineId ?? recipe.id,
     derived_from: source.id,
+    recipe: recipe.id,
     steps,
     on_failure: source.on_failure,
   };
@@ -200,6 +201,31 @@ export function recipePipelineId(opts: {
     const c = `${base}-${n}`;
     if (!taken.has(c)) { return c; }
   }
+}
+
+/**
+ * The recipe an assembled pipeline was started with, as its `recipe:` label
+ * records it, and whether its steps still match that recipe's.
+ *
+ * `modified` is only claimed against a recipe the workspace still defines —
+ * a label naming a recipe since removed is shown as-is, not as an edit.
+ * Undefined for a pipeline with no label: hand-authored, or assembled before
+ * the label existed.
+ */
+export function pipelineRecipeLabel(
+  pipeline: { recipe?: unknown; steps?: unknown },
+  recipes: ReadonlyArray<{ id?: unknown; steps?: unknown }> | undefined,
+): { id: string; modified: boolean } | undefined {
+  if (typeof pipeline.recipe !== 'string' || !pipeline.recipe) { return undefined; }
+  const id = pipeline.recipe;
+  const recipe = recipes?.find((r) => r.id === id);
+  if (!recipe || !Array.isArray(recipe.steps) || !Array.isArray(pipeline.steps)) {
+    return { id, modified: false };
+  }
+  const own = (pipeline.steps as PipelineStepConfig[]).map((s) => stepDagId(s));
+  const listed = recipe.steps.map(String);
+  const modified = own.length !== listed.length || own.some((s, i) => s !== listed[i]);
+  return { id, modified };
 }
 
 function resolveSource(config: WorkspaceConfig, recipe: RecipeConfig): PipelineConfig {

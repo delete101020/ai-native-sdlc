@@ -1194,6 +1194,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     })),
     currentStep: e.currentStep,
     pipeline: e.pipeline,
+    ...(e.recipe ? { recipe: e.recipe } : {}),
     agent: e.agent,
     runId: e.runId,
     inputs: e.inputs,
@@ -1201,7 +1202,8 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     epicDir,
     existingArtifacts,
     // Cheap and exact: the file core writes is the only marker of an incident
-    // epic — the pipeline id is generated per epic and the recipe is not stored.
+    // epic — the pipeline id is generated per epic, and epics started before
+    // the `recipe:` label existed do not record their recipe.
     hasSignal: fs.existsSync(path.join(epicDir, SIGNAL_FILE)),
     // Existence only — the manifest is parsed when the button is pressed, where
     // a malformed one can say what is wrong instead of hiding the button.

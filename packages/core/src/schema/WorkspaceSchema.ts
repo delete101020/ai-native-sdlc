@@ -286,6 +286,13 @@ const PipelineSchema = z.object({
    * pipelines, which are their own source.
    */
   derived_from: z.string().min(1).optional(),
+  /**
+   * Set by {@link assemblePipeline} to the recipe that picked the steps. A
+   * creation-time label only — `steps` stays the source of truth, and a hand
+   * edit may leave the two apart. Needed because two recipes can select the
+   * same steps, so the recipe cannot be recovered from the step list.
+   */
+  recipe: z.string().min(1).optional(),
   steps: z.array(PipelineStepSchema).min(1),
   on_failure: z.enum(['stop', 'continue']).default('stop'),
   budget: PipelineBudgetSchema.optional(),

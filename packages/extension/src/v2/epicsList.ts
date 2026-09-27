@@ -25,6 +25,7 @@ import {
   RUN_STATE_SCHEMA_VERSION,
   epicStrictMode,
   readEpicTags,
+  pipelineRecipeLabel,
 } from '@aidlc/core';
 import type {
   RunState,
@@ -75,6 +76,12 @@ export interface EpicSummary {
   /** Canonical (uppercase) tags from state.json — see core `loader/epicTags`. */
   tags: string[];
   pipeline: string | null;
+  /**
+   * The recipe the epic was started with, from its pipeline's `recipe:`
+   * label. `modified` = the steps no longer match that recipe's. Absent on
+   * epics started before the label was written, or on a shared pipeline.
+   */
+  recipe?: { id: string; modified: boolean };
   agent: string | null;
   agents: string[];
   currentStep: number;
@@ -1121,6 +1128,12 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
       tags: readEpicTags(parsed),
       pipeline: typeof parsed.pipeline === 'string' ? parsed.pipeline : null,
+      ...(() => {
+        const recipe = pipelineCfg
+          ? pipelineRecipeLabel(pipelineCfg, doc?.recipes as Array<{ id?: unknown; steps?: unknown }> | undefined)
+          : undefined;
+        return recipe ? { recipe } : {};
+      })(),
       agent: typeof parsed.agent === 'string' ? parsed.agent : null,
       agents: Array.isArray(parsed.agents) ? (parsed.agents as unknown[]).map(String) : [],
       currentStep,

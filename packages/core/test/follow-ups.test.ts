@@ -184,6 +184,15 @@ describe('followUpDefaults', () => {
     });
   });
 
+  it('uses the recipe the parent recorded, over the first with the same steps', () => {
+    const root = tmpRoot();
+    parent(root, OWN.replace('derived_from: cr-squad\n', 'derived_from: cr-squad\nrecipe: cr-internal\n'));
+    expect(followUpDefaults(root, DOC, 'CR-Y01').target).toEqual({ kind: 'recipe', id: 'cr-internal' });
+    // A label naming a recipe the workspace has since dropped falls back to matching steps.
+    const gone = { ...DOC, recipes: DOC.recipes.filter((r) => r.id !== 'cr-internal') };
+    expect(followUpDefaults(root, gone, 'CR-Y01').target).toEqual({ kind: 'recipe', id: 'cr-small' });
+  });
+
   it('falls back to the source pipeline when no recipe has the same steps', () => {
     const root = tmpRoot();
     parent(root, OWN);

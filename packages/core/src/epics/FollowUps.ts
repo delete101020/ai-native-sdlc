@@ -296,7 +296,7 @@ export interface FollowUpDefaults {
   target?: FollowUpTarget;
 }
 
-interface PipelineLike { id?: unknown; derived_from?: unknown; steps?: unknown }
+interface PipelineLike { id?: unknown; derived_from?: unknown; recipe?: unknown; steps?: unknown }
 interface RecipeLike { id?: unknown; from?: unknown; steps?: unknown }
 
 function stepIds(steps: unknown): string[] {
@@ -312,10 +312,12 @@ function stepIds(steps: unknown): string[] {
  * The workflow a new epic would pick to run the way the parent does.
  *
  * An epic's own pipeline records one run; it is not something to start another
- * epic on. So it is traced back: to the recipe that assembled it (same source,
- * same steps — the first such recipe, since two recipes may list the same
- * steps), else to the pipeline it was derived from. A parent on a shared
- * pipeline gets that pipeline.
+ * epic on. So it is traced back: to the recipe it records starting with
+ * (`recipe:`), when the workspace still defines it; else to a recipe that
+ * would assemble it (same source, same steps — the first such recipe, a guess
+ * when two list the same steps, which is why the label is written now); else
+ * to the pipeline it was derived from. A parent on a shared pipeline gets that
+ * pipeline.
  */
 function parentTarget(
   own: PipelineLike | null,
@@ -327,6 +329,8 @@ function parentTarget(
   if (!source) {
     return typeof own.id === 'string' && own.id ? { kind: 'pipeline', id: own.id } : undefined;
   }
+  const labelled = typeof own.recipe === 'string' ? own.recipe : '';
+  if (labelled && recipes.some((r) => r.id === labelled)) { return { kind: 'recipe', id: labelled }; }
   const steps = stepIds(own.steps).join('\n');
   const recipe = recipes.find((r) =>
     (r.from === undefined || r.from === source) && stepIds(r.steps).join('\n') === steps);
