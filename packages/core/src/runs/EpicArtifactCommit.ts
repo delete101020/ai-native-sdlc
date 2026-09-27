@@ -202,7 +202,9 @@ function writeCommit(
   const files: Array<{ abs: string; rel: string }> = [];
   for (const p of abs) {
     if (!fs.existsSync(p) || !fs.statSync(p).isFile()) { continue; }
-    const rel = path.relative(repoRoot, p).split(path.sep).join('/');
+    // git reports the toplevel with symlinks resolved (macOS /var → /private/var),
+    // so resolve the file too or a symlinked workspace looks outside the repo.
+    const rel = path.relative(repoRoot, fs.realpathSync(p)).split(path.sep).join('/');
     // A produces path pointing outside the repo cannot be indexed. Skip it
     // rather than fail the whole commit — the epic's own files still land.
     if (rel.startsWith('../')) { continue; }
