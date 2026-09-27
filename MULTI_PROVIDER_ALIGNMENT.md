@@ -2,8 +2,8 @@
 
 **Branch:** `feat/ai-native-sdlc-alignment` (a `feat/multi-provider` branch splits off at P1)
 **Sibling doc:** `AI_NATIVE_SDLC_ALIGNMENT.md` — same format, same gating discipline
-**Status:** 🟢 P0 locked · P1a shipped (G2, G3, parity check) · P1 shipped (Codex runner, G1) · P3 shipped (cost honesty, `providers:` block) — both pending live verification against an installed `codex`. P4/P5 stay optional and un-started
-**Updated:** 2026-09-02
+**Status:** 🟢 P0 locked · P1a shipped (G2, G3, parity check) · P1 shipped (Codex runner, G1) · P3 shipped (cost honesty, `providers:` block) · **P1b shipped and verified live (Copilot runner)** · Codex still unverified live (no `codex` on this machine). P4/P5 stay optional and un-started — but see §5a, the open items the Copilot run surfaced
+**Updated:** 2026-09-27
 
 ---
 
@@ -136,6 +136,7 @@ documented as phase-limited rather than quietly producing broken runs.
 |---|---|---|
 | Claude | A | `DefaultRunner`, already shipped |
 | Codex (OpenAI) | A | `codex exec` is non-interactive and writes files |
+| GitHub Copilot CLI | A | `copilot -p`; one subscription reaches GPT, Claude and Gemini models. ✅ Shipped in P1b, verified live |
 | Gemini | A | Gemini CLI; confirm non-interactive flag + streaming format at P1 |
 | DeepSeek | B | OpenAI-compatible API; no first-party agentic CLI — 🚫 shelved (P2) |
 | OpenAI API direct | B | Same shape as DeepSeek — 🚫 shelved (P2) |
@@ -224,6 +225,11 @@ writes files, `DefaultRunner` already proves the spawn pattern. Three things bre
 that, and all three are silent — the step succeeds, the artifact appears, and the
 quality is quietly lower.
 
+> **Status after P1b (2026-09-27):** Copilot closes G1 more cleanly than Codex —
+> the graph server is attached per run with `--additional-mcp-config`, so nothing
+> is written to a per-user config and nothing leaks across workspaces. G3 has a
+> caveat for Codex: see §5a item 1.
+>
 > **Status after P1 (2026-09-02):** all three gaps are closed. G2 and G3 shipped
 > with P1a; G1 shipped with `CodexRunner` — `aidlc mcp register` gives another
 > CLI the same `ast-graph` server, and `aidlc doctor` now checks each CLI's own
@@ -264,7 +270,7 @@ is the one thing it still has to earn.
 
 ## 5. Workstreams
 
-Order: **P0 ✅ → P1a ✅ → P1 ✅ → P3 ✅**. P2 is **shelved** under §1a and P4/P5 stay
+Order: **P0 ✅ → P1a ✅ → P1 ✅ → P3 ✅ → P1b ✅** (P1b was added after P3, when a Copilot subscription made a live run possible). P2 is **shelved** under §1a and P4/P5 stay
 optional.
 
 P1a comes before P1 deliberately: shipping a Codex runner on top of the §4c parity
@@ -402,8 +408,12 @@ harness does, and G1 closed alongside it.
   implementation yet"* rather than falling back to Claude (D6).
 - **SPI generalized.** `ClaudeCliWrapper` → `AgentCliWrapper` with the old name
   kept as a deprecated alias; `RunnerResult.usage` added for P3; `RunnerContext`
-  gained `model`. `DefaultRunner` deliberately ignores `model` — passing
+  gained `model`. `DefaultRunner` deliberately ignored `model` at P1 — passing
   `--model` where we never passed one would change which model answers.
+  *Superseded by `4f4ee54` (fix(runner): run each step on its agent's model):
+  `DefaultRunner` and the interactive terminal launch now pass the agent's
+  `model` as `--model`, because without it a `sonnet` step ran on whatever the
+  session defaulted to.*
 - **Transport extracted.** `runner/ndjson.ts` holds the line buffering both CLIs
   need, so a third runner is argument shaping plus an event mapper. Both runners
   hand an unparseable stdout line to the terminal rather than dropping it, which
@@ -443,6 +453,60 @@ Claude's; `doctor` reports parity per runner; `gemini` fails with its reason.
 CLI is not installed on this machine. Every flag is therefore an option with a
 documented default, and a wrong one fails loudly at spawn rather than degrading a
 run quietly. This is the one open item; it needs a machine with Codex on PATH.
+
+### P1b — GitHub Copilot CLI runner ✅ **Shipped 2026-09-27, verified live**
+
+The first non-Claude provider to run a real AIDLC step. The owner has a Copilot
+subscription and no OpenAI account, so Copilot was verified where Codex could not
+be. Probed against Copilot CLI 1.0.88 before any code was written, then run end to
+end on a copy of a real workspace (`s-tos-microservice`, epic `SNP-STOS-001-E-A`,
+step `spec`, model `gpt-5-mini`). Commit `3d63125`.
+
+- **`CopilotRunner`** (`runner: copilot`, added to the D1 enum): `copilot -p` with
+  `--allow-all-tools` (mandatory non-interactively), `--output-format json`, and
+  the composed prompt **on stdin** — persona + `CLAUDE.md` + skill came to ~30 KB,
+  near Windows' ~32 KB command-line limit. The JSONL events it reads:
+  `assistant.message_delta` / `assistant.message`, `tool.execution_start`,
+  `session.mcp_server_status_changed`, `result`.
+- **G1 per run.** The runner copies the graph server (`ast-graph` or
+  `codegraph`) out of Claude's project entry and passes it with
+  `--additional-mcp-config`. Verified: the server connects and a graph query
+  returns the right callers. `doctor` reports whether there is an entry to copy.
+- **Built-in GitHub MCP disabled** (`--disable-builtin-mcps`). Measured: when the
+  graph server failed to start, Copilot fell back to GitHub code search and
+  answered confidently — and wrongly — from an unrelated public PHP repository,
+  exit 0. Claude has no such fallback, and a phase searching public code for a
+  private repo's symbols is both a wrong answer and a leak. A failed MCP server
+  is now printed to the step's error stream.
+- **G3.** Copilot reads a root `CLAUDE.md` and `AGENTS.md` natively but not
+  `.claude/CLAUDE.md`, so `projectInstructions: false` and `CLAUDE.md` is
+  preferred for inlining. The cost is a duplicate when the file is at the root;
+  Copilot bills per request, not per token, so it costs context, not money.
+- **Cost (D5).** Copilot reports premium requests only — no tokens, no dollars.
+  `costUsd` and `usage` stay undefined, the step counts as blind, and the request
+  count is kept in `RunnerResult.data`.
+- **Models (D8).** Unchanged mechanism: an unmapped Claude tier resolves to no
+  `--model` and Copilot picks its default; `providers.copilot.model_aliases`
+  maps it. Copilot cannot list its models non-interactively, so AIDLC names none.
+
+**What the live run found — R1 arriving through the front door.** The step was
+a redo, so the previous revision's `spec.md` was still on disk. Copilot's `create`
+tool refused to overwrite it (`Path already exists`), the model looked at the old
+file and reported *"Tôi đã lưu spec hoàn chỉnh"* with a plausible summary, and
+`markStepDone` sent the step to review — because `produces` only checks that the
+file exists. Nothing about this is Copilot-specific: any harness that fails to
+write on a rerun passes the same way. **Fixed for every runner:** the exec loop
+fingerprints the step's `produces` before the runner starts and fails the step
+when none was created or changed (`runs/producesSnapshot.ts`). The rule is
+deliberately narrow — one changed file out of several is enough — so a
+multi-artifact step is never failed for leaving one file alone.
+
+**Not established:** whether Copilot writes a *good* spec. `gpt-5-mini` skipped
+the constraint-loading step and never called the graph; that is the model, not
+the harness, and the owner chose not to rerun on a stronger model — the goal was
+to prove the multi-provider seam, which this does.
+
+**Tests:** 21 new (15 runner, 6 produces snapshot). 814 core + 169 extension green.
 
 ### P2 — Shape B runner (OpenAI-compatible) — 🚫 **SHELVED**
 
@@ -552,6 +616,35 @@ and let demand decide whether (b) is worth the UX regression.
   filesystem-writing phase.
 - README + preset docs: the shape A / shape B distinction, stated once, plainly.
 
+### 5a. Open items surfaced by P1b
+
+Found while walking the code and the live run; none is fixed yet.
+
+1. **Codex can inline the wrong instruction file.** `CodexRunner` prefers
+   `AGENTS.md`. In `s-tos-microservice` that file is Nx's generated boilerplate
+   and the real conventions are the 23 KB `CLAUDE.md`, so a Codex step there
+   would run without them — a G3 regression the preference was meant to avoid.
+   Likely fix: inline `CLAUDE.md` as well when both exist, or prefer the larger /
+   non-generated one.
+2. **Run step in the panel silently runs Claude.** The interactive launch
+   (`workspaceCommands.ts`, `launchModelFor`) always builds `claude '<slash>'`;
+   for an agent on another runner it only drops `--model`. That is D6's silent
+   substitution. Run epic to completion is correct — it goes through
+   `runExecLoop`. Minimum fix: for a non-`default` runner, offer a headless
+   single-step run instead of the Claude terminal. This also revises P4's
+   recommendation: the Epics panel is now the main surface, so "(a) leave it"
+   leaves providers usable only through Run to completion.
+3. **`doctor`'s cost warning is wrong for Copilot.** It asks for
+   `providers.copilot.rates` per token; Copilot bills per request, so no token
+   rate can price it.
+4. **Mark step done after a terminal run is not covered by the unchanged-artifact
+   check.** Only the exec loop knows when a step started. The terminal launch
+   time could serve as the baseline.
+5. **Stale graph registrations.** This machine's Claude entry for the AIDLC repo
+   still points at the pre-4.0.0 extension id's `ast-graph` binary, which no
+   longer exists. Copilot inherits whatever Claude has, so a stale entry blinds
+   both — `doctor` checks that an entry exists, not that its binary does.
+
 ---
 
 ## 6. Open questions
@@ -592,7 +685,7 @@ they are not rediscovered painfully later:
 
 | # | Risk | Mitigation |
 |---|---|---|
-| R1 | A shape B run "succeeds" having written a plausible artifact while changing no code, and passes the gate | P0.4 write-back plus P2's hard refusal on the phases §4b marks shape-A-only; `produces` alone is not enough evidence |
+| R1 | A run "succeeds" having written a plausible artifact — or none — and passes the gate | **Happened live on shape A (P1b):** a rerun kept the old artifact and passed `produces`. Now the exec loop fails a step whose `produces` are all unchanged. Shape B stays shelved; `produces` existence alone is not evidence |
 | R2 | Skills reference `.claude/agents/…` (47 occurrences) and `argument-hint` (25); another CLI ignores both | Shape A providers get the persona inlined into the system prompt instead of by path. Do not rewrite the templates per vendor |
 | R3 | Cost under-reporting makes the budget guard useless on mixed runs | P3 rate table; `doctor` warns explicitly rather than reporting a confident wrong number |
 | R4 | Provider CLI flags drift, breaking runners between releases | Keep runners thin; version probe in `doctor`; integration test per provider behind an env flag so CI skips without keys |
@@ -613,3 +706,5 @@ they are not rediscovered painfully later:
 | 2026-09-02 | P1a shipped: `HarnessCapabilities` on the runner SPI, `PersonaLoader`, `findProjectInstructions`, `composeAgentPrompt`, `execEngine` composing all three layers, `doctor` **Harness parity** section, 21 tests. Two deliberate deviations: the persona directive is stripped at compose time rather than from 47 templates (R2), and G1 moves into P1 because another CLI's MCP config cannot be verified before that CLI has a runner (§1a). |
 | 2026-09-02 | P3 shipped: `runs/pricing.ts`, a `providers:` block carrying user-declared `model_aliases` + `rates`, `costEstimated` on `StepRecord`, `checkBudget` returning `{measured, estimated, blindSteps}`, an **Engine** column in the run report, runner badges in the Builder, and a `doctor` **Providers** section (PATH + `--version` + per-provider cost accounting). Deviations, both toward honesty over completeness: `BUILTIN_RATES` ships empty, and there is still no built-in tier map — the user declares both, because a stale price and an invented model id both fail quietly. 27 tests, 377 core + 25 extension green. |
 | 2026-09-02 | Added §4b, the per-step verdict, after walking every `AINATIVE_PHASES` entry and skill body. Corrects P2's refusal list: the blocked pair is `implement` + `verify`, not `implement` + `review` — `review` is read-only by design. |
+| 2026-09-27 | Reviewed against `d15b338` (169 commits after P3). Found: the panel's Run step launches Claude for any runner (D6), `DefaultRunner` now passes `--model` (P1 note superseded), no provider CLI but Claude installed here. |
+| 2026-09-27 | P1b shipped (`3d63125`): `CopilotRunner`, verified live against Copilot CLI 1.0.88 on a copy of `s-tos-microservice` — prompt on stdin, graph attached per run via `--additional-mcp-config`, built-in GitHub MCP disabled after it answered from an unrelated public repo. The live run reproduced R1 (old `spec.md` passed `produces` after `create` refused to overwrite it); fixed for every runner with a pre/post `produces` fingerprint. Open items recorded in §5a. 21 tests, 814 core + 169 extension green. |
