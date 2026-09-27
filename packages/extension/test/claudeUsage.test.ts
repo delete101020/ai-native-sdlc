@@ -9,12 +9,14 @@
  * from `contributes` never reaches the palette.
  */
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 import { describe, expect, it } from 'vitest';
 
 import {
   estimateBurn,
+  keychainServiceName,
   parseUsageWindows,
   usageAlert,
   statusBarWindows,
@@ -349,5 +351,17 @@ describe('plan usage contributions', () => {
     expect(props['aidlcNative.claude.planUsage.showResetIn']?.default).toBe(true);
     expect(props['aidlcNative.claude.planUsage.warnBelowPercent']?.default).toBe(20);
     expect(props['aidlcNative.claude.planUsage.criticalBelowPercent']?.default).toBe(5);
+  });
+});
+
+describe('keychainServiceName', () => {
+  // Hashes as Claude Code files them: sha256(dir) → first eight hex.
+  it('uses the bare name only for the default ~/.claude', () => {
+    expect(keychainServiceName(path.join(os.homedir(), '.claude'))).toBe('Claude Code-credentials');
+  });
+
+  it('gives each custom config dir its own entry, so accounts never share a reading', () => {
+    expect(keychainServiceName('/Users/kingfisher/.claude-work')).toBe('Claude Code-credentials-ae6bcefe');
+    expect(keychainServiceName('/Users/kingfisher/.claude-personal')).toBe('Claude Code-credentials-fd386472');
   });
 });

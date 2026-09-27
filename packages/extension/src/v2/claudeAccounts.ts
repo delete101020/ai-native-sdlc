@@ -42,6 +42,7 @@ import {
   cachedPlanUsage,
   onDidChangePlanUsage,
   planUsage,
+  REFRESH_USAGE_CMD,
   usageMarkdown,
   usageSummary,
 } from './claudeUsage';
@@ -408,6 +409,10 @@ export function registerClaudeAccounts(
       if (e.affectsConfiguration(CONFIG_DIRS_KEY)) { refreshStatus(); }
       if (!e.affectsConfiguration(CONFIG_DIR_KEY)) { return; }
       apply();
+      // The plan-usage bar polls every few minutes; without this it keeps
+      // showing the previous account's numbers until the next tick. Rejects
+      // harmlessly when plan usage is disabled and the command never registered.
+      void vscode.commands.executeCommand(REFRESH_USAGE_CMD).then(undefined, () => undefined);
       // Long-lived readers (token monitor watchers, open webviews) captured the
       // old dir; a reload is the honest way to switch accounts mid-session.
       void vscode.window

@@ -29,6 +29,7 @@
  */
 
 import { execFile } from 'child_process';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as https from 'https';
 import * as os from 'os';
@@ -36,7 +37,7 @@ import * as path from 'path';
 
 import * as vscode from 'vscode';
 
-import { claudeConfigDir } from '@aidlc/core';
+import { claudeConfigDir, defaultClaudeConfigDir } from '@aidlc/core';
 
 export const SHOW_USAGE_CMD = 'aidlcNative.showClaudePlanUsage';
 export const REFRESH_USAGE_CMD = 'aidlcNative.refreshClaudePlanUsage';
@@ -314,12 +315,28 @@ function parseCredentials(raw: string): OAuthCredentials | undefined {
   }
 }
 
+/**
+ * The keychain service Claude Code files a config dir's credentials under.
+ *
+ * One entry per account, not one per machine: a custom `CLAUDE_CONFIG_DIR`
+ * gets `-` plus the first eight hex of the dir's SHA-256 appended, and only the
+ * default `~/.claude` uses the bare name. Reading the bare name for every dir
+ * reported the default account's plan as whichever account was active — a
+ * Pro window showing the Max account's usage.
+ */
+export function keychainServiceName(configDir: string): string {
+  const dir = path.resolve(configDir);
+  if (dir === defaultClaudeConfigDir()) { return 'Claude Code-credentials'; }
+  const hash = createHash('sha256').update(dir).digest('hex').slice(0, 8);
+  return `Claude Code-credentials-${hash}`;
+}
+
 /** The macOS login keychain, where Claude Code keeps credentials instead of a file. */
-function readKeychainCredentials(): Promise<OAuthCredentials | undefined> {
+function readKeychainCredentials(configDir: string): Promise<OAuthCredentials | undefined> {
   return new Promise((resolve) => {
     execFile(
       'security',
-      ['find-generic-password', '-a', os.userInfo().username, '-w', '-s', 'Claude Code-credentials'],
+      ['find-generic-password', '-a', os.userInfo().username, '-w', '-s', keychainServiceName(configDir)],
       { encoding: 'utf8', timeout: 5000, windowsHide: true },
       (err, stdout) => resolve(err ? undefined : parseCredentials(String(stdout).trim())),
     );
@@ -335,7 +352,7 @@ async function readCredentials(configDir: string): Promise<OAuthCredentials | un
     // Falls through: absent by design on macOS, and unreadable is the same
     // answer as absent for our purposes.
   }
-  return process.platform === 'darwin' ? readKeychainCredentials() : undefined;
+  return process.platform === 'darwin' ? readKeychainCredentials(configDir) : undefined;
 }
 
 // ── The call ─────────────────────────────────────────────────────────────────
