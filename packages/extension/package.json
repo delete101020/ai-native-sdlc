@@ -224,9 +224,9 @@
         "category": "AIDLC Native"
       },
       {
-        "command": "aidlcNative.togglePinEpic",
-        "title": "Pin / Unpin Active Epic",
-        "icon": "$(pin)",
+        "command": "aidlcNative.toggleWatchEpic",
+        "title": "Watch / Unwatch Active Epic",
+        "icon": "$(star-empty)",
         "category": "AIDLC Native"
       },
       {

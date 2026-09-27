@@ -1,17 +1,27 @@
 /**
- * The epics one person is working on right now — the active one, the pinned
- * ones, and the ones opened most recently.
+ * The epics one person is working on right now — the active one and the ones
+ * opened most recently — plus the set they keep an eye on.
  *
  * With dozens of epics on disk, the list is no longer the way to get back to
- * the three you are actually on. This is that short list. It is personal
+ * the few you are actually on. This is that short list. It is personal
  * (what I am on says nothing about what you are on), so it lives in
  * `.aidlc/user.yaml` next to `epic_id_prefix` — per checkout, gitignored, and
  * readable by the CLI and by a skill running in a Claude terminal, which is
  * why it is a file and not VS Code's workspaceState.
  *
  *   active_epic: EPIC-012
- *   pinned_epics: [EPIC-012, EPIC-007]
  *   recent_epics: [EPIC-012, EPIC-031, EPIC-007]
+ *   watched_epics: [EPIC-003, EPIC-015]
+ *   epic_sort: { by: activity, reversed: true }
+ *
+ * Watched is the list the sidebar shows as My epics: what I am working on,
+ * an epic waiting on my review, a colleague's that mine depends on.
+ *
+ * `pinned_epics`, from an earlier version, is no longer read; a file that still
+ * has it keeps it, untouched.
+ *
+ * The Epics list order sits here too, for the same reason: how I like the
+ * list sorted is mine, and the sidebar's My epics follows it.
  *
  * Ids are stored as given; an epic deleted since is simply skipped by whoever
  * displays the list, so nothing here ever has to be cleaned up.
@@ -19,16 +29,17 @@
 import { readUserConfig, updateUserConfig } from './userConfig';
 
 export const ACTIVE_EPIC_KEY = 'active_epic';
-export const PINNED_EPICS_KEY = 'pinned_epics';
 export const RECENT_EPICS_KEY = 'recent_epics';
+export const WATCHED_EPICS_KEY = 'watched_epics';
+export const EPIC_SORT_KEY = 'epic_sort';
 
 /** How many recently opened epics are remembered. */
 export const RECENT_EPICS_LIMIT = 10;
 
 export interface EpicFocus {
   active: string | null;
-  pinned: string[];
   recent: string[];
+  watched: string[];
 }
 
 function asId(v: unknown): string | null {
@@ -49,8 +60,8 @@ function asIdList(v: unknown): string[] {
 export function epicFocusFrom(doc: Record<string, unknown> | null): EpicFocus {
   return {
     active: asId(doc?.[ACTIVE_EPIC_KEY]),
-    pinned: asIdList(doc?.[PINNED_EPICS_KEY]),
     recent: asIdList(doc?.[RECENT_EPICS_KEY]),
+    watched: asIdList(doc?.[WATCHED_EPICS_KEY]),
   };
 }
 
@@ -90,12 +101,45 @@ export function setActiveEpic(root: string, id: string | null): void {
   });
 }
 
-/** Pin or unpin `id`. New pins go to the end, so the order is the user's. */
-export function setEpicPinned(root: string, id: string, pinned: boolean): void {
+/**
+ * Watch or unwatch `id`. Watching one already watched keeps its place; the
+ * sidebar shows the list in the Epics view's order, not this one.
+ */
+export function setEpicWatched(root: string, id: string, watched: boolean): void {
   updateUserConfig(root, (doc) => {
-    const list = asIdList(doc[PINNED_EPICS_KEY]).filter((x) => x !== id);
-    if (pinned) { list.push(id); }
-    writeList(doc, PINNED_EPICS_KEY, list);
+    const list = asIdList(doc[WATCHED_EPICS_KEY]);
+    if (watched === list.includes(id)) { return; }
+    writeList(doc, WATCHED_EPICS_KEY, watched ? [...list, id] : list.filter((x) => x !== id));
+  });
+}
+
+/**
+ * How this user sorts the Epics list. `by` is the sort's id as the extension
+ * names it (`created`, `attention`, `activity`, `mine`, `name`); it is kept as
+ * given and checked by whoever applies it, so a newer id survives an older
+ * reader.
+ */
+export interface EpicSortPref {
+  by: string;
+  reversed: boolean;
+}
+
+/** The saved Epics order, or `null` when none was picked. */
+export function epicSortFrom(doc: Record<string, unknown> | null): EpicSortPref | null {
+  const v = doc?.[EPIC_SORT_KEY];
+  if (!v || typeof v !== 'object' || Array.isArray(v)) { return null; }
+  const by = asId((v as Record<string, unknown>).by);
+  return by ? { by, reversed: (v as Record<string, unknown>).reversed === true } : null;
+}
+
+export function readEpicSort(root: string): EpicSortPref | null {
+  return epicSortFrom(readUserConfig(root));
+}
+
+/** Save the Epics order. `reversed` is written only when set. */
+export function setEpicSort(root: string, pref: EpicSortPref): void {
+  updateUserConfig(root, (doc) => {
+    doc[EPIC_SORT_KEY] = pref.reversed ? { by: pref.by, reversed: true } : { by: pref.by };
   });
 }
 

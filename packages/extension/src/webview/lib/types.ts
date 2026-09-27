@@ -102,6 +102,9 @@ export interface RecentEpicRef {
   title: string;
   status: string;
   statePath: string;
+  /** "step 3/6 · implement", or '' for an epic with no steps. */
+  step: string;
+  watched: boolean;
 }
 
 export interface SlashCommandRef {
@@ -392,12 +395,8 @@ export interface SidebarState {
   skillsCount: number;
   pipelinesCount: number;
   epicsCount: number;
-  /** The active epic (`.aidlc/user.yaml`), when it still exists. */
-  activeEpic: RecentEpicRef | null;
-  /** Pinned epics in pin order, the active one left out. */
-  pinnedEpics: RecentEpicRef[];
-  /** Up to 3 recently opened epics, active and pinned left out. */
-  recentEpics: RecentEpicRef[];
+  /** Every watched epic, in the Epics view's order. */
+  myEpics: RecentEpicRef[];
   slashCommands: SlashCommandRef[];
   builtinTemplates: TemplateRef[];
   projectTemplates: TemplateRef[];
@@ -850,6 +849,8 @@ export interface WorkspaceState {
   /** The Epics list order last picked, kept by the host so it outlives the
    * panel. Null or absent when none was picked. */
   epicSortPref?: { sort: string; reversed: boolean } | null;
+  /** Ids of the epics this user watches, from `.aidlc/user.yaml`. */
+  watchedEpics?: string[];
   /** All existing epic ids (folders under epicRoot) — for uniqueness check. */
   existingEpicIds: string[];
   requirementRuns?: RequirementRunSummary[];

@@ -323,21 +323,26 @@ export {
   userConfigPath,
   writeUserEpicIdPrefix,
 } from './loader/userConfig';
-// The personal working set — active, pinned and recent epics — kept in user.yaml.
+// The personal working set — active, recent and watched epics, and the
+// Epics list order — kept in user.yaml.
 export {
   ACTIVE_EPIC_KEY,
-  PINNED_EPICS_KEY,
+  EPIC_SORT_KEY,
   RECENT_EPICS_KEY,
   RECENT_EPICS_LIMIT,
+  WATCHED_EPICS_KEY,
   epicFocusFrom,
   epicIdFromBranch,
+  epicSortFrom,
   pushRecent,
   readEpicFocus,
+  readEpicSort,
   recordEpicOpened,
   setActiveEpic,
-  setEpicPinned,
+  setEpicSort,
+  setEpicWatched,
 } from './loader/epicFocus';
-export type { EpicFocus } from './loader/epicFocus';
+export type { EpicFocus, EpicSortPref } from './loader/epicFocus';
 // Per-epic depth of work, and the prompt section that states it.
 export {
   STRICT_MODE_HEADING,

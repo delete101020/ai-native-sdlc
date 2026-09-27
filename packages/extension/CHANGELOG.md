@@ -1,5 +1,50 @@
 # Changelog
 
+## Unreleased
+
+The sidebar keeps one list of the epics you care about and folds away what you
+set once.
+
+### Changed
+
+- **My epics** is the one epic list in the sidebar, replacing Recent Epics and
+  Active Runs. It lists the epics you watch, in the order the Epics view is
+  sorted by, each showing its run status on the row. The active and recently
+  opened epics stay in the status bar and Go to Epic.
+- **Project setup** (collapsed) holds workspace.yaml, artifact language, epic id
+  prefix and workflow templates. An unset epic id prefix still shows its warning
+  at the top.
+- Start Epic and Analyze share one row. The header, the Agents/Skills/Flows/Epics
+  counters and the in-body Ask button are gone (Ask, Builder and Epics are in
+  the view's title bar); the theme toggle moved to the footer.
+- MCP servers shows a warning count on its header when a server failed or needs
+  auth.
+- Opening an epic from the sidebar, Go to Epic or a run folds every other epic
+  card in the Epics view, so the one you asked for is the only one open.
+
+### Added
+
+- **Watched epics (☆).** The epics you care about: the ones you are working
+  on, one waiting on your review, a colleague's that yours depends on. Star one
+  from a sidebar row, an Epics view card or Go to Epic. The sidebar lists them
+  under **My epics**, the Epics view gets a **Watching** filter, and the CLI
+  adds `aidlc epic watch | unwatch <id>`.
+  Stored as `watched_epics` in `.aidlc/user.yaml`.
+- The Epics sort is saved per person as `epic_sort` in `.aidlc/user.yaml`,
+  instead of in VS Code's global state, which applied one order to every
+  workspace. An order picked before this is still used until you pick a new one.
+
+### Removed
+
+- **Pinned epics**, added in 4.0.27. Watching replaces them. The Pin / Unpin
+  command, the pin buttons and `aidlc epic pin | unpin` are gone; a
+  `pinned_epics` list already in `.aidlc/user.yaml` is left there and ignored.
+
+### Fixed
+
+- Plan usage in the status bar now follows the Claude account you switch to,
+  instead of showing the default account's usage.
+
 ## 4.0.27
 
 With dozens of epics, the one you are working on is a keystroke away instead of

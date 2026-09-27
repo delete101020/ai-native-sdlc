@@ -142,10 +142,15 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  // Active / pinned / recent epics: status bar, Go to Epic picker, branch
-  // following. The sidebar lists the same working set, so it redraws with it.
+  // Active / recent / watched epics: status bar, Go to Epic picker,
+  // branch following. The sidebar lists the same working set, and the Epics
+  // view marks and filters watched epics, so both redraw with it.
   const epicFocus = new EpicFocusController(context, context.extensionUri);
-  context.subscriptions.push(epicFocus, epicFocus.onDidChange(() => sidebar.refresh()));
+  context.subscriptions.push(WorkspaceWebview.onDidChangeEpicSort(() => sidebar.refresh()));
+  context.subscriptions.push(epicFocus, epicFocus.onDidChange(() => {
+    sidebar.refresh();
+    WorkspaceWebview.current?.refresh();
+  }));
 
   // Manual refresh command for skills/agents/workspace state. Users can invoke
   // from command palette if file watcher detection is delayed (e.g., global

@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp } from 'lucide-react';
+import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter, FollowUpContext } from '@/lib/types';
 import { EpicCard } from './EpicCard';
@@ -69,6 +69,9 @@ export function EpicsView({
 }) {
   const [filter, setFilter] = useState<EpicFilter>('all');
   const [tagFilter, setTagFilter] = useState<string[]>([]);
+  // Narrows whatever the status and tag filters show, like one more facet.
+  const [watchedOnly, setWatchedOnly] = useState(false);
+  const watchedIds = useMemo(() => new Set(state.watchedEpics ?? []), [state.watchedEpics]);
   // The host keeps the order: this webview's own state dies with the panel.
   const [sort, setSort] = useState<EpicSort>(() => {
     const saved = state.epicSortPref?.sort;
@@ -94,6 +97,11 @@ export function EpicsView({
   // the expand and the filter reset behave identically either way.
   const [focus, setFocus] = useState<{ id: string; nonce: number } | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // The last deep link from outside the panel (sidebar, Go to Epic, a run):
+  // every other card folds, so arriving on an epic never lands among a pile of
+  // cards left open from before. The chips inside the list only set `focus`,
+  // since following an incident to its follow-up is a comparison.
+  const [solo, setSolo] = useState<{ id: string; nonce: number } | null>(null);
 
   // Deep links unfold the family they land in. Families start folded, so
   // without this the sidebar would scroll to a card that is not rendered.
@@ -102,6 +110,7 @@ export function EpicsView({
     const target = state.epics.find((e) => e.id === focusEpic.id);
     if (target) { setCollapsed((c) => ({ ...c, [familyOf(target)]: false })); }
     setFocus(focusEpic);
+    setSolo(focusEpic);
     // Deliberately keyed on the link alone: re-running when `state.epics`
     // changes would re-open a family the user had just folded shut.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -110,7 +119,7 @@ export function EpicsView({
   // A deep link has to win over the filter — landing on an empty list because
   // the epic is done and the filter says "in progress" reads as a broken link.
   useEffect(() => {
-    if (focus) { setFilter('all'); setTagFilter([]); }
+    if (focus) { setFilter('all'); setTagFilter([]); setWatchedOnly(false); }
   }, [focus]);
 
   // A tag that no epic carries any more (its last epic was retagged or deleted)
@@ -153,12 +162,13 @@ export function EpicsView({
   // epics sorts first, so one follow-up awaiting review lifts its incident.
   const visible = useMemo(
     () => sortEpics(
-      state.epics.filter((e) => matches(e, filter) && matchesTags(e, tagFilter)),
+      state.epics.filter((e) =>
+        matches(e, filter) && matchesTags(e, tagFilter) && (!watchedOnly || watchedIds.has(e.id))),
       effectiveSort,
       sortReversed,
       prefix,
     ),
-    [state.epics, filter, tagFilter, effectiveSort, sortReversed, prefix],
+    [state.epics, filter, tagFilter, watchedOnly, watchedIds, effectiveSort, sortReversed, prefix],
   );
 
   /**
@@ -356,6 +366,26 @@ export function EpicsView({
             </span>
           </button>
         ))}
+        {(watchedIds.size > 0 || watchedOnly) && (
+          <button
+            type="button"
+            onClick={() => setWatchedOnly((v) => !v)}
+            aria-pressed={watchedOnly}
+            title="Only the epics you watch"
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+              watchedOnly
+                ? 'bg-warning/20 text-foreground ring-1 ring-warning/50'
+                : 'bg-secondary text-secondary-foreground hover:bg-accent',
+            )}
+          >
+            <Star className={cn('h-3 w-3 text-warning', watchedOnly && 'fill-current')} />
+            Watching
+            <span className="text-[10px] tabular-nums text-muted-foreground">
+              {state.epics.filter((e) => watchedIds.has(e.id)).length}
+            </span>
+          </button>
+        )}
         <div className="ml-auto flex items-center gap-1">
           <select
             aria-label="Sort epics"
@@ -443,7 +473,9 @@ export function EpicsView({
 
       {visible.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-surface/50 p-6 text-center text-xs text-muted-foreground">
-          {tagFilter.length > 0
+          {watchedOnly
+            ? 'None of the epics you watch match these filters.'
+            : tagFilter.length > 0
             ? `No epics tagged ${tagFilter.join(' + ')}${filter === 'all' ? '' : ` in ${filter.replace('_', ' ')}`}.`
             : filter === 'all' ? 'No epics yet.' : `No ${filter.replace('_', ' ')} epics.`}
         </div>
@@ -457,6 +489,8 @@ export function EpicsView({
                 agentMeta={state.agentMeta}
                 slashCommandsByAgent={state.slashCommandsByAgent}
                 focusNonce={focus?.id === e.id ? focus.nonce : 0}
+                solo={solo}
+                watched={watchedIds.has(e.id)}
                 // Keyed by run id, and an epic's run id is the epic id by
                 // convention — but read it off the epic rather than assuming.
                 // A list: a DAG can have an agent on each of its open steps.

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, type MouseEvent as ReactMouseEvent } from 'react';
 import {
-  Bot,
   GitBranch,
   Zap,
   Layers,
@@ -23,9 +22,7 @@ import {
   Fingerprint,
   AlertTriangle,
   Search,
-  Pin,
-  PinOff,
-  Crosshair,
+  Star,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -34,7 +31,6 @@ import type {
   TemplateRef,
   McpServerInfo,
   ActiveRun,
-  AgentActivity,
   AgentActivityMap,
   EpicIdPrefixSource,
 } from '@/lib/types';
@@ -42,14 +38,13 @@ import { ConfirmModal } from './ConfirmModal';
 import { SavePresetModal } from './SavePresetModal';
 import { LoadDemoModal } from './LoadDemoModal';
 import { ThemeToggle } from './ThemeToggle';
-import { useElapsed } from './AgentRunningBanner';
 import { postMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
 
 interface CollapseState {
-  activeRuns: boolean;
-  recentEpics: boolean;
   workflows: boolean;
   mcpServers: boolean;
+  setup: boolean;
+  myEpics: boolean;
 }
 
 interface PersistedUi {
@@ -57,11 +52,11 @@ interface PersistedUi {
 }
 
 const DEFAULT_COLLAPSED: CollapseState = {
-  // The one section about work in flight — never starts shut.
-  activeRuns: false,
-  recentEpics: false,
   workflows: false,
   mcpServers: true,
+  // Set once and left alone; the prefix warning is shown outside it.
+  setup: true,
+  myEpics: false,
 };
 
 export function AppSidebar({ state }: { state: SidebarState | null }) {
@@ -96,47 +91,29 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
     );
   }
 
+  const setupNeeded = state.configExists && state.epicIdPrefixNeedsSetup;
+
   return (
     <aside className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-sidebar-border px-3 py-2.5">
-        <div className="flex items-center gap-2 min-w-0">
-          <BrandIcon />
-          <div className="min-w-0">
-            <h2 className="text-[11px] font-bold tracking-widest uppercase">AIDLC</h2>
-            <p className="truncate text-[10px] text-muted-foreground">Agent workflow runner</p>
-          </div>
-        </div>
-        <ThemeToggle />
-      </div>
-
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-        <AskButton />
         {!state.hasFolder ? (
-          <EmptyNoFolder demoProjectExists={state.demoProjectExists} />
+          <>
+            <AskButton />
+            <EmptyNoFolder demoProjectExists={state.demoProjectExists} />
+          </>
         ) : (
           <>
             <ProjectBar workspaceName={state.workspaceName} configExists={state.configExists} extraProjects={state.extraProjects} />
-            {state.configExists && (
-              <button
-                type="button"
-                onClick={() => postMessage({ type: 'openYaml' })}
-                className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <FileCode2 className="h-3.5 w-3.5" />
-                <span>Open workspace.yaml</span>
-              </button>
-            )}
 
-            {state.configExists && <ArtifactLanguageRow value={state.artifactLanguage} />}
-
-            {state.configExists && (
+            {/* The one setup item that is a problem rather than a preference
+                stays in view until it is dealt with. */}
+            {setupNeeded && (
               <EpicIdPrefixRow
                 value={state.epicIdPrefix}
                 source={state.epicIdPrefixSource}
                 suggestion={state.epicIdPrefixSuggestion}
-                needsSetup={state.epicIdPrefixNeedsSetup}
+                needsSetup
               />
             )}
 
@@ -146,61 +123,65 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
               </div>
             )}
 
-            {/* Analyze Requirements — always visible when a folder is open */}
-            <button
-              type="button"
-              onClick={() => postMessage({ type: 'openAnalyzeView' })}
-              className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-            >
-              <ListTree className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>Analyze Requirements</span>
-              <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-50" />
-            </button>
+            <PrimaryActions configExists={state.configExists} />
 
-            {state.configExists && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => postMessage({ type: 'requestStartEpic' })}
-                  className="flex w-full items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold uppercase tracking-wider text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  <Play className="h-3.5 w-3.5" />
-                  <span>Start Epic</span>
-                  <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-70" />
-                </button>
-
-                <StatsGrid state={state} />
-
-                {state.activeRuns.length > 0 && (
-                  <ActiveRunsSection
-                    runs={state.activeRuns}
-                    activity={state.agentActivity ?? {}}
-                    collapsed={collapsed.activeRuns}
-                    onToggle={() => toggleSection('activeRuns')}
-                  />
-                )}
-
-                {(state.activeEpic || state.pinnedEpics.length > 0 || state.recentEpics.length > 0) && (
-                  <RecentEpicsSection
-                    active={state.activeEpic}
-                    pinned={state.pinnedEpics}
-                    recent={state.recentEpics}
-                    epicsCount={state.epicsCount}
-                    collapsed={collapsed.recentEpics}
-                    onToggle={() => toggleSection('recentEpics')}
-                  />
-                )}
-              </>
+            {state.configExists && state.epicsCount > 0 && (
+              <MyEpicsSection
+                epics={state.myEpics}
+                epicsCount={state.epicsCount}
+                runs={state.activeRuns}
+                activity={state.agentActivity ?? {}}
+                collapsed={collapsed.myEpics}
+                onToggle={() => toggleSection('myEpics')}
+              />
             )}
 
-            <WorkflowsSection
-              builtins={state.builtinTemplates}
-              project={state.projectTemplates}
-              configExists={state.configExists}
-              workspaceName={state.workspaceName}
-              collapsed={collapsed.workflows}
-              onToggle={() => toggleSection('workflows')}
-            />
+            {state.configExists ? (
+              <SectionShell
+                label="Project setup"
+                collapsed={collapsed.setup}
+                onToggle={() => toggleSection('setup')}
+              >
+                <button
+                  type="button"
+                  onClick={() => postMessage({ type: 'openYaml' })}
+                  className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <FileCode2 className="h-3.5 w-3.5" />
+                  <span>Open workspace.yaml</span>
+                </button>
+                <ArtifactLanguageRow value={state.artifactLanguage} />
+                {!setupNeeded && (
+                  <EpicIdPrefixRow
+                    value={state.epicIdPrefix}
+                    source={state.epicIdPrefixSource}
+                    suggestion={state.epicIdPrefixSuggestion}
+                    needsSetup={false}
+                  />
+                )}
+                <WorkflowsSection
+                  label="Workflow templates"
+                  builtins={state.builtinTemplates}
+                  project={state.projectTemplates}
+                  configExists={state.configExists}
+                  workspaceName={state.workspaceName}
+                  collapsed={collapsed.workflows}
+                  onToggle={() => toggleSection('workflows')}
+                />
+              </SectionShell>
+            ) : (
+              // Without a workspace.yaml a template is how one gets made, so the
+              // list is the main event rather than a setting.
+              <WorkflowsSection
+                label="Workflows"
+                builtins={state.builtinTemplates}
+                project={state.projectTemplates}
+                configExists={state.configExists}
+                workspaceName={state.workspaceName}
+                collapsed={collapsed.workflows}
+                onToggle={() => toggleSection('workflows')}
+              />
+            )}
 
             <McpServersSection
               servers={state.mcpServers}
@@ -216,6 +197,62 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
       <Footer hasFolder={state.hasFolder} />
 
     </aside>
+  );
+}
+
+/**
+ * Start Epic, with Analyze Requirements beside it. Analyze needs no
+ * workspace.yaml, so without one it is the only action and takes the row.
+ */
+function PrimaryActions({ configExists }: { configExists: boolean }) {
+  const analyze = (
+    <button
+      type="button"
+      onClick={() => postMessage({ type: 'openAnalyzeView' })}
+      title="Analyze Requirements"
+      className={cn(
+        'flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted',
+        !configExists && 'w-full',
+      )}
+    >
+      <ListTree className="h-3.5 w-3.5 text-muted-foreground" />
+      <span>{configExists ? 'Analyze' : 'Analyze Requirements'}</span>
+      {!configExists && <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-50" />}
+    </button>
+  );
+  if (!configExists) { return analyze; }
+  return (
+    <div className="flex gap-1.5">
+      <button
+        type="button"
+        onClick={() => postMessage({ type: 'requestStartEpic' })}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold uppercase tracking-wider text-primary-foreground transition-colors hover:bg-primary/90"
+      >
+        <Play className="h-3.5 w-3.5 shrink-0" />
+        <span className="truncate">Start Epic</span>
+      </button>
+      {analyze}
+    </div>
+  );
+}
+
+/** A collapsible section whose body is plain children. */
+function SectionShell({
+  label,
+  collapsed,
+  onToggle,
+  children,
+}: {
+  label: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <SectionHeader label={label} collapsed={collapsed} onToggle={onToggle} />
+      {!collapsed && <div className="mt-1.5 space-y-1.5">{children}</div>}
+    </div>
   );
 }
 
@@ -400,24 +437,6 @@ function AskButton() {
   );
 }
 
-function BrandIcon() {
-  const uri = typeof window !== 'undefined' ? window.BRAND_ICON_URI : undefined;
-  if (uri) {
-    return (
-      <img
-        src={uri}
-        alt="AIDLC"
-        className="h-7 w-7 shrink-0 rounded-md object-cover shadow-md shadow-primary/20"
-      />
-    );
-  }
-  return (
-    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-      <Bot className="h-3.5 w-3.5" />
-    </div>
-  );
-}
-
 function ProjectBar({
   workspaceName,
   configExists,
@@ -543,54 +562,6 @@ function EmptyNoFolder({ demoProjectExists }: { demoProjectExists: boolean }) {
   );
 }
 
-function StatsGrid({ state }: { state: SidebarState }) {
-  // Each tile doubles as navigation: Agents/Skills/Flows deep-link into the
-  // matching Builder tab, while Epics opens the dedicated top-level Epics view
-  // (the Builder no longer has an Epics tab).
-  const stats: { label: string; value: number; onClick: () => void }[] = [
-    {
-      label: 'Agents',
-      value: state.agentsCount,
-      onClick: () => postMessage({ type: 'openBuilderTab', tab: 'agents' }),
-    },
-    {
-      label: 'Skills',
-      value: state.skillsCount,
-      onClick: () => postMessage({ type: 'openBuilderTab', tab: 'skills' }),
-    },
-    {
-      label: 'Flows',
-      value: state.pipelinesCount,
-      onClick: () => postMessage({ type: 'openBuilderTab', tab: 'workflows' }),
-    },
-    {
-      label: 'Epics',
-      value: state.epicsCount,
-      onClick: () => postMessage({ type: 'openEpicsList' }),
-    },
-  ];
-  return (
-    <div className="grid grid-cols-4 gap-1.5">
-      {stats.map((s) => (
-        <button
-          key={s.label}
-          type="button"
-          onClick={s.onClick}
-          title={`Open ${s.label}`}
-          className="flex flex-col items-center gap-0.5 rounded-md border border-border bg-card/50 px-1 py-2 transition-colors hover:border-primary/40 hover:bg-accent"
-        >
-          <span className="font-mono text-base font-bold tabular-nums text-primary leading-none">
-            {s.value}
-          </span>
-          <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
-            {s.label}
-          </span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function SectionHeader({
   label,
   collapsed,
@@ -619,72 +590,6 @@ function SectionHeader({
   );
 }
 
-/** Active runs shown before "Show N more"; matches Recent Epics' three. */
-const ACTIVE_RUNS_LIMIT = 3;
-
-/**
- * Pipeline runs with `status === 'running'`.
- *
- * The host has always computed `activeRuns`, but nothing rendered it — so a run
- * started from the Builder's Run button had no surface at all once its toast
- * faded, and the toast's own "click Mark step done in the sidebar" pointed at a
- * section that did not exist. This is that section.
- *
- * The sidebar reports status and nothing more. Clicking a run opens its epic,
- * and every step action (mark done, approve, reject, rerun, copy command,
- * clear agent activity) happens there, with the epic's full context in view
- * rather than a thinner copy of it here.
- */
-function ActiveRunsSection({
-  runs,
-  activity,
-  collapsed,
-  onToggle,
-}: {
-  runs: ActiveRun[];
-  activity: AgentActivityMap;
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
-  const [showAll, setShowAll] = useState(false);
-  // Every running epic is an active run, so a busy workspace turned this into
-  // the whole sidebar. The host lists runs most recently updated first; runs
-  // with an agent on them still lead, since those are the ones to watch.
-  const busyCount = (runId: string): number => activity[runId]?.length ?? 0;
-  const ordered = [...runs].sort((a, b) => busyCount(b.runId) - busyCount(a.runId));
-  const shown = showAll ? ordered : ordered.slice(0, ACTIVE_RUNS_LIMIT);
-  const hidden = ordered.length - shown.length;
-
-  return (
-    <div>
-      <SectionHeader
-        label="Active Runs"
-        collapsed={collapsed}
-        onToggle={onToggle}
-        trailing={
-          <span className="text-[10px] tabular-nums text-muted-foreground">{runs.length}</span>
-        }
-      />
-      {!collapsed && (
-        <div className="mt-1.5 space-y-1.5">
-          {shown.map((r) => (
-            <ActiveRunCard key={r.runId} run={r} activities={activity[r.runId] ?? []} />
-          ))}
-          {ordered.length > ACTIVE_RUNS_LIMIT && (
-            <button
-              type="button"
-              onClick={() => setShowAll((v) => !v)}
-              className="w-full rounded-md py-1 text-center text-[10px] text-muted-foreground hover:bg-accent hover:text-primary"
-            >
-              {showAll ? 'Show less' : `Show ${hidden} more`}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 const RUN_STEP_STATUS: Record<string, { label: string; cls: string }> = {
   awaiting_work: { label: 'Awaiting work', cls: 'border-warning/40 bg-warning/15 text-warning' },
   awaiting_auto_review: { label: 'Auto-review', cls: 'border-primary/40 bg-primary/15 text-primary' },
@@ -694,152 +599,121 @@ const RUN_STEP_STATUS: Record<string, { label: string; cls: string }> = {
   approved: { label: 'Approved', cls: 'border-success/40 bg-success/15 text-success' },
 };
 
-function ActiveRunCard({
-  run,
-  activities,
-}: {
-  run: ActiveRun;
-  /** Every dispatch still live on this run — a DAG can have one per open step. */
-  activities: AgentActivity[];
-}) {
-  const status = RUN_STEP_STATUS[run.currentStepStatus] ?? {
+function runStatus(run: ActiveRun): { label: string; cls: string } {
+  return RUN_STEP_STATUS[run.currentStepStatus] ?? {
     label: run.currentStepStatus || 'unknown',
     cls: 'border-border bg-secondary text-muted-foreground',
   };
-  const missingRequires = run.requires.filter((r) => !r.exists);
-  // An optional artifact the step has not written is not owed, so it stays
-  // out of the count — it would otherwise read as work left undone.
-  const counted = run.produces.filter((p) => p.exists || !p.optional);
-  const written = counted.filter((p) => p.exists).length;
-  const note = run.rejectReason || run.feedback;
-  // The whole card is the one control: it opens the epic, where the step can be
-  // acted on with its full context. A run started outside an epic has no such
-  // view, so its run JSON is the closest thing to "open it".
-  const open = () =>
-    run.epicId
-      ? postMessage({ type: 'openEpic', id: run.epicId })
-      : postMessage({ type: 'openRunState', runId: run.runId });
+}
 
+function openEpicHandlers(id: string) {
+  return {
+    role: 'button' as const,
+    tabIndex: 0,
+    title: `Open ${id} in the Epics view`,
+    onClick: () => postMessage({ type: 'openEpic', id }),
+    onKeyDown: (ev: React.KeyboardEvent) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        postMessage({ type: 'openEpic', id });
+      }
+    },
+  };
+}
+
+/** The row opens the epic; its buttons must not also do that. */
+function epicAction(type: 'toggleWatchEpic', id: string) {
+  return (ev: ReactMouseEvent) => {
+    ev.stopPropagation();
+    postMessage({ type, id });
+  };
+}
+
+function EpicRow({
+  epic: e,
+  run,
+  activity,
+}: {
+  epic: RecentEpicRef;
+  run: ActiveRun | undefined;
+  activity: AgentActivityMap;
+}) {
+  const busy = run ? (activity[run.runId]?.length ?? 0) > 0 : false;
+  const status = run ? runStatus(run) : null;
   return (
     <div
-      role="button"
-      tabIndex={0}
-      title={run.epicId ? `Open ${run.epicId} in the Epics view` : 'Open the run JSON'}
-      onClick={open}
-      onKeyDown={(ev) => {
-        if (ev.key === 'Enter' || ev.key === ' ') {
-          ev.preventDefault();
-          open();
-        }
-      }}
-      className="cursor-pointer rounded-md border border-border bg-card/50 px-2.5 py-2 text-[11px] transition-colors hover:bg-accent"
+      {...openEpicHandlers(e.id)}
+      className="group flex cursor-pointer items-center gap-2 rounded-md border border-border bg-card/50 px-2.5 py-1.5 text-[11px] transition-colors hover:bg-accent"
     >
-      <div className="flex items-center gap-1.5">
-        <span className="truncate font-mono text-[10px] font-bold text-primary">{run.runId}</span>
-        <span className="ml-auto shrink-0 tabular-nums text-[10px] text-muted-foreground">
-          {run.currentStepIdx + 1}/{run.totalSteps}
-        </span>
-      </div>
-
-      <div className="mt-1 flex flex-wrap items-center gap-1.5">
-        <span
-          className={cn(
-            'rounded-full border px-1.5 py-px text-[9px] font-bold uppercase tracking-wider',
-            status.cls,
-          )}
-        >
-          {status.label}
-        </span>
-        <span className="truncate text-muted-foreground">{run.currentAgent}</span>
-        {run.revision > 1 && (
-          <span className="text-[9px] text-muted-foreground">rev {run.revision}</span>
+      <EpicDot status={e.status} />
+      <span className="shrink-0 font-mono text-[10px] font-bold text-primary">{e.id}</span>
+      {e.title && (
+        <span className="min-w-0 flex-1 truncate text-muted-foreground" title={e.step || undefined}>· {e.title}</span>
+      )}
+      <span className="ml-auto flex shrink-0 items-center gap-1">
+        {busy && <Loader2 className="h-3 w-3 animate-spin text-primary" aria-label="Agent running" />}
+        {status && run && (
+          <span
+            className={cn('rounded-full border px-1.5 py-px text-[8.5px] font-bold uppercase tracking-wider group-hover:hidden', status.cls)}
+            title={`${status.label} · step ${run.currentStepIdx + 1}/${run.totalSteps} · ${run.currentAgent}`}
+          >
+            {status.label}
+          </span>
         )}
-      </div>
-
-      {activities.map((a) => (
-        <AgentActivityLine
-          key={`${a.stepIdx ?? '*'}-${a.startedAt}`}
-          activity={a}
-          // Worth naming the step only when there is more than one to tell apart.
-          showStep={activities.length > 1}
-        />
-      ))}
-
-      {note && (
-        <div className="mt-1.5 line-clamp-2 break-words rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[10px] leading-snug text-muted-foreground">
-          {note}
-        </div>
-      )}
-
-      {(missingRequires.length > 0 || counted.length > 0) && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground">
-          {missingRequires.length > 0 && (
-            <span
-              className="text-warning"
-              title={missingRequires.map((r) => r.path).join('\n')}
-            >
-              {missingRequires.length} missing input{missingRequires.length === 1 ? '' : 's'}
-            </span>
-          )}
-          {counted.length > 0 && (
-            <span title={run.produces.map((p) => `${p.exists ? '✓' : '·'} ${p.path}${p.optional ? ' (optional)' : ''}`).join('\n')}>
-              {written}/{counted.length} artifact{counted.length === 1 ? '' : 's'} written
-            </span>
-          )}
-        </div>
-      )}
+        <WatchButton epic={e} />
+      </span>
     </div>
   );
 }
 
-/**
- * The sidebar's read-only form of `AgentRunningBanner`: same wording and timer,
- * without the dismiss button, which belongs with the step controls in the epic.
- */
-function AgentActivityLine({
-  activity,
-  showStep = false,
-}: {
-  activity: AgentActivity;
-  showStep?: boolean;
-}) {
-  const elapsed = useElapsed(activity.startedAt);
+/** Shown while set, so the row says so; otherwise only on hover. */
+function WatchButton({ epic: e }: { epic: RecentEpicRef }) {
   return (
-    <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-primary" title={activity.command}>
-      <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-      <span className="font-semibold">{activity.tracked ? 'Agent running' : 'Agent started'}</span>
-      {showStep && activity.stepIdx !== null && (
-        <span className="tabular-nums text-primary/70">step {activity.stepIdx + 1}</span>
+    <button
+      type="button"
+      onClick={epicAction('toggleWatchEpic', e.id)}
+      title={e.watched ? 'Stop watching' : 'Watch — list under My epics'}
+      className={cn(
+        'hover:text-primary',
+        e.watched ? 'inline-flex text-warning' : 'hidden text-muted-foreground group-hover:inline-flex',
       )}
-      <span className="tabular-nums text-primary/70">{elapsed}</span>
-    </div>
+    >
+      <Star className={cn('h-3 w-3', e.watched && 'fill-current')} />
+    </button>
   );
 }
 
+/** Rows shown before "Show N more". */
+const MY_EPICS_LIMIT = 8;
+
 /**
- * The personal working set: the active epic, the pinned ones, then the few
- * opened most recently. Kept in `.aidlc/user.yaml`, shared with the status bar
- * and the Go to Epic picker (Ctrl+Alt+E), which is the way to everything else.
+ * The epics this user watches (`watched_epics` in `.aidlc/user.yaml`), in the
+ * order the Epics view is sorted by, so the two never disagree about which
+ * comes first. The Go to Epic picker (Ctrl+Alt+E) is the way to everything
+ * else. A run shows on its epic's row; there is no separate runs list.
  */
-function RecentEpicsSection({
-  active,
-  pinned,
-  recent,
+function MyEpicsSection({
+  epics,
   epicsCount,
+  runs,
+  activity,
   collapsed,
   onToggle,
 }: {
-  active: RecentEpicRef | null;
-  pinned: RecentEpicRef[];
-  recent: RecentEpicRef[];
+  epics: RecentEpicRef[];
   epicsCount: number;
+  runs: ActiveRun[];
+  activity: AgentActivityMap;
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? epics : epics.slice(0, MY_EPICS_LIMIT);
+  const runFor = (id: string) => runs.find((r) => r.epicId === id);
   return (
     <div>
       <SectionHeader
-        label="My Epics"
+        label="My epics"
         collapsed={collapsed}
         onToggle={onToggle}
         trailing={
@@ -863,98 +737,28 @@ function RecentEpicsSection({
         }
       />
       {!collapsed && (
-        <div className="mt-1.5 space-y-2">
-          {active && (
-            <EpicGroup label="Active">
-              <EpicRow epic={active} isActive isPinned={false} />
-            </EpicGroup>
+        <div className="mt-1.5 space-y-1">
+          {epics.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border px-2.5 py-2 text-[10.5px] leading-relaxed text-muted-foreground">
+              <Star className="mr-1 inline h-3 w-3 align-text-bottom" />
+              Star the epics you want to keep an eye on from a card in the Epics view, or find one with Go to Epic.
+            </div>
+          ) : (
+            shown.map((e) => (
+              <EpicRow key={e.id} epic={e} run={runFor(e.id)} activity={activity} />
+            ))
           )}
-          {pinned.length > 0 && (
-            <EpicGroup label="Pinned">
-              {pinned.map((e) => <EpicRow key={e.id} epic={e} isActive={false} isPinned />)}
-            </EpicGroup>
-          )}
-          {recent.length > 0 && (
-            <EpicGroup label="Recent">
-              {recent.map((e) => <EpicRow key={e.id} epic={e} isActive={false} isPinned={false} />)}
-            </EpicGroup>
+          {epics.length > MY_EPICS_LIMIT && (
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              className="w-full rounded-md py-1 text-center text-[10px] text-muted-foreground hover:bg-accent hover:text-primary"
+            >
+              {showAll ? 'Show less' : `Show ${epics.length - MY_EPICS_LIMIT} more`}
+            </button>
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function EpicGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1">
-      <div className="px-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-        {label}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function EpicRow({
-  epic: e,
-  isActive,
-  isPinned,
-}: {
-  epic: RecentEpicRef;
-  isActive: boolean;
-  isPinned: boolean;
-}) {
-  // The row opens the epic; the hover buttons must not also do that.
-  const act = (type: 'togglePinEpic' | 'setActiveEpic') => (ev: ReactMouseEvent) => {
-    ev.stopPropagation();
-    postMessage({ type, id: e.id });
-  };
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      title={`Open ${e.id} in the Epics view`}
-      onClick={() => postMessage({ type: 'openEpic', id: e.id })}
-      onKeyDown={(ev) => {
-        if (ev.key === 'Enter' || ev.key === ' ') {
-          ev.preventDefault();
-          postMessage({ type: 'openEpic', id: e.id });
-        }
-      }}
-      className={cn(
-        'group flex cursor-pointer items-center gap-2 rounded-md border bg-card/50 px-2.5 py-1.5 text-[11px] transition-colors hover:bg-accent',
-        isActive ? 'border-primary/60' : 'border-border',
-      )}
-    >
-      <EpicDot status={e.status} />
-      <span className="font-mono text-[10px] font-bold text-primary truncate">{e.id}</span>
-      {e.title && (
-        <span className="min-w-0 flex-1 truncate text-muted-foreground">· {e.title}</span>
-      )}
-      <span className="ml-auto flex shrink-0 items-center gap-1">
-        {!isActive && (
-          <button
-            type="button"
-            onClick={act('setActiveEpic')}
-            title="Make this the active epic"
-            className="hidden text-muted-foreground hover:text-primary group-hover:inline-flex"
-          >
-            <Crosshair className="h-3 w-3" />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={act('togglePinEpic')}
-          title={isPinned ? 'Unpin' : 'Pin'}
-          className={cn(
-            'text-muted-foreground hover:text-primary',
-            isPinned ? 'inline-flex' : 'hidden group-hover:inline-flex',
-          )}
-        >
-          {isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
-        </button>
-      </span>
     </div>
   );
 }
@@ -992,6 +796,8 @@ function McpServersSection({
   // without expanding. servers === null means the list hasn't loaded yet.
   const total = servers?.length ?? 0;
   const connected = servers?.filter((s) => s.status === 'connected').length ?? 0;
+  // The section starts shut, so a server that needs attention says so on the header.
+  const troubled = servers?.filter((s) => s.status === 'failed' || s.status === 'needs_auth').length ?? 0;
   return (
     <div>
       <SectionHeader
@@ -1000,6 +806,15 @@ function McpServersSection({
         onToggle={onToggle}
         trailing={
           <div className="flex items-center gap-1.5">
+            {troubled > 0 && (
+              <span
+                className="flex items-center gap-0.5 text-[10px] text-warning"
+                title={`${troubled} server${troubled === 1 ? '' : 's'} failed or need${troubled === 1 ? 's' : ''} auth`}
+              >
+                <AlertTriangle className="h-3 w-3" />
+                {troubled}
+              </span>
+            )}
             {servers && (
               <span className="text-[10px] text-muted-foreground">
                 {connected}/{total}
@@ -1077,6 +892,7 @@ function McpRow({ server }: { server: McpServerInfo }) {
 
 
 function WorkflowsSection({
+  label,
   builtins,
   project,
   configExists,
@@ -1084,6 +900,7 @@ function WorkflowsSection({
   collapsed,
   onToggle,
 }: {
+  label: string;
   builtins: TemplateRef[];
   project: TemplateRef[];
   configExists: boolean;
@@ -1106,7 +923,7 @@ function WorkflowsSection({
 
   return (
     <div>
-      <SectionHeader label="Workflows" collapsed={collapsed} onToggle={onToggle} />
+      <SectionHeader label={label} collapsed={collapsed} onToggle={onToggle} />
       {!collapsed && (
         <div className="mt-1.5 space-y-1.5">
           {configExists && (
@@ -1244,7 +1061,8 @@ function TemplateRow({
 function Footer({ hasFolder }: { hasFolder: boolean }) {
   const v = typeof window !== 'undefined' ? window.EXTENSION_VERSION : undefined;
   return (
-    <div className="border-t border-sidebar-border px-3 py-2 text-center text-[10px] text-muted-foreground">
+    <div className="flex items-center justify-center border-t border-sidebar-border px-3 py-2 text-[10px] text-muted-foreground">
+      <span className="min-w-0 flex-1 truncate">
       {v && <span className="font-mono">v{v}</span>}
       {v && hasFolder && <span className="mx-1.5">·</span>}
       {hasFolder ? (
@@ -1274,6 +1092,8 @@ function Footer({ hasFolder }: { hasFolder: boolean }) {
           Open Project
         </button>
       )}
+      </span>
+      <ThemeToggle />
     </div>
   );
 }

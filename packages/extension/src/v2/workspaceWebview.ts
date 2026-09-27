@@ -243,6 +243,9 @@ import {
   isEpicMemoryHookEnabled,
   expandHome,
   weighStepProgress,
+  readEpicFocus,
+  readEpicSort,
+  setEpicSort,
 } from '@aidlc/core';
 import { SKILL_TEMPLATES } from './skillTemplates';
 import {
@@ -621,20 +624,25 @@ interface WorkspaceState {
   agentActivity: AgentActivityMap;
   /** The Epics list order last picked, or null when none was. */
   epicSortPref?: EpicSortPref | null;
+  /** Ids of the epics this user watches, from `.aidlc/user.yaml`. */
+  watchedEpics?: string[];
 }
 
 /**
  * The Epics list order, kept by the host.
  *
  * The webview's own `setState` does not outlive the panel — it has no
- * serializer — so an order kept there was lost on every close.
+ * serializer — so an order kept there was lost on every close. It lives in
+ * `.aidlc/user.yaml` (`epic_sort`), so each person on a checkout sorts their
+ * own way and the sidebar's My epics follows it.
  */
 interface EpicSortPref {
   sort: string;
   reversed: boolean;
 }
 
-const EPIC_SORT_KEY = 'aidlc.epicSort';
+/** Where the order was kept before user.yaml; read only, as a fallback. */
+const LEGACY_EPIC_SORT_KEY = 'aidlc.epicSort';
 
 /** Set once on activation; the panel reads and writes its UI choices here. */
 let uiStore: vscode.Memento | undefined;
@@ -643,8 +651,14 @@ let uiStore: vscode.Memento | undefined;
 const openEpicEmitter = new vscode.EventEmitter<string>();
 
 function savedEpicSort(): EpicSortPref | null {
-  return uiStore?.get<EpicSortPref>(EPIC_SORT_KEY) ?? null;
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const saved = root ? readEpicSort(root) : null;
+  if (saved) { return { sort: saved.by, reversed: saved.reversed }; }
+  return uiStore?.get<EpicSortPref>(LEGACY_EPIC_SORT_KEY) ?? null;
 }
+
+/** Fired when the Epics order changes, so the sidebar can follow it. */
+const epicSortChanged = new vscode.EventEmitter<void>();
 
 const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
   id: t.id,
@@ -899,6 +913,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     epicsDir: epicRoot,
     agentActivity: agentActivity.snapshot(),
     epicSortPref: savedEpicSort(),
+    watchedEpics: readEpicFocus(root).watched,
   };
 }
 
@@ -1818,6 +1833,13 @@ export class WorkspaceWebview {
     uiStore = store;
   }
 
+  /** The Epics list order last picked, or null when none was. */
+  static epicSort(): EpicSortPref | null {
+    return savedEpicSort();
+  }
+
+  static readonly onDidChangeEpicSort = epicSortChanged.event;
+
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     private readonly extensionUri: vscode.Uri,
@@ -2254,11 +2276,19 @@ export class WorkspaceWebview {
         return;
       }
 
+      case 'toggleWatchEpic': {
+        const id = String(msg.id ?? '');
+        if (id) { await vscode.commands.executeCommand('aidlcNative.toggleWatchEpic', id); }
+        return;
+      }
+
       // No refresh: the webview already shows the order it is reporting.
       case 'setEpicSort': {
         if (typeof msg.sort !== 'string') { return; }
-        const pref: EpicSortPref = { sort: msg.sort, reversed: msg.reversed === true };
-        await uiStore?.update(EPIC_SORT_KEY, pref);
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) { return; }
+        setEpicSort(root, { by: msg.sort, reversed: msg.reversed === true });
+        epicSortChanged.fire();
         return;
       }
 

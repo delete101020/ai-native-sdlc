@@ -57,6 +57,8 @@ import {
   startPipelineRunInlineCommand,
 } from './runCommands';
 import { WorkspaceWebview } from './workspaceWebview';
+import { stepLabel } from './epicFocus';
+import { DEFAULT_EPIC_SORT, isEpicSort, sortEpics } from '../webview/lib/epicSort';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { agentActivity, type AgentActivityMap } from './agentActivity';
 import { guardMessages } from './webviewMessageGuard';
@@ -120,7 +122,15 @@ interface PipelineRef {
   onFailure: 'stop' | 'continue';
 }
 
-interface EpicRef { id: string; title: string; status: string; statePath: string }
+interface EpicRef {
+  id: string;
+  title: string;
+  status: string;
+  statePath: string;
+  /** "step 3/6 · implement", or '' for an epic with no steps. */
+  step: string;
+  watched: boolean;
+}
 
 interface SidebarState {
   hasFolder: boolean;
@@ -130,15 +140,8 @@ interface SidebarState {
   skillsCount: number;
   pipelinesCount: number;
   epicsCount: number;
-  /** The active epic from `.aidlc/user.yaml`, when it still exists on disk. */
-  activeEpic: EpicRef | null;
-  /** Pinned epics in pin order, the active one left out. */
-  pinnedEpics: EpicRef[];
-  /**
-   * Up to 3 recently opened epics, active and pinned left out. Newest-created
-   * epics stand in until something has been opened.
-   */
-  recentEpics: EpicRef[];
+  /** Every watched epic still on disk, in the Epics view's order. */
+  myEpics: EpicRef[];
   slashCommands: Array<{ name: string; target: string }>;
   /** Workspace templates split by source — built-in (extension) vs project. */
   builtinTemplates: TemplateRef[];
@@ -228,7 +231,7 @@ function buildState(
       workspaceName: '',
       configExists: false,
       agentsCount: 0, skillsCount: 0, pipelinesCount: 0,
-      epicsCount: 0, activeEpic: null, pinnedEpics: [], recentEpics: [],
+      epicsCount: 0, myEpics: [],
       slashCommands: [],
       builtinTemplates: [], projectTemplates: [],
       activeRuns: [],
@@ -260,7 +263,7 @@ function buildState(
   const discovered = discoverAssets(root);
   const claudeSkills = discovered.skills.filter((s) => s.scope !== 'aidlc');
   const claudeAgents = discovered.agents.filter((a) => a.scope !== 'aidlc');
-  // The personal working set (active / pinned / recent) from .aidlc/user.yaml.
+  // The personal working set (active / watched) from .aidlc/user.yaml.
   // Ids of epics deleted since are skipped here rather than cleaned up there.
   const focus = readEpicFocus(root);
   const byId = new Map(allEpics.map((e) => [e.id, e] as const));
@@ -269,22 +272,21 @@ function buildState(
     title: e.title,
     status: e.status,
     statePath: e.statePath,
+    step: stepLabel(e),
+    watched: focus.watched.includes(e.id),
   });
+  // My epics read in the order the Epics view is sorted by, so an epic sits
+  // in the same place relative to the others in both.
+  const pref = WorkspaceWebview.epicSort();
+  const sort = isEpicSort(pref?.sort) ? pref.sort : DEFAULT_EPIC_SORT;
+  const inEpicsOrder = (ids: string[]) => sortEpics(
+    ids.map((id) => byId.get(id)).filter((e): e is (typeof allEpics)[number] => !!e),
+    sort,
+    pref?.reversed === true,
+    sort === 'mine' ? epicIdPrefixFields(root, doc).epicIdPrefix : null,
+  );
   const focusedEpic = focus.active ? byId.get(focus.active) : undefined;
-  const pinnedEpics = focus.pinned
-    .filter((id) => id !== focusedEpic?.id)
-    .map((id) => byId.get(id))
-    .filter((e): e is (typeof allEpics)[number] => !!e)
-    .map(toRef);
-  const taken = new Set([focusedEpic?.id, ...pinnedEpics.map((e) => e.id)]);
-  const opened = focus.recent
-    .filter((id) => !taken.has(id))
-    .map((id) => byId.get(id))
-    .filter((e): e is (typeof allEpics)[number] => !!e);
-  const recentEpics = (opened.length > 0 ? opened : allEpics.filter((e) => !taken.has(e.id)))
-    .slice(0, 3)
-    .map(toRef);
-  const activeEpicRef = focusedEpic ? toRef(focusedEpic) : null;
+  const myEpics = inEpicsOrder(focus.watched).map(toRef);
 
   // GH-67: read extra_projects from the epic being worked on — the active one,
   // else the most recent in-progress one — for sidebar display.
@@ -318,7 +320,7 @@ function buildState(
       agentsCount: countDistinct([], claudeAgents),
       skillsCount: countDistinct([], claudeSkills),
       pipelinesCount: 0,
-      epicsCount: allEpics.length, activeEpic: activeEpicRef, pinnedEpics, recentEpics,
+      epicsCount: allEpics.length, myEpics,
       slashCommands: [],
       builtinTemplates, projectTemplates,
       activeRuns,
@@ -357,9 +359,7 @@ function buildState(
     skillsCount: countDistinct(doc.skills.map((s) => String(s.id)), claudeSkills),
     pipelinesCount: doc.pipelines.length,
     epicsCount: allEpics.length,
-    activeEpic: activeEpicRef,
-    pinnedEpics,
-    recentEpics,
+    myEpics,
     slashCommands: doc.slash_commands.map((c) => ({
       name: typeof c.name === 'string' ? c.name : '',
       target:
@@ -687,9 +687,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'goToEpic':
         await vscode.commands.executeCommand('aidlcNative.goToEpic');
         return;
-      case 'togglePinEpic': {
+      case 'toggleWatchEpic': {
         const id = String(msg.id ?? '');
-        if (id) { await vscode.commands.executeCommand('aidlcNative.togglePinEpic', id); }
+        if (id) { await vscode.commands.executeCommand('aidlcNative.toggleWatchEpic', id); }
         return;
       }
       case 'setActiveEpic': {

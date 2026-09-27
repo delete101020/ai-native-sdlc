@@ -35,6 +35,7 @@ import {
   Workflow,
   Undo2,
   Tag as TagIcon,
+  Star,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -112,6 +113,14 @@ interface Props {
    */
   focusNonce?: number;
   /**
+   * The latest deep link from outside the panel, a new nonce each click. When
+   * it names a different epic this card folds, so the one asked for is the
+   * only one open.
+   */
+  solo?: { id: string; nonce: number } | null;
+  /** On this user's watch list (`watched_epics` in `.aidlc/user.yaml`). */
+  watched?: boolean;
+  /**
    * The agents this window dispatched for the epic's run that are still
    * working — one entry per step, because a DAG opens its parallel steps
    * together and each can have its own agent on it. An empty list covers both
@@ -154,6 +163,8 @@ export function EpicCard({
   agentMeta,
   slashCommandsByAgent,
   focusNonce = 0,
+  solo = null,
+  watched = false,
   activities = [],
   fromEpic = null,
   followUps = [],
@@ -171,6 +182,17 @@ export function EpicCard({
     // card is rarely on screen already.
     cardRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [focusNonce]);
+
+  // Only a link that arrives while this card exists folds it. A card mounted
+  // afterwards (its family just unfolded) already starts shut, and folding it
+  // here would undo the focus effect above on the card that was asked for.
+  const seenSolo = useRef(solo?.nonce ?? 0);
+  useEffect(() => {
+    const nonce = solo?.nonce ?? 0;
+    if (nonce === seenSolo.current) { return; }
+    seenSolo.current = nonce;
+    if (solo && solo.id !== epic.id) { setExpanded(false); }
+  }, [solo, epic.id]);
 
   const [focusedIdx, setFocusedIdx] = useState<number>(epic.currentStep ?? 0);
 
@@ -221,6 +243,21 @@ export function EpicCard({
 
       <div className="flex items-center justify-between gap-3 px-5 py-3.5">
         <div className="flex min-w-0 flex-1 items-center gap-3">
+          {/* Always shown once starred, so a watched card reads as one at a
+              glance; otherwise only on hover, to keep the list quiet. */}
+          <button
+            type="button"
+            onClick={() => postMessage({ type: 'toggleWatchEpic', id: epic.id })}
+            title={watched ? 'Stop watching' : 'Watch — list under My epics in the sidebar'}
+            aria-label={watched ? 'Stop watching' : 'Watch'}
+            aria-pressed={watched}
+            className={cn(
+              '-mr-1.5 shrink-0 rounded p-0.5 transition-opacity hover:bg-accent',
+              watched ? 'text-warning' : 'text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100',
+            )}
+          >
+            <Star className={cn('h-3.5 w-3.5', watched && 'fill-current')} />
+          </button>
           <span className="shrink-0 font-mono text-xs font-bold text-primary">{epic.id}</span>
           <span className="truncate text-sm text-foreground">{epic.title}</span>
           <EpicLinks fromEpic={fromEpic} followUps={followUps} onNavigate={onNavigate} />

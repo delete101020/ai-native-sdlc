@@ -30,7 +30,7 @@ import {
   USER_CONFIG_IGNORE_LINE,
   readEpicFocus,
   setActiveEpic,
-  setEpicPinned,
+  setEpicWatched,
   resolveEpicIdPrefix,
   resolveEpicIdPrefixChain,
   suggestEpicId,
@@ -696,7 +696,7 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
       console.log(suggestEpicId(existing, prefix));
     });
 
-  // ── working set: current / use / pin / unpin ──────────────────────────────
+  // ── working set: current / use / watch / unwatch ──────────────────────────
   //
   // The personal short list kept in .aidlc/user.yaml — the same one the
   // extension's status bar, sidebar and Go to Epic picker show. `current`
@@ -721,7 +721,7 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
   cmd
     .command('current')
     .description('Print the active epic id (from .aidlc/user.yaml); exits 1 when none is set')
-    .option('--json', 'Print active, pinned and recent as JSON')
+    .option('--json', 'Print active, recent and watched as JSON')
     .action((opts: { json?: boolean }, actionCmd: Command) => {
       const root = resolveWorkspaceRoot(actionCmd);
       const focus = readEpicFocus(root);
@@ -751,23 +751,23 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
       noteIgnored(root);
     });
 
-  for (const [name, pinned] of [['pin', true], ['unpin', false]] as const) {
+  for (const [name, watched] of [['watch', true], ['unwatch', false]] as const) {
     cmd
       .command(`${name} [id]`)
-      .description(pinned
-        ? 'Pin an epic to the top of the sidebar and Go to Epic picker; bare `pin` lists pins'
-        : 'Unpin an epic')
+      .description(watched
+        ? 'Watch an epic — listed under My epics in the sidebar; bare `watch` lists them'
+        : 'Stop watching an epic')
       .action((id: string | undefined, _opts: unknown, actionCmd: Command) => {
         const root = resolveWorkspaceRoot(actionCmd);
         if (!id) {
-          const list = readEpicFocus(root).pinned;
-          console.log(list.length > 0 ? chalk.cyan(list.join(' ')) : chalk.dim('(nothing pinned)'));
+          const list = readEpicFocus(root).watched;
+          console.log(list.length > 0 ? chalk.cyan(list.join(' ')) : chalk.dim('(nothing watched)'));
           return;
         }
-        const epicId = pinned ? requireKnownEpic(root, id) : id;
-        setEpicPinned(root, epicId, pinned);
-        console.log(chalk.green('✔') + ` ${pinned ? 'Pinned' : 'Unpinned'} ${chalk.bold(epicId)}`);
-        if (pinned) { noteIgnored(root); }
+        const epicId = watched ? requireKnownEpic(root, id) : id;
+        setEpicWatched(root, epicId, watched);
+        console.log(chalk.green('✔') + ` ${watched ? 'Watching' : 'Stopped watching'} ${chalk.bold(epicId)}`);
+        if (watched) { noteIgnored(root); }
       });
   }
 

@@ -7,12 +7,15 @@ import {
   RECENT_EPICS_LIMIT,
   epicFocusFrom,
   epicIdFromBranch,
+  epicSortFrom,
   pushRecent,
   readEpicFocus,
+  readEpicSort,
   readUserConfig,
   recordEpicOpened,
   setActiveEpic,
-  setEpicPinned,
+  setEpicSort,
+  setEpicWatched,
   userConfigPath,
   writeUserEpicIdPrefix,
 } from '../src';
@@ -23,15 +26,17 @@ afterEach(() => { fs.rmSync(root, { recursive: true, force: true }); });
 
 describe('epicFocusFrom — whatever is in the file, a usable working set comes out', () => {
   it('is empty for no file', () => {
-    expect(epicFocusFrom(null)).toEqual({ active: null, pinned: [], recent: [] });
+    expect(epicFocusFrom(null)).toEqual({ active: null, recent: [], watched: [] });
   });
 
   it('drops junk entries and duplicates', () => {
     expect(epicFocusFrom({
       active_epic: '  ',
-      pinned_epics: ['EPIC-1', 3, '', 'EPIC-1', 'EPIC-2'],
+      watched_epics: ['EPIC-1', 3, '', 'EPIC-1', 'EPIC-2'],
       recent_epics: 'EPIC-9',
-    })).toEqual({ active: null, pinned: ['EPIC-1', 'EPIC-2'], recent: [] });
+      // From an earlier version; no longer read.
+      pinned_epics: ['EPIC-5'],
+    })).toEqual({ active: null, recent: [], watched: ['EPIC-1', 'EPIC-2'] });
   });
 });
 
@@ -52,10 +57,10 @@ describe('pushRecent', () => {
 describe('writing the working set to .aidlc/user.yaml', () => {
   it('setActiveEpic sets, records as recent, and clears', () => {
     setActiveEpic(root, 'EPIC-012');
-    expect(readEpicFocus(root)).toEqual({ active: 'EPIC-012', pinned: [], recent: ['EPIC-012'] });
+    expect(readEpicFocus(root)).toEqual({ active: 'EPIC-012', recent: ['EPIC-012'], watched: [] });
 
     setActiveEpic(root, null);
-    expect(readEpicFocus(root)).toEqual({ active: null, pinned: [], recent: ['EPIC-012'] });
+    expect(readEpicFocus(root)).toEqual({ active: null, recent: ['EPIC-012'], watched: [] });
   });
 
   it('recordEpicOpened keeps most recent first', () => {
@@ -65,26 +70,49 @@ describe('writing the working set to .aidlc/user.yaml', () => {
     expect(readEpicFocus(root).recent).toEqual(['EPIC-1', 'EPIC-2']);
   });
 
-  it('setEpicPinned appends in pin order and unpins', () => {
-    setEpicPinned(root, 'EPIC-2', true);
-    setEpicPinned(root, 'EPIC-1', true);
-    setEpicPinned(root, 'EPIC-2', true);
-    expect(readEpicFocus(root).pinned).toEqual(['EPIC-1', 'EPIC-2']);
-    setEpicPinned(root, 'EPIC-1', false);
-    setEpicPinned(root, 'EPIC-2', false);
-    expect(readEpicFocus(root).pinned).toEqual([]);
-    // Nothing left to say → no file left behind.
+  it('setEpicWatched keeps watch order, ignores repeats, and unwatches', () => {
+    setEpicWatched(root, 'EPIC-2', true);
+    setEpicWatched(root, 'EPIC-1', true);
+    setEpicWatched(root, 'EPIC-2', true);
+    expect(readEpicFocus(root).watched).toEqual(['EPIC-2', 'EPIC-1']);
+    setEpicWatched(root, 'EPIC-3', false);
+    setEpicWatched(root, 'EPIC-2', false);
+    expect(readEpicFocus(root).watched).toEqual(['EPIC-1']);
+    setEpicWatched(root, 'EPIC-1', false);
     expect(fs.existsSync(userConfigPath(root))).toBe(false);
   });
 
   it('never loses epic_id_prefix, and the prefix writer never loses the working set', () => {
     writeUserEpicIdPrefix(root, 'ng');
     setActiveEpic(root, 'EPIC-7');
-    setEpicPinned(root, 'EPIC-7', true);
+    setEpicWatched(root, 'EPIC-7', true);
     expect(readUserConfig(root)?.epic_id_prefix).toBe('NG');
 
     writeUserEpicIdPrefix(root, null);
-    expect(readEpicFocus(root)).toEqual({ active: 'EPIC-7', pinned: ['EPIC-7'], recent: ['EPIC-7'] });
+    expect(readEpicFocus(root)).toEqual({ active: 'EPIC-7', recent: ['EPIC-7'], watched: ['EPIC-7'] });
+  });
+});
+
+describe('epic sort — how this user orders the Epics list', () => {
+  it('is null until one is picked, and round-trips through user.yaml', () => {
+    expect(readEpicSort(root)).toBe(null);
+    setEpicSort(root, { by: 'activity', reversed: true });
+    expect(readEpicSort(root)).toEqual({ by: 'activity', reversed: true });
+    setEpicSort(root, { by: 'name', reversed: false });
+    expect(readUserConfig(root)?.epic_sort).toEqual({ by: 'name' });
+    expect(readEpicSort(root)).toEqual({ by: 'name', reversed: false });
+  });
+
+  it('leaves the working set alone', () => {
+    setEpicWatched(root, 'EPIC-1', true);
+    setEpicSort(root, { by: 'attention', reversed: false });
+    expect(readEpicFocus(root).watched).toEqual(['EPIC-1']);
+  });
+
+  it('ignores a malformed value', () => {
+    expect(epicSortFrom({ epic_sort: 'activity' })).toBe(null);
+    expect(epicSortFrom({ epic_sort: { reversed: true } })).toBe(null);
+    expect(epicSortFrom({ epic_sort: { by: 'future-sort' } })).toEqual({ by: 'future-sort', reversed: false });
   });
 });
 

@@ -1,5 +1,3 @@
-import type { EpicSummary } from './types';
-
 /**
  * How the Epics list is ordered.
  *
@@ -18,6 +16,26 @@ export const EPIC_SORTS: { id: EpicSort; label: string; hint: string }[] = [
   { id: 'name', label: 'Name', hint: 'Title A → Z' },
 ];
 
+/**
+ * The fields a sort reads. The host orders the sidebar's My epics with the
+ * same function, from its own copy of the epic type.
+ */
+export interface SortableEpic {
+  id: string;
+  title: string;
+  status: string;
+  createdAt?: string | null;
+  stepDetails?: ReadonlyArray<{
+    runStatus?: string | null;
+    /** A mark object on the host, a flag in some callers — only truthiness counts. */
+    dirty?: unknown;
+    dirtyUpstream?: readonly unknown[];
+    startedAt?: string | null;
+    finishedAt?: string | null;
+    history?: ReadonlyArray<{ at?: string | null }>;
+  }>;
+}
+
 export const DEFAULT_EPIC_SORT: EpicSort = 'created';
 
 export function isEpicSort(v: unknown): v is EpicSort {
@@ -35,7 +53,7 @@ function time(iso: string | null | undefined): number {
  * being reviewed, rerun or rejected. An epic nothing has happened to yet falls
  * back to when it was created, so it still has a place on the timeline.
  */
-export function lastActivity(epic: EpicSummary): number {
+export function lastActivity(epic: SortableEpic): number {
   let latest = time(epic.createdAt);
   for (const s of epic.stepDetails ?? []) {
     latest = Math.max(latest, time(s.startedAt), time(s.finishedAt));
@@ -52,7 +70,7 @@ export function lastActivity(epic: EpicSummary): number {
  * next, then work built on an upstream step that has since been rerun — done,
  * but possibly wrong. Running work sits after those because it needs no one.
  */
-export function attentionRank(epic: EpicSummary): number {
+export function attentionRank(epic: SortableEpic): number {
   const steps = epic.stepDetails ?? [];
   if (steps.some((s) => s.runStatus === 'awaiting_review' || s.runStatus === 'rejected')) { return 0; }
   if (epic.status === 'failed') { return 1; }
@@ -90,17 +108,17 @@ const natural = (a: string, b: string) =>
  * Every key breaks ties the way the host's list already does — newest created,
  * then id. "Created" itself reads the other way, oldest first.
  */
-export function sortEpics(
-  epics: readonly EpicSummary[],
+export function sortEpics<T extends SortableEpic>(
+  epics: readonly T[],
   sort: EpicSort,
   reversed: boolean,
   prefix: string | null | undefined,
-): EpicSummary[] {
+): T[] {
   const dir = reversed ? -1 : 1;
-  const fallback = (a: EpicSummary, b: EpicSummary) =>
+  const fallback = (a: T, b: T) =>
     time(b.createdAt) - time(a.createdAt) || natural(b.id, a.id);
 
-  const cmp = (a: EpicSummary, b: EpicSummary): number => {
+  const cmp = (a: T, b: T): number => {
     switch (sort) {
       case 'attention':
         return dir * (attentionRank(a) - attentionRank(b) || lastActivity(b) - lastActivity(a)) || fallback(a, b);

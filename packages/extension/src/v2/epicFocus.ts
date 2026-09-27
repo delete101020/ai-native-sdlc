@@ -3,12 +3,14 @@
  *
  *  - **Go to Epic** (`aidlcNative.goToEpic`, Ctrl+Alt+E): a quick pick over
  *    every epic, searchable by id, title, description and tags, with the active,
- *    pinned and recent ones on top. Enter opens it and makes it active.
+ *    recent and watched ones on top. Enter opens it and makes it active.
  *  - **Active epic** in the status bar: the epic being worked on, one click from
  *    the picker. Also written to `.aidlc/user.yaml` so a skill in a Claude
  *    terminal (`/epic-context` with no id) and `aidlc epic current` agree.
  *  - **Follows the git branch**: checking out `feature/EPIC-012-…` makes
  *    EPIC-012 active (setting `aidlcNative.epics.followGitBranch`).
+ *  - **Watched epics**: the epics you care about, listed under My epics in the
+ *    sidebar.
  *
  * The storage is core's `loader/epicFocus`; this module is only the VS Code
  * surface over it.
@@ -25,7 +27,7 @@ import {
   readEpicFocus,
   recordEpicOpened,
   setActiveEpic,
-  setEpicPinned,
+  setEpicWatched,
   type EpicFocus,
 } from '@aidlc/core';
 import { readYaml } from './yamlIO';
@@ -111,7 +113,7 @@ export class EpicFocusController implements vscode.Disposable {
       vscode.commands.registerCommand('aidlcNative.openActiveEpic', () => this.openActive()),
       vscode.commands.registerCommand('aidlcNative.setActiveEpic', (id?: string) => this.setActive(id)),
       vscode.commands.registerCommand('aidlcNative.clearActiveEpic', () => this.setActive(null)),
-      vscode.commands.registerCommand('aidlcNative.togglePinEpic', (id?: string) => this.togglePin(id)),
+      vscode.commands.registerCommand('aidlcNative.toggleWatchEpic', (id?: string) => this.toggleWatch(id)),
       // Every way into an epic (sidebar, active runs, this picker) goes through
       // WorkspaceWebview.openEpic, so this one hook keeps "Recent" honest.
       WorkspaceWebview.onDidOpenEpic((id) => {
@@ -226,16 +228,16 @@ export class EpicFocusController implements vscode.Disposable {
     this.write(root, () => setActiveEpic(root, id));
   }
 
-  private async togglePin(id?: string): Promise<void> {
+  private async toggleWatch(id?: string): Promise<void> {
     const root = workspaceRoot();
     if (!root) { return; }
     const focus = readEpicFocus(root);
     const target = id ?? focus.active;
     if (!target) {
-      void vscode.window.showInformationMessage('AIDLC: no active epic to pin — pick one first.');
+      void vscode.window.showInformationMessage('AIDLC: no active epic to watch — pick one first.');
       return;
     }
-    this.write(root, () => setEpicPinned(root, target, !focus.pinned.includes(target)));
+    this.write(root, () => setEpicWatched(root, target, !focus.watched.includes(target)));
   }
 
   private openActive(): void {
@@ -275,9 +277,9 @@ export class EpicFocusController implements vscode.Disposable {
     const seen = new Set<string>();
     const items: EpicPickItem[] = [];
 
-    const pinBtn = (pinned: boolean): vscode.QuickInputButton => ({
-      iconPath: new vscode.ThemeIcon(pinned ? 'pinned' : 'pin'),
-      tooltip: pinned ? 'Unpin' : 'Pin to the top',
+    const watchBtn = (watched: boolean): vscode.QuickInputButton => ({
+      iconPath: new vscode.ThemeIcon(watched ? 'star-full' : 'star-empty'),
+      tooltip: watched ? 'Stop watching' : 'Watch — list under My epics',
     });
     const peekBtn: vscode.QuickInputButton = {
       iconPath: new vscode.ThemeIcon('eye'),
@@ -290,7 +292,7 @@ export class EpicFocusController implements vscode.Disposable {
       items.push({ label, kind: vscode.QuickPickItemKind.Separator });
       for (const e of rows) {
         seen.add(e.id);
-        const pinned = focus.pinned.includes(e.id);
+        const watched = focus.watched.includes(e.id);
         const step = stepLabel(e);
         const meta = [
           STATUS_TEXT[e.status] ?? e.status,
@@ -300,18 +302,18 @@ export class EpicFocusController implements vscode.Disposable {
         const brief = e.description.replace(/\s+/g, ' ').trim();
         items.push({
           epicId: e.id,
-          label: `${STATUS_ICON[e.status] ?? ''} ${e.id}${e.id === focus.active ? '  $(target)' : ''}${pinned ? '  $(pinned)' : ''}`,
+          label: `${STATUS_ICON[e.status] ?? ''} ${e.id}${e.id === focus.active ? '  $(target)' : ''}${watched ? '  $(star-full)' : ''}`,
           description: e.title,
           // Searched too (matchOnDetail), so a word from the brief finds it.
           detail: brief ? `${meta} — ${brief.length > 120 ? `${brief.slice(0, 117)}…` : brief}` : meta,
-          buttons: [peekBtn, pinBtn(pinned)],
+          buttons: [peekBtn, watchBtn(watched)],
         });
       }
     };
 
     section('Active', focus.active ? [focus.active] : []);
-    section('Pinned', focus.pinned);
     section('Recent', focus.recent);
+    section('Watching', focus.watched);
     section('All epics', epics.map((e) => e.id));
     return items;
   }
@@ -351,9 +353,11 @@ export class EpicFocusController implements vscode.Disposable {
     qp.onDidTriggerItemButton(({ item, button }) => {
       const id = item.epicId;
       if (!id) { return; }
-      if ((button.iconPath as vscode.ThemeIcon).id === 'eye') { open(id, false); return; }
-      const pinned = readEpicFocus(root).pinned.includes(id);
-      this.write(root, () => setEpicPinned(root, id, !pinned));
+      const icon = (button.iconPath as vscode.ThemeIcon).id;
+      if (icon === 'eye') { open(id, false); return; }
+      if (icon !== 'star-full' && icon !== 'star-empty') { return; }
+      const focus = readEpicFocus(root);
+      this.write(root, () => setEpicWatched(root, id, !focus.watched.includes(id)));
       // Re-list in place; the typed filter survives because qp.value is untouched.
       epics = listEpics(root, readYaml(root));
       qp.items = this.buildItems(epics, readEpicFocus(root));

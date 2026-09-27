@@ -60,8 +60,8 @@ const HEADER = [
   '# Settings for this checkout only — NOT committed (see .gitignore).',
   '# epic_id_prefix is your own two letters, so the epics you open are filed',
   '# under you and never collide with a colleague\'s numbering.',
-  '# active_epic / pinned_epics / recent_epics are your own working set; the',
-  '# extension and `aidlc epic use|pin` keep them, and hand edits are fine.',
+  '# active_epic / recent_epics / watched_epics / epic_sort are your own; the',
+  '# extension and `aidlc epic use|watch` keep them, and hand edits are fine.',
   '',
 ].join('\n');
 
@@ -140,7 +140,7 @@ export function ensureUserConfigIgnored(root: string): boolean {
     const sep = existing === '' || existing.endsWith('\n') ? '' : '\n';
     fs.writeFileSync(
       file,
-      `${existing}${sep}\n# Per-checkout AIDLC settings (epic_id_prefix, active/pinned epics) — never shared\n${USER_CONFIG_IGNORE_LINE}\n`,
+      `${existing}${sep}\n# Per-checkout AIDLC settings (epic_id_prefix, active/watched epics) — never shared\n${USER_CONFIG_IGNORE_LINE}\n`,
       'utf8',
     );
     return true;
