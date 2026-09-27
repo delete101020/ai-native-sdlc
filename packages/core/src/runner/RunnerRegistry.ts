@@ -3,6 +3,7 @@
  *
  *   - `runner: default` → bundled DefaultRunner (claude CLI shell-out).
  *   - `runner: codex`   → bundled CodexRunner (`codex exec` shell-out).
+ *   - `runner: copilot` → bundled CopilotRunner (`copilot -p` shell-out).
  *   - `runner: custom`  → user's runner_path module, loaded on demand.
  *
  * Provider runners are builtins rather than `runner_path` files (P0/D2):
@@ -20,6 +21,7 @@ import type { AidlcRunner } from './types';
 import type { AgentConfig } from '../schema/WorkspaceSchema';
 import { DefaultRunner } from './DefaultRunner';
 import { CodexRunner } from './CodexRunner';
+import { CopilotRunner } from './CopilotRunner';
 import { CustomRunnerLoader } from './CustomRunnerLoader';
 
 export class RunnerRegistry {
@@ -31,6 +33,7 @@ export class RunnerRegistry {
     this.loader = new CustomRunnerLoader(workspaceRoot);
     this.register('default', new DefaultRunner());
     this.register('codex', new CodexRunner());
+    this.register('copilot', new CopilotRunner());
   }
 
   /** Add or replace a builtin runner. */

@@ -33,6 +33,15 @@ set once.
 - The Epics sort is saved per person as `epic_sort` in `.aidlc/user.yaml`,
   instead of in VS Code's global state, which applied one order to every
   workspace. An order picked before this is still used until you pick a new one.
+- **GitHub Copilot CLI as a runner** (`runner: copilot`). An agent set to it
+  runs through `copilot -p` with the same persona, project instructions and
+  skills as a Claude step, and the workspace's code-graph server is attached to
+  each run, so nothing is written to Copilot's own config. Copilot's built-in
+  GitHub MCP server is turned off for these runs: asked for a graph tool it
+  could not reach, it searched public GitHub and answered from an unrelated
+  repository. Map Claude tiers to Copilot models under
+  `providers.copilot.model_aliases`. Copilot bills premium requests, not
+  tokens, so its steps count as unpriced in the budget.
 
 ### Removed
 
@@ -44,6 +53,10 @@ set once.
 
 - Plan usage in the status bar now follows the Claude account you switch to,
   instead of showing the default account's usage.
+- Running a step to completion no longer accepts the artifact a previous
+  revision left behind. If a step reports success but none of its `produces`
+  files was created or changed, it fails with the file names instead of going
+  to review with the old artifact.
 
 ## 4.0.27
 

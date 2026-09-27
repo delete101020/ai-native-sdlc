@@ -27,6 +27,7 @@ import { commitApprovedArtifacts, resolveArtifactCommitConfig } from './EpicArti
 import { epicsRoot, mirrorRunStateToEpic } from './EpicScaffold';
 import { isActiveStatus, isStepOptional } from './runProgress';
 import { checkBudget, type CostAccounting } from './budget';
+import { snapshotProduces, unchangedProduces } from './producesSnapshot';
 import { estimateCostUsd, ratesFromConfig, providerAliases } from './pricing';
 import { resolveProviderModel } from '../presets/models';
 import type { RunState } from './RunState';
@@ -465,6 +466,10 @@ async function execStep(
   const aliases = providerAliases(ws.config.providers, agent.runner);
   const resolvedModel = resolveProviderModel(agent.runner, agent.model, aliases);
 
+  // Fingerprinted before the runner starts: on a rerun the previous
+  // revision's artifact would otherwise pass the `produces` check unchanged.
+  const producedBefore = snapshotProduces({ state, pipeline, workspaceRoot: root, stepIdx });
+
   const result = await runner.run({
     skill: skillText,
     env,
@@ -479,6 +484,16 @@ async function execStep(
 
   if (!result.success) {
     hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Step "${agentId}" failed (non-zero exit).` });
+    return false;
+  }
+
+  const stale = unchangedProduces(producedBefore, root);
+  if (stale.length > 0) {
+    hooks.onStepFailed?.({
+      stepIdx, agent: agentId,
+      message: `Step "${agentId}" reported success but left its artifacts unchanged: ${stale.join(', ')}. `
+        + 'The agent may have failed to write them. Check its output, then rerun the step.',
+    });
     return false;
   }
 

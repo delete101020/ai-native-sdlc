@@ -20,6 +20,7 @@ import {
   findProjectInstructions,
   DefaultRunner,
   CodexRunner,
+  CopilotRunner,
   NO_HARNESS_CAPABILITIES,
   claudeJsonPath,
   readProjectMcpServer,
@@ -156,6 +157,7 @@ function parityChecks(
   const capsFor = (runner: string): HarnessCapabilities => {
     if (runner === 'default') { return new DefaultRunner().capabilities; }
     if (runner === 'codex') { return new CodexRunner().capabilities; }
+    if (runner === 'copilot') { return new CopilotRunner().capabilities; }
     return NO_HARNESS_CAPABILITIES;
   };
 
@@ -218,6 +220,14 @@ function parityChecks(
         ? ok(`${engine} via codex`, 'declared in ~/.codex/config.toml (per-user, not per-project)')
         : warn(`${engine} via codex`,
             'not in ~/.codex/config.toml — run "aidlc mcp register --runner codex"'));
+    } else if (runner === 'copilot') {
+      // Copilot is handed the server per run (--additional-mcp-config), copied
+      // from Claude's project entry — so that entry is what decides it.
+      const server = readProjectMcpServer(root, engine, claudeJsonPath());
+      checks.push(server
+        ? ok(`${engine} via copilot`, 'attached to each run from this project\'s Claude registration')
+        : warn(`${engine} via copilot`,
+            'no project registration to attach — run "AIDLC: Rescan AST Graph" in VS Code'));
     } else {
       checks.push(warn(`${engine} via ${runner}`,
         'AIDLC has no MCP registration for this runner — its phases run without the graph'));

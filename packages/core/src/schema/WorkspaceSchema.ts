@@ -65,7 +65,7 @@ const AgentSchema = z.preprocess(
   // invalidate every workspace.yaml already on disk and buy nothing
   // (MULTI_PROVIDER_ALIGNMENT.md P0/D1). A closed enum is what lets
   // `aidlc validate` reject a typo instead of failing at spawn time.
-  runner: z.enum(['default', 'custom', 'codex', 'gemini']).default('default'),
+  runner: z.enum(['default', 'custom', 'codex', 'gemini', 'copilot']).default('default'),
   /** Required when runner === 'custom'. Relative path to .js or .ts file. */
   runner_path: z.string().optional(),
   /** Per-agent env overrides (layered over workspace.environment). */

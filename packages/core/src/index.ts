@@ -382,6 +382,8 @@ export { DefaultRunner, claudeModelArg } from './runner/DefaultRunner';
 export type { DefaultRunnerOptions } from './runner/DefaultRunner';
 export { CodexRunner } from './runner/CodexRunner';
 export type { CodexRunnerOptions } from './runner/CodexRunner';
+export { CopilotRunner, copilotGraphServer, copilotMcpConfig } from './runner/CopilotRunner';
+export type { CopilotRunnerOptions } from './runner/CopilotRunner';
 export {
   claudeMcpRegistrar,
   codexMcpRegistrar,
@@ -450,6 +452,8 @@ export {
 } from './runs/runProgress';
 export type { RunProgress, ProgressStep, ProgressWeighting } from './runs/runProgress';
 export { checkBudget } from './runs/budget';
+export { snapshotProduces, unchangedProduces } from './runs/producesSnapshot';
+export type { ProducesSnapshot } from './runs/producesSnapshot';
 export type { BudgetCheckArgs, BudgetVerdict, CostAccounting, CostConfidence } from './runs/budget';
 export {
   BUILTIN_RATES,
