@@ -139,7 +139,7 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
             onChange={(e) => setDescription(e.target.value)}
             placeholder="What this step does — shown on the epic panel"
             rows={2}
-            className="w-full resize-none rounded-md border border-border bg-input/50 px-2.5 py-2 text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+            className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
           />
           <p className="mt-1 text-[10px] italic text-muted-foreground">
             Empty falls back to the description of the step's skill when it has exactly one, then to the agent's.
@@ -164,7 +164,7 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
             placeholder="e.g. docs/epics/{epic}/PRD.md"
             rows={2}
             spellCheck={false}
-            className="w-full resize-none rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+            className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
           />
           <p className="mt-1 text-[10px] italic text-muted-foreground">
             Upstream artifacts the step is gated on. Use <code className="font-mono">{`{epic}`}</code>{' '}
@@ -182,7 +182,7 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
             placeholder="e.g. docs/epics/{epic}/TECH-DESIGN.md"
             rows={2}
             spellCheck={false}
-            className="w-full resize-none rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+            className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
           />
           <p className="mt-1 text-[10px] italic text-muted-foreground">
             Output artifacts the step writes. Existence is validated when the user marks the step done.
@@ -199,7 +199,7 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
             placeholder="e.g. ## Acceptance Criteria"
             rows={2}
             spellCheck={false}
-            className="w-full resize-none rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+            className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
           />
           <p className="mt-1 text-[10px] italic text-muted-foreground">
             Optional. Each marker must appear in at least one produced file, else the step is blocked at mark-done. Leave empty for an existence-only check.

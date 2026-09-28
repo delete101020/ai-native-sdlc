@@ -51,7 +51,7 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
     // No backdrop dismiss — an outside click lost the typed reason; X / Cancel / Esc close it.
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div
-        className="w-full max-w-md rounded-lg border border-border bg-popover p-5 shadow-2xl"
+        className="w-full max-w-2xl rounded-lg border border-border bg-popover p-5 shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="reject-modal-title"
@@ -84,8 +84,8 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           placeholder="e.g. PRD missing performance acceptance criteria"
-          rows={3}
-          className="w-full resize-none rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+          rows={8}
+          className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
         />
 
         {upstreamOptions.length > 0 && (

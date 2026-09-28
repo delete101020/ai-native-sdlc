@@ -44,6 +44,7 @@ export function RerunStepModal({
 
   return (
     <Modal
+      maxWidth="max-w-2xl"
       title={`Rerun step ${stepIdx + 1}`}
       subtitle={
         <>
@@ -97,8 +98,8 @@ export function RerunStepModal({
         value={feedback}
         onChange={(e) => setFeedback(e.target.value)}
         placeholder="e.g. updated the prompt to ask for the seal-cut edge cases"
-        rows={3}
-        className="w-full resize-none rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+        rows={8}
+        className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
       />
 
       <ModalFooter>

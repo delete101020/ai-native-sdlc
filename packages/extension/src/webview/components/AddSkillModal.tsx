@@ -269,7 +269,7 @@ export function AddSkillModal({ takenIds, templates, onSubmit, onClose }: Props)
               placeholder={`# My Skill\n\nYou are a ...`}
               rows={6}
               spellCheck={false}
-              className="w-full resize-none rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+              className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
             />
           )}
 

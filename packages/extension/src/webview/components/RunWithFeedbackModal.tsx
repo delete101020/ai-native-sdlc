@@ -74,6 +74,7 @@ export function RunWithFeedbackModal({
 
   return (
     <Modal
+      maxWidth="max-w-2xl"
       title="Run with feedback"
       subtitle={
         <>
@@ -122,7 +123,7 @@ export function RunWithFeedbackModal({
         value={feedback}
         onChange={(e) => setFeedback(e.target.value)}
         placeholder="e.g. include rate-limit policy from PRD §4.2; format as a checklist"
-        rows={5}
+        rows={8}
         className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
       />
       {loadInfo && (

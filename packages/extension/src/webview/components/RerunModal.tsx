@@ -33,6 +33,7 @@ export function RerunModal({
 
   return (
     <Modal
+      maxWidth="max-w-2xl"
       title="Rerun step"
       subtitle={
         <>
@@ -48,7 +49,7 @@ export function RerunModal({
           <div className="text-[9.5px] font-bold uppercase tracking-wider text-destructive">
             Last reject reason
           </div>
-          <div className="mt-0.5 font-mono text-[10.5px] text-destructive/90">
+          <div className="mt-0.5 max-h-32 overflow-y-auto whitespace-pre-wrap font-mono text-[10.5px] text-destructive/90">
             ↳ {rejectReason}
           </div>
         </div>
@@ -62,8 +63,8 @@ export function RerunModal({
         value={feedback}
         onChange={(e) => setFeedback(e.target.value)}
         placeholder={rejectReason ?? 'e.g. address reviewer concern about test coverage'}
-        rows={3}
-        className="w-full resize-none rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+        rows={8}
+        className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
       />
 
       <ModalFooter>

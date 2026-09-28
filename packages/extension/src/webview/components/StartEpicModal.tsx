@@ -1130,7 +1130,7 @@ export function StartEpicModal({
             value={description}
             onChange={(e) => { setDescription(e.target.value); if (suggestion) { setSuggestion(null); } }}
             placeholder="Paste a requirement / PRD, or load it from a file. The text is snapshotted into the epic at submit time."
-            rows={5}
+            rows={10}
             disabled={!hasWorkflows}
             className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
           />
