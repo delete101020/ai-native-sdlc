@@ -360,7 +360,8 @@ describe('keychainServiceName', () => {
     expect(keychainServiceName(path.join(os.homedir(), '.claude'))).toBe('Claude Code-credentials');
   });
 
-  it('gives each custom config dir its own entry, so accounts never share a reading', () => {
+  // macOS-only, like the keychain: on win32 path.resolve turns /Users/… into C:\Users\…, so the hash moves.
+  it.skipIf(process.platform === 'win32')('gives each custom config dir its own entry, so accounts never share a reading', () => {
     expect(keychainServiceName('/Users/kingfisher/.claude-work')).toBe('Claude Code-credentials-ae6bcefe');
     expect(keychainServiceName('/Users/kingfisher/.claude-personal')).toBe('Claude Code-credentials-fd386472');
   });
