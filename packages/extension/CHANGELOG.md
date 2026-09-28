@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.0.29
+
+Popups where you type feedback give you room to write it.
+
+### Fixed
+
+- Reject, Rerun, Rerun step, Request update and Run with feedback open wider
+  (as wide as Start Epic), with a taller text box you can drag to resize. The
+  Start Epic description box opens twice as tall. Add Skill and Step config
+  text boxes can be resized too.
+- The last reject reason shown in the Rerun popup is capped in height and
+  scrolls, instead of pushing the text box off screen.
+
 ## 4.0.28
 
 The sidebar keeps one list of the epics you care about and folds away what you
