@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.0.30
+
+The Usage Report counts every Claude account on this machine, not just the
+active one.
+
+### Added
+
+- The Usage Report and the Monitor's Tokens tab read the logs of every saved
+  Claude account (`aidlcNative.claude.configDirs`), the default `~/.claude` and
+  the active one. An **Account** picker in the header scopes the report to one
+  account; left on **All accounts** it combines them all.
+- Top Projects shows an **Account** column when accounts are combined; the same
+  project used from two accounts is listed once per account.
+
 ## 4.0.29
 
 Popups where you type feedback give you room to write it.
