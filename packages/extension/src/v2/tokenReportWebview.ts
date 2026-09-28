@@ -8,28 +8,26 @@
  */
 import * as vscode from 'vscode';
 import { themeManager } from './themeManager';
-import { loadAllRecords } from './tokenRecords';
-import { buildReport, type TokenReport } from './tokenReport';
+import { accountDirs } from './claudeAccounts';
+import { loadAllRecords, type CallRecord } from './tokenRecords';
+import { buildAccountReport, type TokenPanelState } from './tokenReport';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { guardMessages } from './webviewMessageGuard';
-
-interface ReportPanelState {
-  report: TokenReport | null;
-  loading: boolean;
-  error: string | null;
-  windowDays: number;
-}
 
 export class TokenReportWebview {
   public static readonly viewType = 'aidlcTokenReport';
   private static current: TokenReportWebview | undefined;
   private readonly disposables: vscode.Disposable[] = [];
-  private state: ReportPanelState = {
+  private state: TokenPanelState = {
     report: null,
     loading: false,
     error: null,
     windowDays: 30,
+    accounts: [],
+    account: null,
   };
+  /** Last scan, kept so switching account re-aggregates without re-reading logs. */
+  private records: CallRecord[] = [];
   private loadPromise: Promise<void> | null = null;
 
   static show(extensionUri: vscode.Uri): void {
@@ -73,9 +71,13 @@ export class TokenReportWebview {
     this.refresh();
     this.loadPromise = (async () => {
       try {
-        const records = await loadAllRecords(windowDays);
-        const report = buildReport(records, windowDays);
-        this.state = { report, loading: false, error: null, windowDays };
+        this.records = await loadAllRecords(windowDays, accountDirs());
+        this.state = {
+          ...buildAccountReport(this.records, windowDays, this.state.account),
+          loading: false,
+          error: null,
+          windowDays,
+        };
       } catch (e) {
         this.state = {
           ...this.state,
@@ -102,6 +104,12 @@ export class TokenReportWebview {
       case 'refresh':
         void this.loadReport();
         return;
+      case 'setAccount': {
+        const account = typeof msg.account === 'string' ? msg.account : null;
+        this.state = { ...this.state, ...buildAccountReport(this.records, this.state.windowDays, account) };
+        this.refresh();
+        return;
+      }
       case 'setTheme': {
         const mode = String(msg.mode ?? '');
         if (mode === 'auto' || mode === 'light' || mode === 'dark') {

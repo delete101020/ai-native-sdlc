@@ -14,8 +14,9 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 import { themeManager } from './themeManager';
-import { loadAllRecords } from './tokenRecords';
-import { buildReport, type TokenReport } from './tokenReport';
+import { accountDirs } from './claudeAccounts';
+import { loadAllRecords, type CallRecord } from './tokenRecords';
+import { buildAccountReport, type TokenPanelState } from './tokenReport';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { listSessions, parseSession, type SessionInsight, type SessionListItem } from './sessionInsights';
 import { OtelReceiver, setTelemetryEnv, type OtelSnapshot } from './otelReceiver';
@@ -30,13 +31,6 @@ import { guardMessages } from './webviewMessageGuard';
 
 type MonitorTab = 'tokens' | 'agents' | 'insights';
 
-interface TokenPanelState {
-  report: TokenReport | null;
-  loading: boolean;
-  error: string | null;
-  windowDays: number;
-}
-
 function aidlcDataDir(): string {
   return path.join(os.homedir(), '.aidlc', 'observe-data');
 }
@@ -46,7 +40,11 @@ export class MonitorWebview {
   private static current: MonitorWebview | undefined;
 
   private readonly disposables: vscode.Disposable[] = [];
-  private tokenState: TokenPanelState = { report: null, loading: false, error: null, windowDays: 30 };
+  private tokenState: TokenPanelState = {
+    report: null, loading: false, error: null, windowDays: 30, accounts: [], account: null,
+  };
+  /** Last scan, kept so switching account re-aggregates without re-reading logs. */
+  private records: CallRecord[] = [];
   private loadPromise: Promise<void> | null = null;
   private pollTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -195,8 +193,13 @@ export class MonitorWebview {
     this.pushTokenState();
     this.loadPromise = (async () => {
       try {
-        const records = await loadAllRecords(windowDays);
-        this.tokenState = { report: buildReport(records, windowDays), loading: false, error: null, windowDays };
+        this.records = await loadAllRecords(windowDays, accountDirs());
+        this.tokenState = {
+          ...buildAccountReport(this.records, windowDays, this.tokenState.account),
+          loading: false,
+          error: null,
+          windowDays,
+        };
       } catch (e) {
         this.tokenState = { ...this.tokenState, loading: false, error: e instanceof Error ? e.message : String(e) };
       } finally {
@@ -267,6 +270,15 @@ export class MonitorWebview {
       case 'refresh':
         void this.loadReport();
         return;
+      case 'setAccount': {
+        const account = typeof msg.account === 'string' ? msg.account : null;
+        this.tokenState = {
+          ...this.tokenState,
+          ...buildAccountReport(this.records, this.tokenState.windowDays, account),
+        };
+        this.pushTokenState();
+        return;
+      }
       case 'refreshAgents':
         void this.pollAgents();
         return;

@@ -22,6 +22,8 @@ import { claudeConfigDir } from '@aidlc/core';
 import { calcCost, type Usage } from './tokenPricing';
 
 export interface CallRecord {
+  /** Label of the Claude account (config dir) the log came from. */
+  account: string;
   /** Encoded project dir name under `~/.claude/projects/` (paths slashed → `-`). */
   project: string;
   sessionId: string;
@@ -41,8 +43,14 @@ export interface CallRecord {
   readPaths: string[];
 }
 
-export function projectsRoot(): string {
-  return path.join(claudeConfigDir(), 'projects');
+export function projectsRoot(configDir: string = claudeConfigDir()): string {
+  return path.join(configDir, 'projects');
+}
+
+/** A Claude config dir to read logs from, and the name to report it under. */
+export interface AccountDir {
+  label: string;
+  dir: string;
 }
 
 /**
@@ -70,26 +78,44 @@ interface PartialRecord {
 }
 
 /**
- * Load all assistant-call records from `~/.claude/projects/`. `windowDays`
- * filters by file mtime (cheap pre-filter) — files older than the cutoff
- * are skipped entirely. Pass 0 to scan everything.
+ * Load all assistant-call records from `<configDir>/projects/` of every given
+ * account (default: just the active one). `windowDays` filters by file mtime
+ * (cheap pre-filter) — files older than the cutoff are skipped entirely. Pass
+ * 0 to scan everything.
  */
-export async function loadAllRecords(windowDays = 30): Promise<CallRecord[]> {
-  const root = projectsRoot();
-  if (!fs.existsSync(root)) { return []; }
-
+export async function loadAllRecords(
+  windowDays = 30,
+  accounts: AccountDir[] = [{ label: '', dir: claudeConfigDir() }],
+): Promise<CallRecord[]> {
   const cutoff = windowDays > 0
     ? Date.now() - windowDays * 24 * 60 * 60 * 1000
     : 0;
 
+  const partial = new Map<string, PartialRecord>();
+  for (const account of accounts) {
+    await loadAccount(account, cutoff, partial);
+  }
+
+  const out: CallRecord[] = [];
+  for (const info of partial.values()) {
+    if (info.base === null) { continue; }
+    out.push({ ...info.base, tools: info.tools, readPaths: info.readPaths });
+  }
+  return out;
+}
+
+async function loadAccount(
+  account: AccountDir,
+  cutoff: number,
+  partial: Map<string, PartialRecord>,
+): Promise<void> {
+  const root = projectsRoot(account.dir);
   let projectDirs: fs.Dirent[];
   try {
     projectDirs = await fs.promises.readdir(root, { withFileTypes: true });
   } catch {
-    return [];
+    return;
   }
-
-  const partial = new Map<string, PartialRecord>();
 
   for (const dirent of projectDirs) {
     if (!dirent.isDirectory()) { continue; }
@@ -111,20 +137,14 @@ export async function loadAllRecords(windowDays = 30): Promise<CallRecord[]> {
         continue;
       }
       if (cutoff > 0 && stat.mtimeMs < cutoff) { continue; }
-      await processFile(file, dirent.name, partial, cutoff);
+      await processFile(file, account.label, dirent.name, partial, cutoff);
     }
   }
-
-  const out: CallRecord[] = [];
-  for (const info of partial.values()) {
-    if (info.base === null) { continue; }
-    out.push({ ...info.base, tools: info.tools, readPaths: info.readPaths });
-  }
-  return out;
 }
 
 async function processFile(
   file: string,
+  account: string,
   project: string,
   partial: Map<string, PartialRecord>,
   cutoff: number,
@@ -155,7 +175,7 @@ async function processFile(
         const ts = Date.parse(entry.timestamp);
         if (Number.isFinite(ts) && ts < cutoff) { continue; }
       }
-      const key = `${sessionId}\0${msgId}`;
+      const key = `${account}\0${sessionId}\0${msgId}`;
       let info = partial.get(key);
       if (!info) {
         info = { tools: [], readPaths: [], base: null };
@@ -180,6 +200,7 @@ async function processFile(
         };
         const model: string = msg.model ?? 'unknown';
         info.base = {
+          account,
           project,
           sessionId,
           timestamp: entry.timestamp ?? '',

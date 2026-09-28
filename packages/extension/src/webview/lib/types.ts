@@ -185,6 +185,7 @@ export interface DailyRow extends UsageTotals {
 }
 
 export interface ProjectRow extends UsageTotals {
+  account: string;
   project: string;
   displayPath: string;
   lastActive: string;
@@ -216,6 +217,10 @@ export interface TokenReportPanelState {
   loading: boolean;
   error: string | null;
   windowDays: number;
+  /** Accounts with usage in the window — the Account filter's options. */
+  accounts: string[];
+  /** Selected account; `null` = every account combined. */
+  account: string | null;
 }
 
 /** Live snapshot of the agents-observe server, pushed to the Monitor panel. */

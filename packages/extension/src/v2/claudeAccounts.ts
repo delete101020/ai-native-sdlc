@@ -112,6 +112,20 @@ function savedAccounts(): Account[] {
 }
 
 /**
+ * Every account dir worth reading usage logs from: the saved list, the
+ * default, and whatever is active (even when it only comes from
+ * `$CLAUDE_CONFIG_DIR`). Read-only — the usage report aggregates them.
+ */
+export function accountDirs(): { label: string; dir: string }[] {
+  const accounts = savedAccounts();
+  const active = claudeConfigDir();
+  if (!accounts.some((a) => a.resolved === active)) {
+    accounts.push({ label: path.basename(active), declared: active, resolved: active });
+  }
+  return accounts.map((a) => ({ label: a.label, dir: a.resolved }));
+}
+
+/**
  * Who is signed in to a config dir, for the QuickPick detail line. Best-effort:
  * an account that has never been logged into simply has no `.claude.json`.
  */

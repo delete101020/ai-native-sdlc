@@ -52,6 +52,8 @@ export interface DailyRow extends UsageTotals {
 }
 
 export interface ProjectRow extends UsageTotals {
+  /** Account label — the same project under two accounts is two rows. */
+  account: string;
   project: string;
   /** Decoded + shortened (~/Documents/...) for display. */
   displayPath: string;
@@ -102,6 +104,33 @@ function addRecord(t: UsageTotals, r: CallRecord): void {
 function hitRate(t: UsageTotals): number {
   const denom = t.input + t.cacheRead + t.cacheWrite;
   return denom > 0 ? t.cacheRead / denom : 0;
+}
+
+/** What the report panels hold: the report plus the account filter it was built with. */
+export interface TokenPanelState {
+  report: TokenReport | null;
+  loading: boolean;
+  error: string | null;
+  windowDays: number;
+  /** Accounts that have usage in the window — the filter's options. */
+  accounts: string[];
+  /** Selected account; `null` = every account combined. */
+  account: string | null;
+}
+
+/**
+ * Report for one account, or all combined when `account` is null. A selection
+ * that no longer has data (account removed, window moved) falls back to all.
+ */
+export function buildAccountReport(
+  records: CallRecord[],
+  windowDays: number,
+  account: string | null,
+): Pick<TokenPanelState, 'report' | 'accounts' | 'account'> {
+  const accounts = [...new Set(records.map((r) => r.account))].sort();
+  const pick = account !== null && accounts.includes(account) ? account : null;
+  const scoped = pick === null ? records : records.filter((r) => r.account === pick);
+  return { report: buildReport(scoped, windowDays), accounts, account: pick };
 }
 
 export function buildReport(records: CallRecord[], windowDays: number): TokenReport {
@@ -185,19 +214,22 @@ function topProjects(records: CallRecord[], totalCost: number, topN: number): Pr
   const lastSeen = new Map<string, number>();
   for (const r of records) {
     if (!r.project) { continue; }
-    let t = map.get(r.project);
-    if (!t) { t = emptyTotals(); map.set(r.project, t); }
+    const key = `${r.account}\0${r.project}`;
+    let t = map.get(key);
+    if (!t) { t = emptyTotals(); map.set(key, t); }
     addRecord(t, r);
     const ts = Date.parse(r.timestamp);
     if (Number.isFinite(ts)) {
-      const cur = lastSeen.get(r.project) ?? 0;
-      if (ts > cur) { lastSeen.set(r.project, ts); }
+      const cur = lastSeen.get(key) ?? 0;
+      if (ts > cur) { lastSeen.set(key, ts); }
     }
   }
   const rows: ProjectRow[] = [];
-  for (const [project, t] of map) {
-    const ms = lastSeen.get(project);
+  for (const [key, t] of map) {
+    const ms = lastSeen.get(key);
+    const [account, project] = key.split('\0');
     rows.push({
+      account,
       project,
       displayPath: shortenPath(decodeProject(project)),
       ...t,

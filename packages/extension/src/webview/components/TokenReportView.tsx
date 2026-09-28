@@ -59,7 +59,11 @@ export function TokenReportView({ state }: { state: TokenReportPanelState | null
         <Overview report={state.report} />
         <ByModelSection rows={state.report.byModel} report={state.report} />
         <DailySection rows={state.report.daily} />
-        <TopProjectsSection rows={state.report.topProjects} report={state.report} />
+        <TopProjectsSection
+          rows={state.report.topProjects}
+          report={state.report}
+          showAccount={state.account === null && state.accounts.length > 1}
+        />
         <HeatmapSection rows={state.report.heatmap} peak={state.report.heatmapPeak} />
         <SuggestionsSection
           suggestions={state.report.suggestions}
@@ -91,19 +95,34 @@ function Header({ state }: { state: TokenReportPanelState }) {
           Scanned last {state.windowDays}d · generated {generated}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={() => postMessage({ type: 'refresh' })}
-        disabled={state.loading}
-        className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[11px] text-muted-foreground hover:border-border/80 hover:bg-accent hover:text-foreground disabled:opacity-50"
-      >
-        {state.loading ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <RefreshCw className="h-3 w-3" />
+      <div className="flex items-center gap-2">
+        {state.accounts.length > 1 && (
+          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="uppercase tracking-wider">Account</span>
+            <select
+              value={state.account ?? ''}
+              onChange={(e) => postMessage({ type: 'setAccount', account: e.target.value || null })}
+              className="rounded-md border border-border bg-background px-2 py-1 text-[11px] text-foreground"
+            >
+              <option value="">All accounts</option>
+              {state.accounts.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </label>
         )}
-        <span>Refresh</span>
-      </button>
+        <button
+          type="button"
+          onClick={() => postMessage({ type: 'refresh' })}
+          disabled={state.loading}
+          className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[11px] text-muted-foreground hover:border-border/80 hover:bg-accent hover:text-foreground disabled:opacity-50"
+        >
+          {state.loading ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3 w-3" />
+          )}
+          <span>Refresh</span>
+        </button>
+      </div>
     </header>
   );
 }
@@ -300,7 +319,15 @@ function Bar({ fraction }: { fraction: number }) {
 }
 
 // ── Top Projects ──────────────────────────────────────────────────────────
-function TopProjectsSection({ rows, report }: { rows: ProjectRow[]; report: TokenReport }) {
+function TopProjectsSection({
+  rows,
+  report,
+  showAccount,
+}: {
+  rows: ProjectRow[];
+  report: TokenReport;
+  showAccount: boolean;
+}) {
   if (rows.length === 0) { return null; }
   const peak = Math.max(...rows.map((r) => r.cost), 1);
   return (
@@ -310,6 +337,7 @@ function TopProjectsSection({ rows, report }: { rows: ProjectRow[]; report: Toke
         <thead>
           <tr>
             <Th>Project</Th>
+            {showAccount && <Th>Account</Th>}
             <Th align="right">Calls</Th>
             <Th align="right">Input</Th>
             <Th align="right">Output</Th>
@@ -320,8 +348,9 @@ function TopProjectsSection({ rows, report }: { rows: ProjectRow[]; report: Toke
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.project} className="border-t border-border/50">
+            <tr key={`${r.account}\0${r.project}`} className="border-t border-border/50">
               <Td><span className="font-mono text-[11.5px]">{r.displayPath}</span></Td>
+              {showAccount && <Td><span className="text-muted-foreground">{r.account}</span></Td>}
               <Td align="right">{fmtInt(r.calls)}</Td>
               <Td align="right">{fmtNum(r.input)}</Td>
               <Td align="right">{fmtNum(r.output)}</Td>
