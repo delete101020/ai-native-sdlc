@@ -246,6 +246,8 @@ import {
   readEpicFocus,
   readEpicSort,
   setEpicSort,
+  readEpicListFlat,
+  setEpicListFlat,
 } from '@aidlc/core';
 import { SKILL_TEMPLATES } from './skillTemplates';
 import {
@@ -626,6 +628,8 @@ interface WorkspaceState {
   epicSortPref?: EpicSortPref | null;
   /** Ids of the epics this user watches, from `.aidlc/user.yaml`. */
   watchedEpics?: string[];
+  /** Flat Epics list instead of families, from `.aidlc/user.yaml`. */
+  epicListFlat?: boolean;
 }
 
 /**
@@ -914,6 +918,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     agentActivity: agentActivity.snapshot(),
     epicSortPref: savedEpicSort(),
     watchedEpics: readEpicFocus(root).watched,
+    epicListFlat: readEpicListFlat(root),
   };
 }
 
@@ -2291,6 +2296,12 @@ export class WorkspaceWebview {
         if (!root) { return; }
         setEpicSort(root, { by: msg.sort, reversed: msg.reversed === true });
         epicSortChanged.fire();
+        return;
+      }
+
+      case 'setEpicListFlat': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (root) { setEpicListFlat(root, msg.flat === true); }
         return;
       }
 

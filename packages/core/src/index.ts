@@ -329,6 +329,7 @@ export {
 export {
   ACTIVE_EPIC_KEY,
   EPIC_SORT_KEY,
+  EPIC_LIST_FLAT_KEY,
   RECENT_EPICS_KEY,
   RECENT_EPICS_LIMIT,
   WATCHED_EPICS_KEY,
@@ -338,9 +339,11 @@ export {
   pushRecent,
   readEpicFocus,
   readEpicSort,
+  readEpicListFlat,
   recordEpicOpened,
   setActiveEpic,
   setEpicSort,
+  setEpicListFlat,
   setEpicWatched,
 } from './loader/epicFocus';
 export type { EpicFocus, EpicSortPref } from './loader/epicFocus';

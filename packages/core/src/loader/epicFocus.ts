@@ -143,6 +143,21 @@ export function setEpicSort(root: string, pref: EpicSortPref): void {
   });
 }
 
+/** Whether this user reads the Epics list flat rather than grouped by family. */
+export const EPIC_LIST_FLAT_KEY = 'epic_list_flat';
+
+export function readEpicListFlat(root: string): boolean {
+  return readUserConfig(root)?.[EPIC_LIST_FLAT_KEY] === true;
+}
+
+/** Written only when set; grouped is the default. */
+export function setEpicListFlat(root: string, flat: boolean): void {
+  updateUserConfig(root, (doc) => {
+    if (flat) { doc[EPIC_LIST_FLAT_KEY] = true; }
+    else { delete doc[EPIC_LIST_FLAT_KEY]; }
+  });
+}
+
 /**
  * Which of `knownIds` a git branch name refers to, or `null`.
  *

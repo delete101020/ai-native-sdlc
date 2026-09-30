@@ -5,7 +5,7 @@ import type { WorkspaceState, EpicSummary, EpicFilter, FollowUpContext } from '@
 import { EpicCard } from './EpicCard';
 import { StartEpicModal } from './StartEpicModal';
 import { ReportSignalModal } from './ReportSignalModal';
-import { postMessage, onHostMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
+import { postMessage, onHostMessage } from '@/lib/bridge';
 import { EPIC_SORTS, DEFAULT_EPIC_SORT, isEpicSort, sortEpics, type EpicSort } from '@/lib/epicSort';
 
 const FILTERS: { id: EpicFilter; label: string }[] = [
@@ -101,14 +101,12 @@ export function EpicsView({
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   // Second view mode: no families at all — every epic is its own card, in
   // plain sort order, follow-ups included.
-  const [flat, setFlat] = useState(
-    () => getPersistedUi<{ flatEpics?: boolean }>()?.flatEpics === true,
-  );
+  // Kept by the host in `.aidlc/user.yaml`, like the sort, so it outlives the panel.
+  const [flat, setFlat] = useState(() => state.epicListFlat === true);
   const toggleFlat = () => {
     const next = !flat;
     setFlat(next);
-    const prev = getPersistedUi<Record<string, unknown>>() ?? {};
-    setPersistedUi({ ...prev, flatEpics: next });
+    postMessage({ type: 'setEpicListFlat', flat: next });
   };
   // The last deep link from outside the panel (sidebar, Go to Epic, a run):
   // every other card folds, so arriving on an epic never lands among a pile of

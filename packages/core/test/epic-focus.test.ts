@@ -11,10 +11,12 @@ import {
   pushRecent,
   readEpicFocus,
   readEpicSort,
+  readEpicListFlat,
   readUserConfig,
   recordEpicOpened,
   setActiveEpic,
   setEpicSort,
+  setEpicListFlat,
   setEpicWatched,
   userConfigPath,
   writeUserEpicIdPrefix,
@@ -113,6 +115,16 @@ describe('epic sort — how this user orders the Epics list', () => {
     expect(epicSortFrom({ epic_sort: 'activity' })).toBe(null);
     expect(epicSortFrom({ epic_sort: { reversed: true } })).toBe(null);
     expect(epicSortFrom({ epic_sort: { by: 'future-sort' } })).toEqual({ by: 'future-sort', reversed: false });
+  });
+});
+
+describe('epic list view — flat or grouped', () => {
+  it('is grouped until flat is picked, and only flat is written', () => {
+    expect(readEpicListFlat(root)).toBe(false);
+    setEpicListFlat(root, true);
+    expect(readEpicListFlat(root)).toBe(true);
+    setEpicListFlat(root, false);
+    expect(readUserConfig(root)?.epic_list_flat).toBeUndefined();
   });
 });
 

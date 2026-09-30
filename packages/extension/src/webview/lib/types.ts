@@ -856,6 +856,8 @@ export interface WorkspaceState {
   /** The Epics list order last picked, kept by the host so it outlives the
    * panel. Null or absent when none was picked. */
   epicSortPref?: { sort: string; reversed: boolean } | null;
+  /** Flat Epics list instead of families, from `.aidlc/user.yaml`. */
+  epicListFlat?: boolean;
   /** Ids of the epics this user watches, from `.aidlc/user.yaml`. */
   watchedEpics?: string[];
   /** All existing epic ids (folders under epicRoot) — for uniqueness check. */
