@@ -175,13 +175,25 @@ export function EpicCard({
   const [expanded, setExpanded] = useState<boolean>(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
+  // The list can be long and the panel may have just switched views, so the
+  // card is rarely on screen already. Scroll only once this card has expanded
+  // and its siblings have folded: measuring any earlier aims at a layout that
+  // is about to shift, and the card lands too high or too low. Pin the top so
+  // the header stays in view however tall the body turns out.
+  const scrollPending = useRef(false);
   useEffect(() => {
     if (!focusNonce) { return; }
+    scrollPending.current = true;
     setExpanded(true);
-    // The list can be long and the panel may have just switched views, so the
-    // card is rarely on screen already.
-    cardRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [focusNonce]);
+  useEffect(() => {
+    if (!expanded || !scrollPending.current) { return; }
+    const raf = requestAnimationFrame(() => {
+      scrollPending.current = false;
+      cardRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [expanded, focusNonce]);
 
   // Only a link that arrives while this card exists folds it. A card mounted
   // afterwards (its family just unfolded) already starts shut, and folding it
