@@ -44,6 +44,12 @@ describe('sortEpics', () => {
     expect(ids(sortEpics([a, b, c, c2], 'name', false, null))).toEqual(['B', 'D', 'C', 'A']);
   });
 
+  it('ID: natural ascending, reversible', () => {
+    const x = [epic('EPIC-260901-AB-10'), epic('EPIC-260901-AB-2'), epic('EPIC-250101-ZZ-1')];
+    expect(ids(sortEpics(x, 'id', false, null))).toEqual(['EPIC-250101-ZZ-1', 'EPIC-260901-AB-2', 'EPIC-260901-AB-10']);
+    expect(ids(sortEpics(x, 'id', true, null))).toEqual(['EPIC-260901-AB-10', 'EPIC-260901-AB-2', 'EPIC-250101-ZZ-1']);
+  });
+
   it('does not mutate the input', () => {
     const input = [a, b, c];
     sortEpics(input, 'created', false, null);

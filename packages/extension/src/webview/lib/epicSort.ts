@@ -6,7 +6,7 @@
  * question — the list is read to find what needs a human, or to get back to
  * whatever was touched last, and on a shared `docs/epics/` to find one's own.
  */
-export type EpicSort = 'attention' | 'activity' | 'created' | 'name' | 'mine';
+export type EpicSort = 'attention' | 'activity' | 'created' | 'name' | 'id' | 'mine';
 
 export const EPIC_SORTS: { id: EpicSort; label: string; hint: string }[] = [
   { id: 'created', label: 'Created', hint: 'Oldest created first' },
@@ -14,6 +14,7 @@ export const EPIC_SORTS: { id: EpicSort; label: string; hint: string }[] = [
   { id: 'activity', label: 'Last activity', hint: 'Most recently started, finished or reviewed step first' },
   { id: 'mine', label: 'My epics', hint: 'Epics carrying your ID prefix first, by ID' },
   { id: 'name', label: 'Name', hint: 'Title A → Z' },
+  { id: 'id', label: 'ID', hint: 'Epic ID ascending (date, then counter)' },
 ];
 
 /**
@@ -124,6 +125,8 @@ export function sortEpics<T extends SortableEpic>(
         return dir * (attentionRank(a) - attentionRank(b) || lastActivity(b) - lastActivity(a)) || fallback(a, b);
       case 'activity':
         return dir * (lastActivity(b) - lastActivity(a)) || fallback(a, b);
+      case 'id':
+        return dir * natural(a.id, b.id);
       case 'name':
         return dir * natural(a.title || a.id, b.title || b.id) || fallback(a, b);
       case 'mine': {
