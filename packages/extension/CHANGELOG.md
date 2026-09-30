@@ -1,5 +1,23 @@
 # Changelog
 
+## 4.0.31
+
+The Epics list is easier to get around when there are many epics.
+
+### Added
+
+- A search box on the Epics screen filters by epic ID or name, on top of the
+  status, tag and Watching filters. Esc clears it.
+- A flat list mode shows every epic as its own card, follow-ups included,
+  next to the grouped-by-family view. The choice is kept per user in
+  `.aidlc/user.yaml` (`epic_list_flat`).
+- The sort dropdown can order epics by **ID**.
+
+### Fixed
+
+- Opening an epic from the sidebar lands it at the top of the list instead of
+  too high or too low: the scroll waits until the card has expanded.
+
 ## 4.0.30
 
 The Usage Report counts every Claude account on this machine, not just the
