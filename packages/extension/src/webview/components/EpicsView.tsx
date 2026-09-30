@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp, Star, List, ListTree } from 'lucide-react';
+import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp, Star, List, ListTree, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter, FollowUpContext } from '@/lib/types';
 import { EpicCard } from './EpicCard';
@@ -71,6 +71,8 @@ export function EpicsView({
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   // Narrows whatever the status and tag filters show, like one more facet.
   const [watchedOnly, setWatchedOnly] = useState(false);
+  // Matches id or title, case-insensitively, as one more facet.
+  const [query, setQuery] = useState('');
   const watchedIds = useMemo(() => new Set(state.watchedEpics ?? []), [state.watchedEpics]);
   // The host keeps the order: this webview's own state dies with the panel.
   const [sort, setSort] = useState<EpicSort>(() => {
@@ -130,7 +132,7 @@ export function EpicsView({
   // A deep link has to win over the filter — landing on an empty list because
   // the epic is done and the filter says "in progress" reads as a broken link.
   useEffect(() => {
-    if (focus) { setFilter('all'); setTagFilter([]); setWatchedOnly(false); }
+    if (focus) { setFilter('all'); setTagFilter([]); setWatchedOnly(false); setQuery(''); }
   }, [focus]);
 
   // A tag that no epic carries any more (its last epic was retagged or deleted)
@@ -171,15 +173,17 @@ export function EpicsView({
 
   // Sorted before grouping: a family takes the place of whichever of its
   // epics sorts first, so one follow-up awaiting review lifts its incident.
+  const q = query.trim().toLowerCase();
   const visible = useMemo(
     () => sortEpics(
       state.epics.filter((e) =>
-        matches(e, filter) && matchesTags(e, tagFilter) && (!watchedOnly || watchedIds.has(e.id))),
+        matches(e, filter) && matchesTags(e, tagFilter) && (!watchedOnly || watchedIds.has(e.id))
+        && (!q || e.id.toLowerCase().includes(q) || e.title.toLowerCase().includes(q))),
       effectiveSort,
       sortReversed,
       prefix,
     ),
-    [state.epics, filter, tagFilter, watchedOnly, watchedIds, effectiveSort, sortReversed, prefix],
+    [state.epics, filter, tagFilter, watchedOnly, watchedIds, q, effectiveSort, sortReversed, prefix],
   );
 
   /**
@@ -400,6 +404,18 @@ export function EpicsView({
           </button>
         )}
         <div className="ml-auto flex items-center gap-1">
+          <label className="relative flex items-center">
+            <Search className="pointer-events-none absolute left-1.5 h-3 w-3 text-muted-foreground" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Escape') { setQuery(''); } }}
+              placeholder="Search ID or name"
+              aria-label="Search epics by ID or name"
+              className="w-44 rounded-md border border-border bg-card py-1 pl-6 pr-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+            />
+          </label>
           <button
             type="button"
             onClick={toggleFlat}
@@ -500,7 +516,9 @@ export function EpicsView({
 
       {visible.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-surface/50 p-6 text-center text-xs text-muted-foreground">
-          {watchedOnly
+          {q
+            ? `No epics match "${query.trim()}".`
+            : watchedOnly
             ? 'None of the epics you watch match these filters.'
             : tagFilter.length > 0
             ? `No epics tagged ${tagFilter.join(' + ')}${filter === 'all' ? '' : ` in ${filter.replace('_', ' ')}`}.`
