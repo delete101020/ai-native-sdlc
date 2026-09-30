@@ -1,11 +1,11 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp, Star } from 'lucide-react';
+import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp, Star, List, ListTree } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter, FollowUpContext } from '@/lib/types';
 import { EpicCard } from './EpicCard';
 import { StartEpicModal } from './StartEpicModal';
 import { ReportSignalModal } from './ReportSignalModal';
-import { postMessage, onHostMessage } from '@/lib/bridge';
+import { postMessage, onHostMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
 import { EPIC_SORTS, DEFAULT_EPIC_SORT, isEpicSort, sortEpics, type EpicSort } from '@/lib/epicSort';
 
 const FILTERS: { id: EpicFilter; label: string }[] = [
@@ -97,6 +97,17 @@ export function EpicsView({
   // the expand and the filter reset behave identically either way.
   const [focus, setFocus] = useState<{ id: string; nonce: number } | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Second view mode: no families at all — every epic is its own card, in
+  // plain sort order, follow-ups included.
+  const [flat, setFlat] = useState(
+    () => getPersistedUi<{ flatEpics?: boolean }>()?.flatEpics === true,
+  );
+  const toggleFlat = () => {
+    const next = !flat;
+    setFlat(next);
+    const prev = getPersistedUi<Record<string, unknown>>() ?? {};
+    setPersistedUi({ ...prev, flatEpics: next });
+  };
   // The last deep link from outside the panel (sidebar, Go to Epic, a run):
   // every other card folds, so arriving on an epic never lands among a pile of
   // cards left open from before. The chips inside the list only set `focus`,
@@ -207,6 +218,8 @@ export function EpicsView({
   // Group after filtering, not before: a filter is a question about epics, and
   // hiding a follow-up should not drag its incident out of the list with it.
   const families = useMemo(() => {
+    // Flat mode: families of one render as bare cards, so no header, no fold.
+    if (flat) { return visible.map((e): Family => ({ rootId: e.id, epics: [e] })); }
     const out: Family[] = [];
     const at = new Map<string, number>();
     for (const e of visible) {
@@ -224,7 +237,7 @@ export function EpicsView({
         || a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: 'base' }));
     }
     return out;
-  }, [visible]);
+  }, [visible, flat]);
 
   const navigate = (id: string) => {
     const target = state.epics.find((e) => e.id === id);
@@ -387,6 +400,20 @@ export function EpicsView({
           </button>
         )}
         <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            onClick={toggleFlat}
+            title={flat ? 'Flat list — click to group follow-ups under their epic' : 'Grouped by family — click for a flat list of every epic'}
+            aria-pressed={flat}
+            className={cn(
+              'inline-flex h-6 w-6 items-center justify-center rounded-md border transition-colors',
+              flat
+                ? 'border-primary bg-primary/15 text-primary'
+                : 'border-border text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {flat ? <List className="h-3 w-3" /> : <ListTree className="h-3 w-3" />}
+          </button>
           <select
             aria-label="Sort epics"
             value={effectiveSort}
