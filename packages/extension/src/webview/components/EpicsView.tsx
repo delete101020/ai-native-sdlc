@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp, Star, List, ListTree, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter, FollowUpContext } from '@/lib/types';
@@ -6,6 +6,7 @@ import { EpicCard } from './EpicCard';
 import { StartEpicModal } from './StartEpicModal';
 import { ReportSignalModal } from './ReportSignalModal';
 import { postMessage, onHostMessage } from '@/lib/bridge';
+import { shareStructure } from '@/lib/hostState';
 import { EPIC_SORTS, DEFAULT_EPIC_SORT, isEpicSort, sortEpics, type EpicSort } from '@/lib/epicSort';
 
 const FILTERS: { id: EpicFilter; label: string }[] = [
@@ -52,6 +53,9 @@ function parentOf(epic: EpicSummary): string | null {
 function familyOf(epic: EpicSummary): string {
   return parentOf(epic) ?? epic.id;
 }
+
+/** Shared empty list, so a card with nothing to show gets the same prop every render. */
+const NONE: never[] = [];
 
 /** One rendered row: a lone epic, or an incident and everything it opened. */
 interface Family {
@@ -202,19 +206,27 @@ export function EpicsView({
     return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   }, [state.epics, filter, tagFilter]);
 
-  const allTags = useMemo(
-    () => [...new Set(state.epics.flatMap((e) => e.tags ?? []))].sort(),
-    [state.epics],
-  );
+  // Every card gets this list, so it keeps its identity while its contents
+  // do: one epic moving must not re-render all of them.
+  const allTagsRef = useRef<string[]>([]);
+  const allTags = useMemo(() => {
+    allTagsRef.current = shareStructure(
+      allTagsRef.current,
+      [...new Set(state.epics.flatMap((e) => e.tags ?? []))].sort(),
+    );
+    return allTagsRef.current;
+  }, [state.epics]);
 
   /** epic id → epics opened from it. Read by the cards to draw the link back. */
+  const followUpsRef = useRef<Record<string, string[]>>({});
   const followUpsByEpic = useMemo(() => {
     const out: Record<string, string[]> = {};
     for (const e of state.epics) {
       const from = parentOf(e);
       if (from) { (out[from] ??= []).push(e.id); }
     }
-    return out;
+    followUpsRef.current = shareStructure(followUpsRef.current, out);
+    return followUpsRef.current;
   }, [state.epics]);
 
   // Group after filtering, not before: a filter is a question about epics, and
@@ -241,13 +253,20 @@ export function EpicsView({
     return out;
   }, [visible, flat]);
 
-  const navigate = (id: string) => {
-    const target = state.epics.find((e) => e.id === id);
+  // Stable across renders, like every other prop the cards get: they are
+  // memoised, and a new function each render would re-render all of them.
+  const epicsRef = useRef(state.epics);
+  epicsRef.current = state.epics;
+  const navigate = useCallback((id: string) => {
+    const target = epicsRef.current.find((e) => e.id === id);
     // Following a link into a collapsed family and landing on nothing is the
     // one way this chip can lie.
     if (target) { setCollapsed((c) => ({ ...c, [familyOf(target)]: false })); }
     setFocus({ id, nonce: Date.now() });
-  };
+  }, []);
+  const toggleTag = useCallback((tag: string) => {
+    setTagFilter((cur) => (cur.includes(tag) ? cur.filter((t) => t !== tag) : [...cur, tag]));
+  }, []);
 
   const [editingDir, setEditingDir] = useState(false);
   const [dirDraft, setDirDraft] = useState(state.epicsDir);
@@ -537,14 +556,12 @@ export function EpicsView({
                 // Keyed by run id, and an epic's run id is the epic id by
                 // convention — but read it off the epic rather than assuming.
                 // A list: a DAG can have an agent on each of its open steps.
-                activities={(e.runId && state.agentActivity?.[e.runId]) || []}
+                activities={(e.runId && state.agentActivity?.[e.runId]) || NONE}
                 fromEpic={parentOf(e)}
-                followUps={followUpsByEpic[e.id] ?? []}
+                followUps={followUpsByEpic[e.id] ?? NONE}
                 onNavigate={navigate}
                 tagSuggestions={allTags}
-                onTagClick={(tag) =>
-                  setTagFilter((cur) => (cur.includes(tag) ? cur.filter((t) => t !== tag) : [...cur, tag]))
-                }
+                onTagClick={toggleTag}
               />
             ));
             // A family of one is just an epic. Wrapping it in a header would

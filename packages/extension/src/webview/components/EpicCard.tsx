@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { ClampedNote } from './ClampedNote';
 import {
   ChevronRight,
@@ -158,7 +158,15 @@ function progressTitle(epic: EpicSummary): string {
       + 'with steps that run as peers counting as one stage, done once any of them is';
 }
 
-export function EpicCard({
+/**
+ * Memoised: the panel re-posts its state on every change anywhere, and the
+ * host keeps every unchanged epic the same object across posts — so a card
+ * whose epic and props did not move skips the render. That holds only while
+ * the list passes stable props (no inline arrays or callbacks).
+ */
+export const EpicCard = memo(EpicCardView);
+
+function EpicCardView({
   epic,
   agentMeta,
   slashCommandsByAgent,

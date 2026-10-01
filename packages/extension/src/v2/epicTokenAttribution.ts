@@ -1,14 +1,16 @@
 /**
  * Per-epic token usage attribution.
  *
- * Walks `~/.claude/projects/<encoded>/*.jsonl` once per workspace refresh
- * and attributes each assistant call to (epic, step) by matching:
+ * Walks `~/.claude/projects/<encoded>/*.jsonl` and attributes each
+ * assistant call to (epic, step) by matching:
  *   - `cwd` field == workspace root
  *   - `timestamp` ∈ [step.startedAt, next-step.startedAt) — last step
  *     extends to the run's `updatedAt`.
  *
- * Cache is keyed on the runs' state mtimes so a sidebar refresh that
- * doesn't change any run state file is essentially free.
+ * Each run's figures are cached against its state file's mtime, in memory and
+ * (once {@link setEpicUsageCacheFile} names a file) on disk, so a refresh
+ * re-walks the transcripts only for the runs that moved — and a reload does
+ * not start over from the oldest epic.
  *
  * Cost calculation mirrors `tokenMonitor.ts` (and upstream
  * https://github.com/novapizza/claude-token-monitor).
@@ -195,11 +197,95 @@ function stepStartedAt(step: StepRecord): string | null {
 }
 
 /**
- * Last computed usage per run, keyed by `<workspace>::<runId>` and valid for
- * the run file's mtime it was computed at. A run's usage depends only on its
- * own step windows, so one run moving leaves every other entry good.
+ * Last computed usage per run, keyed by `<config dir>::<workspace>::<runId>`
+ * and valid for the run file's mtime it was computed at. A run's usage depends
+ * only on its own step windows, so one run moving leaves every other entry good.
  */
-const cache = new Map<string, { mtimeMs: number; usage: EpicUsage }>();
+const cache = new Map<string, CacheEntry>();
+
+interface CacheEntry { mtimeMs: number; usage: EpicUsage }
+
+/**
+ * Where {@link cache} outlives the extension host, and the version it is good
+ * for. Unset (tests, the CLI) means memory only.
+ *
+ * Without it every reload starts from an empty cache, and the first refresh
+ * re-reads every transcript since the oldest epic began. The version is the
+ * extension's: a release can change the pricing table or the attribution
+ * rules, and figures computed under the old ones must not survive it.
+ */
+let persist: { file: string; version: string; loaded: boolean } | null = null;
+
+/** Most entries the file keeps; the newest computed win. */
+const PERSIST_MAX_ENTRIES = 2000;
+
+export function setEpicUsageCacheFile(file: string | null, version = ''): void {
+  persist = file ? { file, version, loaded: false } : null;
+}
+
+function loadPersistedCache(): void {
+  if (!persist || persist.loaded) return;
+  persist.loaded = true;
+  try {
+    const raw = JSON.parse(fs.readFileSync(persist.file, 'utf8')) as
+      { version?: unknown; entries?: Record<string, CacheEntry> };
+    if (raw?.version !== persist.version || !raw.entries) return;
+    for (const [key, entry] of Object.entries(raw.entries)) {
+      if (!cache.has(key) && entry && typeof entry.mtimeMs === 'number' && entry.usage) {
+        cache.set(key, entry);
+      }
+    }
+  } catch { /* missing or unreadable — start empty */ }
+}
+
+let persistWrite: Promise<void> = Promise.resolve();
+
+/** Write the cache out, one write at a time, through a temp file. */
+function savePersistedCache(): void {
+  const target = persist;
+  if (!target) return;
+  persistWrite = persistWrite.then(async () => {
+    const entries = [...cache]
+      .sort((a, b) => b[1].usage.computedAt - a[1].usage.computedAt)
+      .slice(0, PERSIST_MAX_ENTRIES);
+    const tmp = `${target.file}.${process.pid}.tmp`;
+    try {
+      await fs.promises.mkdir(path.dirname(target.file), { recursive: true });
+      await fs.promises.writeFile(tmp, JSON.stringify({ version: target.version, entries: Object.fromEntries(entries) }));
+      await fs.promises.rename(tmp, target.file);
+    } catch { /* a cache that fails to save only costs a re-walk later */ }
+  });
+}
+
+/**
+ * Claude Code files a session under `projects/<dir>`, where `<dir>` is the
+ * directory the session started in with every character other than a letter
+ * or digit turned into `-`.
+ */
+export function claudeProjectFolderName(dir: string): string {
+  return dir.replace(/[^a-zA-Z0-9]/g, '-');
+}
+
+/**
+ * Longest folder name Claude Code writes as is; longer ones are cut and given
+ * a hash suffix, which cannot be predicted from the path alone.
+ */
+const MAX_PLAIN_FOLDER_NAME = 200;
+
+/**
+ * The project folders that can hold a record whose `cwd` is `workspaceRoot`:
+ * the root's own, and those of the directories above it — a session started
+ * higher up and moved in keeps writing to the folder it started in. Records
+ * are still matched on `cwd` afterwards; this only skips folders that cannot
+ * contain one. Returns null (read every folder) when the name cannot be
+ * predicted, or when nothing matches and the naming may have changed.
+ */
+export function transcriptFoldersFor(workspaceRoot: string, folders: string[]): string[] | null {
+  const own = claudeProjectFolderName(path.resolve(workspaceRoot));
+  if (own.length > MAX_PLAIN_FOLDER_NAME) return null;
+  const matching = folders.filter((f) => f === own || own.startsWith(`${f}-`));
+  return matching.length > 0 ? matching : null;
+}
 
 /**
  * Compute (and cache) usage for every run in a workspace. Single jsonl
@@ -290,9 +376,9 @@ export async function computeWorkspaceEpicUsage(
     } catch {
       projectDirs = [];
     }
-    for (const dirent of projectDirs) {
-      if (!dirent.isDirectory()) continue;
-      const projectDir = path.join(projectsRoot, dirent.name);
+    const folderNames = projectDirs.filter((d) => d.isDirectory()).map((d) => d.name);
+    for (const folder of transcriptFoldersFor(workspaceRoot, folderNames) ?? folderNames) {
+      const projectDir = path.join(projectsRoot, folder);
       let files: string[];
       try {
         files = await fs.promises.readdir(projectDir);
@@ -490,8 +576,9 @@ export async function getOrComputeWorkspaceEpicUsage(
   runs: RunState[],
   mtimes: number[],
 ): Promise<Map<string, EpicUsage>> {
-  const root = path.resolve(workspaceRoot);
-  const keyOf = (runId: string) => `${root}::${runId}`;
+  loadPersistedCache();
+  const prefix = `${claudeConfigDir()}::${path.resolve(workspaceRoot)}`;
+  const keyOf = (runId: string) => `${prefix}::${runId}`;
   const stale = runs.filter((run, i) => cache.get(keyOf(run.runId))?.mtimeMs !== mtimes[i]);
   if (stale.length > 0) {
     const mtimeByRun = new Map(runs.map((run, i) => [run.runId, mtimes[i]] as const));
@@ -499,6 +586,7 @@ export async function getOrComputeWorkspaceEpicUsage(
     for (const [runId, usage] of computed) {
       cache.set(keyOf(runId), { mtimeMs: mtimeByRun.get(runId) ?? NaN, usage });
     }
+    savePersistedCache();
   }
 
   const overlaps = detectOverlaps(runs.map((run) => ({ runId: run.runId, windows: buildStepWindows(run) })));

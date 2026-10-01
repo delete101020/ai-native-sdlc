@@ -715,447 +715,630 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     .filter((d) => d.isDirectory())
     .map((d) => d.name);
 
-  // Every epic on the same pipeline asks about the same skills; read each
-  // skill file once per listing, not once per epic.
+  const skillDescription = skillDescriptionReader(workspaceRoot, doc);
+  const epics: EpicSummary[] = [];
+  for (const folder of folders) {
+    const epic = readEpicSummary(workspaceRoot, doc, dir, folder, skillDescription);
+    if (epic) { epics.push(epic); }
+  }
+  return sortNewestFirst(epics);
+}
+
+/**
+ * The last listing, kept per epic folder so a refresh re-reads only the epics
+ * something changed under. Reading one epic costs a dozen file reads and
+ * stats (state, run, inputs, every artifact it declares), and the panel, the
+ * sidebar and the token merge each list on every refresh — so with hundreds
+ * of epics the listing, not anything that changed, was most of a refresh.
+ */
+interface EpicListingCache {
+  root: string;
+  dir: string;
+  /** The workspace doc it was built from: pipelines decide most of a card. */
+  docKey: string;
+  /** Skill files the doc points at by path, which can live anywhere. */
+  skillPaths: Set<string>;
+  byFolder: Map<string, EpicSummary | null>;
+  /** Folders to re-read on the next listing. */
+  dirty: Set<string>;
+  builtAt: number;
+  /** Built on the first file event after a listing — see {@link indexDeclaredArtifacts}. */
+  declared?: { exact: Map<string, Set<string>>; above: Map<string, Set<string>> };
+}
+
+let listingCache: EpicListingCache | null = null;
+
+/**
+ * Longest a cached listing is reused before every epic is read again. Changes
+ * reach the cache through {@link invalidateEpicListing}; this bounds how long
+ * one the watchers never reported can go unseen.
+ */
+const EPIC_LISTING_MAX_AGE_MS = 60_000;
+
+/**
+ * {@link listEpics}, reusing each epic's summary until
+ * {@link invalidateEpicListing} reports a change it depends on.
+ *
+ * Callers get their own copies of each epic and step, so filling in token
+ * usage on one listing never reaches another.
+ */
+export function listEpicsCached(workspaceRoot: string, doc: YamlDocument | null): EpicSummary[] {
+  const dir = epicsRoot(workspaceRoot, doc);
+  if (!fs.existsSync(dir)) { listingCache = null; return []; }
+
+  const docKey = JSON.stringify(doc ?? null);
+  const now = Date.now();
+  let cache = listingCache;
+  if (!cache || cache.root !== workspaceRoot || cache.dir !== dir || cache.docKey !== docKey
+    || now - cache.builtAt > EPIC_LISTING_MAX_AGE_MS) {
+    const skillPaths = new Set((Array.isArray(doc?.skills) ? doc!.skills : [])
+      .map((d) => (typeof d.path === 'string' && d.path ? expandHome(d.path) : ''))
+      .filter(Boolean)
+      .map((p) => path.resolve(workspaceRoot, p)));
+    cache = { root: workspaceRoot, dir, docKey, skillPaths, byFolder: new Map(), dirty: new Set(), builtAt: now };
+  }
+
+  const folders = fs.readdirSync(dir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name);
+  const skillDescription = skillDescriptionReader(workspaceRoot, doc);
+  const byFolder = new Map<string, EpicSummary | null>();
+  for (const folder of folders) {
+    byFolder.set(folder, cache.byFolder.has(folder) && !cache.dirty.has(folder)
+      ? cache.byFolder.get(folder) ?? null
+      : readEpicSummary(workspaceRoot, doc, dir, folder, skillDescription));
+  }
+  listingCache = { ...cache, byFolder, dirty: new Set(), declared: undefined };
+
+  const epics: EpicSummary[] = [];
+  for (const epic of byFolder.values()) {
+    if (epic) { epics.push({ ...epic, stepDetails: epic.stepDetails.map((s) => ({ ...s })) }); }
+  }
+  return sortNewestFirst(epics);
+}
+
+/**
+ * Tell the cached listing that `changedPath` changed (created, written or
+ * deleted), or — with no path — that anything may have.
+ *
+ * A path is matched to the epics that read it: anything under an epic's
+ * folder, its run file, or an artifact one of its steps declares. Skill and
+ * agent files feed every card's descriptions, so a change under `.claude/` or
+ * `.aidlc/`, or to a skill file the doc names, drops the whole listing. Any other path is no epic's business.
+ */
+export function invalidateEpicListing(changedPath?: string): void {
+  const cache = listingCache;
+  if (!cache) { return; }
+  if (!changedPath) { listingCache = null; return; }
+  const abs = path.resolve(changedPath);
+  const within = (parent: string, child: string): boolean => {
+    const rel = path.relative(parent, child);
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  };
+
+  // The epics folder itself, or one above it: which epics exist may change.
+  if (within(abs, cache.dir)) { listingCache = null; return; }
+  if (within(cache.dir, abs)) {
+    cache.dirty.add(path.relative(cache.dir, abs).split(path.sep)[0]);
+    return;
+  }
+
+  const runsDir = path.join(cache.root, '.aidlc', 'runs');
+  if (path.dirname(abs) === runsDir) {
+    const runId = path.basename(abs).replace(/(\.usage)?\.json$/, '');
+    for (const [folder, epic] of cache.byFolder) {
+      if (folder === runId || epic?.id === runId || epic?.runId === runId) { cache.dirty.add(folder); }
+    }
+    return;
+  }
+  if (within(path.join(cache.root, '.claude'), abs) || within(path.join(cache.root, '.aidlc'), abs)
+    || cache.skillPaths.has(abs)) {
+    listingCache = null;
+    return;
+  }
+
+  cache.declared ??= indexDeclaredArtifacts(cache);
+  // The file itself, or a declared folder above it.
+  for (let p = abs; ; p = path.dirname(p)) {
+    for (const folder of cache.declared.exact.get(p) ?? []) { cache.dirty.add(folder); }
+    if (path.dirname(p) === p) { break; }
+  }
+  // A folder above a declared file, created or removed with it.
+  for (const folder of cache.declared.above.get(abs) ?? []) { cache.dirty.add(folder); }
+}
+
+/**
+ * Every artifact path the cached epics declare, so one file event costs a
+ * walk up its own directories instead of a pass over every step of every epic
+ * — a build writing thousands of files reports each one here.
+ */
+function indexDeclaredArtifacts(cache: EpicListingCache): NonNullable<EpicListingCache['declared']> {
+  const exact = new Map<string, Set<string>>();
+  const above = new Map<string, Set<string>>();
+  const add = (map: Map<string, Set<string>>, key: string, folder: string) => {
+    let set = map.get(key);
+    if (!set) { set = new Set(); map.set(key, set); }
+    set.add(folder);
+  };
+  for (const [folder, epic] of cache.byFolder) {
+    if (!epic) { continue; }
+    for (const step of epic.stepDetails) {
+      const declared = [
+        ...(step.artifactPath ? [step.artifactPath] : []),
+        ...(step.artifacts ?? []).map((a) => a.path),
+      ];
+      for (const rel of declared) {
+        const target = path.resolve(cache.root, rel);
+        add(exact, target, folder);
+        for (let p = path.dirname(target); p !== path.dirname(p) && p !== cache.root; p = path.dirname(p)) {
+          add(above, p, folder);
+        }
+      }
+    }
+  }
+  return { exact, above };
+}
+
+/** Newest first by createdAt; ties fall back to id. */
+function sortNewestFirst(epics: EpicSummary[]): EpicSummary[] {
+  return epics.sort((a, b) => {
+    const cmp = b.createdAt.localeCompare(a.createdAt);
+    if (cmp !== 0) { return cmp; }
+    return b.id.localeCompare(a.id);
+  });
+}
+
+/**
+ * Every epic on the same pipeline asks about the same skills; read each
+ * skill file once per listing, not once per epic.
+ */
+function skillDescriptionReader(
+  workspaceRoot: string,
+  doc: YamlDocument | null,
+): (id: string) => string | undefined {
   const skillDescriptions = new Map<string, string | undefined>();
-  const skillDescription = (id: string): string | undefined => {
+  return (id) => {
     if (!skillDescriptions.has(id)) {
       skillDescriptions.set(id, readSkillDescription(workspaceRoot, doc, id));
     }
     return skillDescriptions.get(id);
   };
+}
 
-  const epics: EpicSummary[] = [];
-  for (const folder of folders) {
-    const epicDir = path.join(dir, folder);
-    const stateFile = path.join(epicDir, 'state.json');
-    if (!fs.existsSync(stateFile)) {
-      // No pipeline binding — fall back to an artifacts-only summary built
-      // from the `.md` files in this folder, instead of skipping it entirely.
-      const synthetic = synthesizeArtifactsEpic(epicDir, folder);
-      if (synthetic) { epics.push(synthetic); }
-      continue;
-    }
-
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-    } catch { continue; }
-    if (!parsed || typeof parsed !== 'object') { continue; }
-
-    const stepStatesRaw = Array.isArray(parsed.stepStates)
-      ? (parsed.stepStates as Array<Record<string, unknown>>)
-      : [];
-
-    const epicId = typeof parsed.id === 'string' ? parsed.id : folder;
-
-    // Overlay run-state if there's a matching pipeline run. The runId
-    // convention is `runId === epic.id`, set by `startPipelineRunCommand`.
-    // Wrap in try/catch so a malformed run file doesn't break the epic
-    // listing (the epic still renders with run-status === null).
-    let runState = null;
-    try {
-      runState = RunStateStore.load(workspaceRoot, epicId);
-    } catch { /* invalid runId — treat as no run */ }
-    // Overlay run-state keyed by step *index*, not agent id. A single agent
-    // (persona) can own several steps in a pipeline — e.g. the `qa` persona
-    // in `sdlc-parallel-full` owns test-plan, generate-test-cases, and
-    // execute-test. Keying by agent collapses those into one entry
-    // (last-writer-wins), so a mid-pipeline step that is genuinely
-    // `awaiting_work` inherits a trailing step's `pending` status and loses
-    // its "Mark step done" affordance (issue #57). RunState.steps has one
-    // ordered entry per pipeline step with an explicit `stepIdx` that aligns
-    // with both stepStatesRaw[i] and pipelineCfg.steps[i].
-    //
-    // That alignment is an invariant the runner now enforces rather than one
-    // this listing has to trust: `reconcileRunSteps` matches the two lists by
-    // step identity (`name ?? agent`) and every transition refuses to run on a
-    // drifted pair. Reading by index here is safe because a drifted run cannot
-    // have been advanced.
-    const runStepByIdx = new Map<number, StepStatus>();
-    const runRejectByIdx = new Map<number, string>();
-    const runVerdictByIdx = new Map<number, AutoReviewVerdict>();
-    const runHistoryByIdx = new Map<number, StepHistoryEntry[]>();
-    const runFeedbackByIdx = new Map<number, string>();
-    const runStartedAtByIdx = new Map<number, string>();
-    // What the step actually wrote, recorded by `markStepDone`. Richer than
-    // the pipeline's `produces`, which is only a declaration until it runs.
-    const runArtifactsByIdx = new Map<number, string[]>();
-    if (runState) {
-      for (const sr of runState.steps) {
-        runStepByIdx.set(sr.stepIdx, sr.status);
-        if (Array.isArray(sr.artifactsProduced) && sr.artifactsProduced.length > 0) {
-          runArtifactsByIdx.set(sr.stepIdx, sr.artifactsProduced);
-        }
-        if (sr.startedAt) { runStartedAtByIdx.set(sr.stepIdx, sr.startedAt); }
-        if (sr.rejectReason) { runRejectByIdx.set(sr.stepIdx, sr.rejectReason); }
-        if (sr.autoReviewVerdict) { runVerdictByIdx.set(sr.stepIdx, sr.autoReviewVerdict); }
-        if (sr.history && sr.history.length > 0) {
-          runHistoryByIdx.set(sr.stepIdx, sr.history);
-        }
-        if (sr.feedback) { runFeedbackByIdx.set(sr.stepIdx, sr.feedback); }
-      }
-    }
-    // Look up the pipeline definition from workspace.yaml so we can surface
-    // each step's configured gates (auto_review / human_review) on the panel,
-    // and tell an `optional` step from a required one.
-    const pipelineId = typeof parsed.pipeline === 'string' ? parsed.pipeline : null;
-    const pipelineCfg = pipelineId
-      ? (doc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId)
-      : undefined;
-
-    // Where the run stands, read once for both the badge and the cursor.
-    const progress = runState ? deriveRunProgress(runState, pipelineCfg) : null;
-    // A run written before the cursor stopped parking on settled steps still
-    // has `currentStepIdx` pointing at one that is over — a rejected side
-    // branch, or the step whose approval opened the next. Reading past it here
-    // means such a run shows its live step without its state being rewritten:
-    // the run file stays the record of what happened.
-    const cursorStatus = runState?.steps[runState.currentStepIdx]?.status;
-    const cursorSettled = cursorStatus === 'approved' || cursorStatus === 'rejected';
-    const displayCursor = runState
-      ? (cursorSettled && progress && progress.actionable.length > 0
-        ? progress.actionable[0]
-        : runState.currentStepIdx)
-      : undefined;
-    const runCurrentStepIdx = displayCursor;
-    const stepGateByIdx = new Map<number, { auto: boolean; human: boolean }>();
-    const stepDependsByIdx = new Map<number, string[]>();
-    const stepNameByIdx = new Map<number, string>();
-    const stepSkillsByIdx = new Map<number, string[]>();
-    const stepAltByIdx = new Map<number, { options: string[]; defaultSkill: string }>();
-    const stepSelectedSkillByIdx = new Map<number, string>();
-    const stepDescriptionByIdx = new Map<number, string>();
-    const stepArtifactByIdx = new Map<number, string>();
-    const stepArtifactPathByIdx = new Map<number, string>();
-    const stepProducesByIdx = new Map<number, string[]>();
-    /** Resolved paths of the `{ path, optional: true }` entries, per step. */
-    const stepOptionalByIdx = new Map<number, Set<string>>();
-    // Same context the runner resolves `produces` with, so the panel and
-    // `markStepDone` are looking at the same file.
-    const artifactContext: Record<string, string> = runState?.context ?? { epic: epicId };
-    if (pipelineCfg && Array.isArray(pipelineCfg.steps)) {
-      pipelineCfg.steps.forEach((raw, i) => {
-        const norm = normalizeStep(raw as PipelineStepConfig);
-        stepGateByIdx.set(i, { auto: norm.auto_review, human: norm.human_review });
-        stepDependsByIdx.set(i, norm.depends_on);
-        if (norm.name) { stepNameByIdx.set(i, norm.name); }
-        if (norm.skills && norm.skills.length > 0) { stepSkillsByIdx.set(i, norm.skills); }
-        const alt = stepSkillAlternatives(norm);
-        if (alt) { stepAltByIdx.set(i, alt); }
-        // What the card says the step does: its own `description`, else the
-        // description of the one skill it runs. Several skills leave it to the
-        // agent's description — picking one of them would be a guess — unless
-        // they are alternatives, where the one selected is the one that runs.
-        const remembered = runState?.steps.find((r) => r.stepIdx === i)?.skill;
-        const selected = alt
-          ? (remembered && alt.options.includes(remembered) ? remembered : alt.defaultSkill)
-          : undefined;
-        const description = norm.description
-          ?? (selected
-            ? skillDescription(selected)
-            : norm.skills?.length === 1 ? skillDescription(norm.skills[0]) : undefined);
-        if (selected) { stepSelectedSkillByIdx.set(i, selected); }
-        if (description) { stepDescriptionByIdx.set(i, description); }
-        // Surface the produced artifact for the per-step detail panel —
-        // `step.produces[0]` is the canonical artifact path on built-in
-        // pipelines (e.g. `docs/epics/{epic}/PRD.md`). The UI displays
-        // the basename and resolves the absolute path via `epic.epicDir`.
-        //
-        // Every entry is kept (`stepProducesByIdx`) so the panel can list a
-        // step that emits several files; the first stays the headline one.
-        // Take the label off the *resolved* path: a document pipeline names
-        // its output `docs/snp/analysis/{topic}.md`, and the raw basename
-        // would put the literal `{topic}.md` on the card.
-        const declared = norm.produces.filter((p): p is string => typeof p === 'string' && p.length > 0);
-        const resolvedProduces = declared.map((p) => resolvePath(p, artifactContext));
-        const optionalRaw = new Set(norm.produces_optional);
-        const optionalResolved = new Set(
-          declared.filter((p) => optionalRaw.has(p)).map((p) => resolvePath(p, artifactContext)),
-        );
-        if (optionalResolved.size > 0) { stepOptionalByIdx.set(i, optionalResolved); }
-        if (resolvedProduces.length > 0) {
-          stepProducesByIdx.set(i, resolvedProduces);
-          // The headline is what gates *Mark step done*, so it is the first
-          // required entry — an optional one only when there is nothing else.
-          const resolved = resolvedProduces.find((p) => !optionalResolved.has(p)) ?? resolvedProduces[0];
-          const basename = resolved.split(/[/\\]/).pop() ?? resolved;
-          if (basename) { stepArtifactByIdx.set(i, basename); }
-          stepArtifactPathByIdx.set(i, resolved);
-        }
-      });
-
-      // GH-TBD: Fall back to detecting artifacts from disk for steps that
-      // don't declare `produces`. This handles cases where a step runs and
-      // creates an artifact file (e.g. IMPLEMENT-SUMMARY.md) but the pipeline
-      // config doesn't list it in `produces`. Without this, the artifact won't
-      // display even though it exists on disk.
-      const artifactsDir = path.join(epicDir, 'artifacts');
-      if (fs.existsSync(artifactsDir)) {
-        try {
-          const onDiskFiles = new Set(
-            fs.readdirSync(artifactsDir)
-              .filter((n) => !n.startsWith('.') && /\.md$/i.test(n))
-              .map((n) => n.replace(/\.md$/i, '').toUpperCase())
-          );
-          // Reverse-map step names to indices to detect which step produced each artifact
-          const stepNameToIdx = new Map<string, number>();
-          pipelineCfg.steps.forEach((raw, i) => {
-            const norm = normalizeStep(raw as PipelineStepConfig);
-            if (norm.name) { stepNameToIdx.set(norm.name.toUpperCase(), i); }
-          });
-          // For each on-disk artifact not yet mapped, try to find its step by convention
-          for (const fileBase of onDiskFiles) {
-            // Check if already mapped
-            if (Array.from(stepArtifactByIdx.values()).some((v) =>
-              v.replace(/\.md$/i, '').toUpperCase() === fileBase)) { continue; }
-            // Try to match by step name (e.g., "IMPLEMENT" → implement step)
-            const stepIdx = stepNameToIdx.get(fileBase);
-            if (stepIdx !== undefined) {
-              stepArtifactByIdx.set(stepIdx, fileBase + '.md');
-            }
-          }
-        } catch { /* Ignore read errors */ }
-      }
-    }
-
-    // Resolve each step's slash command from workspace.yaml `slash_commands`
-    // (the source of truth) rather than reconstructing it — pipelines may use
-    // bare (`/implement`) or pipeline-namespaced (`/sdlc-parallel-full-implement`)
-    // command names, and only the table knows which was actually installed.
-    const slashNames = new Set(
-      Array.isArray(doc?.slash_commands)
-        ? (doc!.slash_commands as Array<{ name?: unknown }>).map((c) => String(c.name ?? ''))
-        : [],
-    );
-    const allPipelineIds = Array.isArray(doc?.pipelines)
-      ? (doc!.pipelines as Array<{ id?: unknown }>)
-          .map((p) => (typeof p.id === 'string' ? p.id : ''))
-          .filter(Boolean)
-      : [];
-    const slashForStep = (
-      stepName: string | undefined,
-      skills: string[] | undefined,
-    ): string | undefined => {
-      // A step's `skills:` names the command file that actually runs it, and
-      // it is the only entry that survives the epic owning its own pipeline:
-      // there, `pipelineId` is the epic id, so a namespaced guess spells
-      // `/CR-Y01-cr-solo-dev` — a command that cannot exist, and never will,
-      // because it would need a fresh command file per epic. The epic id is an
-      // argument (`/cr-solo-dev CR-Y01`), never part of the name.
-      const fromSkill = skills?.find((id) => id && slashNames.has(`/${id}`));
-      if (!stepName) { return fromSkill ? `/${fromSkill}` : undefined; }
-      const namespaced = pipelineId ? `/${pipelineId}-${stepName}` : '';
-      if (namespaced && slashNames.has(namespaced)) { return namespaced; }
-      const bare = `/${stepName}`;
-      if (slashNames.has(bare)) { return bare; }
-      if (fromSkill) { return `/${fromSkill}`; }
-      // A recipe-assembled epic runs on a per-epic pipeline (e.g. `SWIFT-142`),
-      // but the command files are only generated for the recipe's *source*
-      // pipeline (`/sdlc-parallel-full-implement`). The source command reads the
-      // epic id from its argument, so it works for the assembled epic too — find
-      // it by trying each known pipeline id + this exact step name (exact match
-      // avoids `plan` resolving to `test-plan`).
-      for (const pid of allPipelineIds) {
-        if (pid === pipelineId) { continue; }
-        const cand = `/${pid}-${stepName}`;
-        if (slashNames.has(cand)) { return cand; }
-      }
-      // Nothing is installed under either name yet (fresh build before
-      // re-apply). A skill the step declares is a real file id, so it beats a
-      // synthesized name; otherwise prefer namespaced when the pipeline id is
-      // known, and fall back to bare.
-      const declared = skills?.[0];
-      if (declared) { return `/${declared}`; }
-      return namespaced || bare;
-    };
-
-    const annotationHistory = readAnnotationHistory(path.join(epicDir, 'artifacts'));
-
-    const stepDetails = stepStatesRaw.map((s, i) => {
-      const agent = typeof s.agent === 'string' ? s.agent : '';
-      const gate = stepGateByIdx.get(i) ?? { auto: false, human: false };
-      const runStatus = runStepByIdx.get(i) ?? null;
-      const artifactForStep = stepArtifactByIdx.get(i);
-      const history = mergeHistory(
-        runHistoryByIdx.get(i),
-        artifactForStep ? annotationHistory[artifactForStep] : undefined,
-      );
-      const rejectCount = history
-        ? history.filter((e) => e.kind === 'reject').length
-        : 0;
-      // The state.json's per-step status doesn't sync from the run-state
-      // machine, so prefer the run status when it's present. Mapping:
-      //   approved                                  → done
-      //   rejected                                  → failed
-      //   awaiting_work | awaiting_auto_review |
-      //   awaiting_review                           → in_progress
-      //   pending / no run                          → fall back to state.json
-      const displayStatus =
-        runStatus === 'approved'
-          ? ('done' as const)
-          : runStatus === 'rejected'
-          ? ('failed' as const)
-          : runStatus === 'awaiting_work'
-          || runStatus === 'awaiting_auto_review'
-          || runStatus === 'awaiting_review'
-          ? ('in_progress' as const)
-          : asStatus(s.status);
-
-      // Existence is checked against the workspace root, not the epic folder:
-      // `produces` may name any path in the repo and the runner resolves it
-      // that way (PipelineRunner.markStepDone).
-      const artifactRel = stepArtifactPathByIdx.get(i);
-      const artifactAbs = artifactRel === undefined
-        ? undefined
-        : path.isAbsolute(artifactRel) ? artifactRel : path.join(workspaceRoot, artifactRel);
-      const artifactStat = artifactAbs === undefined ? undefined : statOrNull(artifactAbs);
-      const artifactOnDisk = artifactRel === undefined ? undefined : !!artifactStat;
-
-      // Consecutive steps may declare the *same* `produces` file — a document
-      // pipeline where one step drafts the analysis and the next appends to
-      // it. Existence alone then says nothing about whether *this* step has
-      // run: the file was already there when the step opened. Compare the
-      // file's mtime against the step's `startedAt` to tell "written for this
-      // step" from "inherited from an earlier one".
-      const stepStartedAt = runStartedAtByIdx.get(i)
-        ?? (typeof s.startedAt === 'string' ? s.startedAt : undefined);
-      const startedMs = stepStartedAt ? Date.parse(stepStartedAt) : NaN;
-      const artifactStale = !!artifactStat
-        && !Number.isNaN(startedMs)
-        && artifactStat.mtimeMs < startedMs;
-
-      // GH-74 Part 2: Parse branch info from artifact summary (for implement/branch-artifact steps)
-      const branchInfo = artifactForStep?.toUpperCase() === 'IMPLEMENT-SUMMARY.MD'
-        ? parseBranchInfoFromSummary(path.join(epicDir, 'artifacts', 'IMPLEMENT-SUMMARY.md'))
-        : undefined;
-
-      // Prefer what the run recorded over what the pipeline declares: a step
-      // that has finished knows its own output, while the declaration is only
-      // a promise until then.
-      // An optional entry the step did not write is absent from that record,
-      // and is added back from the declaration: a step that finished without
-      // its diagram should still say it had one to offer.
-      const optionalPaths = stepOptionalByIdx.get(i) ?? new Set<string>();
-      const artifactPaths = [
-        ...(runArtifactsByIdx.get(i) ?? stepProducesByIdx.get(i) ?? []),
-        ...optionalPaths,
-      ];
-      const artifacts = dedupeArtifacts(
-        [...new Set(artifactPaths)]
-          .map((rel) => {
-            const a = describeArtifact(workspaceRoot, rel);
-            return optionalPaths.has(rel) ? { ...a, optional: true } : a;
-          })
-          .flatMap((a) => expandDirectoryArtifact(workspaceRoot, a)),
-      );
-      const artifactOptional = artifactRel !== undefined && optionalPaths.has(artifactRel);
-
-      return {
-        agent,
-        name: stepNameByIdx.get(i),
-        ...(stepDescriptionByIdx.has(i) ? { description: stepDescriptionByIdx.get(i) } : {}),
-        // An alternative runs its own command, whatever the step is named —
-        // the step name resolves to one fixed command file.
-        slashCommand: stepSelectedSkillByIdx.has(i)
-          ? `/${stepSelectedSkillByIdx.get(i)}`
-          : slashForStep(stepNameByIdx.get(i), stepSkillsByIdx.get(i)),
-        ...(() => {
-          const alt = stepAltByIdx.get(i);
-          if (!alt) { return {}; }
-          return {
-            skillChoices: alt.options.map((id) => {
-              const description = skillDescription(id);
-              return { id, slashCommand: `/${id}`, ...(description ? { description } : {}) };
-            }),
-            selectedSkill: stepSelectedSkillByIdx.get(i),
-            defaultSkill: alt.defaultSkill,
-          };
-        })(),
-        artifact: stepArtifactByIdx.get(i),
-        ...(artifactRel === undefined
-          ? {}
-          : {
-              artifactPath: artifactRel,
-              artifactExists: !!artifactOnDisk,
-              artifactStale,
-              ...(artifactOptional ? { artifactOptional } : {}),
-            }),
-        artifacts,
-        status: displayStatus,
-        startedAt: typeof s.startedAt === 'string' ? s.startedAt : null,
-        finishedAt: typeof s.finishedAt === 'string' ? s.finishedAt : null,
-        runStatus,
-        isCurrentRunStep: !!runState && i === runCurrentStepIdx,
-        rejectReason: runRejectByIdx.get(i),
-        autoReviewVerdict: runVerdictByIdx.get(i),
-        stepHasAutoReview: gate.auto,
-        stepHasHumanReview: gate.human,
-        dependsOn: stepDependsByIdx.get(i) ?? [],
-        canUndoDone: !!runState && !!pipelineCfg
-          && canUndoStepDone({ state: runState, pipeline: pipelineCfg, stepIdx: i }).ok,
-        canRerun: !!runState && !!pipelineCfg
-          && canRerunApprovedStep({ state: runState, pipeline: pipelineCfg, stepIdx: i }).ok,
-        dirty: runState?.steps[i]?.dirty,
-        dirtyUpstream: runState && pipelineCfg
-          ? dirtyUpstreamOf({ state: runState, pipeline: pipelineCfg, stepIdx: i })
-              .map((d) => ({ stepIdx: d.stepIdx, step: d.step, byStep: d.dirty.byStep }))
-          : [],
-        history,
-        rejectCount,
-        feedback: runFeedbackByIdx.get(i),
-        ...(branchInfo && { branchInfo }),
-      };
-    });
-
-    const inputs = readInputs(epicDir);
-
-    // The state.json's overall status doesn't sync from the run-state
-    // machine either, so when a runState is present, derive epic status
-    // from it. `failed` is reserved for a run actually stuck on a rejection
-    // — a rejected step with work still open elsewhere (a parallel branch,
-    // an `optional` step) leaves the epic `in_progress`, which is what it
-    // is. Falls back to state.json when no runState exists.
-    const epicStatus = progress ? progress.status : asStatus(parsed.status);
-    const currentStep = displayCursor
-      ?? (typeof parsed.currentStep === 'number' ? parsed.currentStep : 0);
-
-    epics.push({
-      id: epicId,
-      title: typeof parsed.title === 'string' ? parsed.title : '',
-      description: typeof parsed.description === 'string' ? parsed.description : '',
-      status: epicStatus,
-      createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
-      tags: readEpicTags(parsed),
-      pipeline: typeof parsed.pipeline === 'string' ? parsed.pipeline : null,
-      ...(() => {
-        const recipe = pipelineCfg
-          ? pipelineRecipeLabel(pipelineCfg, doc?.recipes as Array<{ id?: unknown; steps?: unknown }> | undefined)
-          : undefined;
-        return recipe ? { recipe } : {};
-      })(),
-      agent: typeof parsed.agent === 'string' ? parsed.agent : null,
-      agents: Array.isArray(parsed.agents) ? (parsed.agents as unknown[]).map(String) : [],
-      currentStep,
-      stepStatuses: stepDetails.map((s) => s.status),
-      stepDetails,
-      inputs,
-      inputsCount: Object.keys(inputs).length,
-      statePath: stateFile,
-      epicDir,
-      strictMode: epicStrictMode(parsed as { strict_mode?: unknown }),
-      runId: runState ? runState.runId : null,
-    });
+/** One epic folder's summary, or null when there is nothing to show for it. */
+function readEpicSummary(
+  workspaceRoot: string,
+  doc: YamlDocument | null,
+  dir: string,
+  folder: string,
+  skillDescription: (id: string) => string | undefined,
+): EpicSummary | null {
+  const epicDir = path.join(dir, folder);
+  const stateFile = path.join(epicDir, 'state.json');
+  if (!fs.existsSync(stateFile)) {
+    // No pipeline binding — fall back to an artifacts-only summary built
+    // from the `.md` files in this folder, instead of skipping it entirely.
+    return synthesizeArtifactsEpic(epicDir, folder);
   }
 
-  // Newest first by createdAt; ties fall back to id.
-  epics.sort((a, b) => {
-    const cmp = b.createdAt.localeCompare(a.createdAt);
-    if (cmp !== 0) { return cmp; }
-    return b.id.localeCompare(a.id);
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  } catch { return null; }
+  if (!parsed || typeof parsed !== 'object') { return null; }
+
+  const stepStatesRaw = Array.isArray(parsed.stepStates)
+    ? (parsed.stepStates as Array<Record<string, unknown>>)
+    : [];
+
+  const epicId = typeof parsed.id === 'string' ? parsed.id : folder;
+
+  // Overlay run-state if there's a matching pipeline run. The runId
+  // convention is `runId === epic.id`, set by `startPipelineRunCommand`.
+  // Wrap in try/catch so a malformed run file doesn't break the epic
+  // listing (the epic still renders with run-status === null).
+  let runState = null;
+  try {
+    runState = RunStateStore.load(workspaceRoot, epicId);
+  } catch { /* invalid runId — treat as no run */ }
+  // Overlay run-state keyed by step *index*, not agent id. A single agent
+  // (persona) can own several steps in a pipeline — e.g. the `qa` persona
+  // in `sdlc-parallel-full` owns test-plan, generate-test-cases, and
+  // execute-test. Keying by agent collapses those into one entry
+  // (last-writer-wins), so a mid-pipeline step that is genuinely
+  // `awaiting_work` inherits a trailing step's `pending` status and loses
+  // its "Mark step done" affordance (issue #57). RunState.steps has one
+  // ordered entry per pipeline step with an explicit `stepIdx` that aligns
+  // with both stepStatesRaw[i] and pipelineCfg.steps[i].
+  //
+  // That alignment is an invariant the runner now enforces rather than one
+  // this listing has to trust: `reconcileRunSteps` matches the two lists by
+  // step identity (`name ?? agent`) and every transition refuses to run on a
+  // drifted pair. Reading by index here is safe because a drifted run cannot
+  // have been advanced.
+  const runStepByIdx = new Map<number, StepStatus>();
+  const runRejectByIdx = new Map<number, string>();
+  const runVerdictByIdx = new Map<number, AutoReviewVerdict>();
+  const runHistoryByIdx = new Map<number, StepHistoryEntry[]>();
+  const runFeedbackByIdx = new Map<number, string>();
+  const runStartedAtByIdx = new Map<number, string>();
+  // What the step actually wrote, recorded by `markStepDone`. Richer than
+  // the pipeline's `produces`, which is only a declaration until it runs.
+  const runArtifactsByIdx = new Map<number, string[]>();
+  if (runState) {
+    for (const sr of runState.steps) {
+      runStepByIdx.set(sr.stepIdx, sr.status);
+      if (Array.isArray(sr.artifactsProduced) && sr.artifactsProduced.length > 0) {
+        runArtifactsByIdx.set(sr.stepIdx, sr.artifactsProduced);
+      }
+      if (sr.startedAt) { runStartedAtByIdx.set(sr.stepIdx, sr.startedAt); }
+      if (sr.rejectReason) { runRejectByIdx.set(sr.stepIdx, sr.rejectReason); }
+      if (sr.autoReviewVerdict) { runVerdictByIdx.set(sr.stepIdx, sr.autoReviewVerdict); }
+      if (sr.history && sr.history.length > 0) {
+        runHistoryByIdx.set(sr.stepIdx, sr.history);
+      }
+      if (sr.feedback) { runFeedbackByIdx.set(sr.stepIdx, sr.feedback); }
+    }
+  }
+  // Look up the pipeline definition from workspace.yaml so we can surface
+  // each step's configured gates (auto_review / human_review) on the panel,
+  // and tell an `optional` step from a required one.
+  const pipelineId = typeof parsed.pipeline === 'string' ? parsed.pipeline : null;
+  const pipelineCfg = pipelineId
+    ? (doc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId)
+    : undefined;
+
+  // Where the run stands, read once for both the badge and the cursor.
+  const progress = runState ? deriveRunProgress(runState, pipelineCfg) : null;
+  // A run written before the cursor stopped parking on settled steps still
+  // has `currentStepIdx` pointing at one that is over — a rejected side
+  // branch, or the step whose approval opened the next. Reading past it here
+  // means such a run shows its live step without its state being rewritten:
+  // the run file stays the record of what happened.
+  const cursorStatus = runState?.steps[runState.currentStepIdx]?.status;
+  const cursorSettled = cursorStatus === 'approved' || cursorStatus === 'rejected';
+  const displayCursor = runState
+    ? (cursorSettled && progress && progress.actionable.length > 0
+      ? progress.actionable[0]
+      : runState.currentStepIdx)
+    : undefined;
+  const runCurrentStepIdx = displayCursor;
+  const stepGateByIdx = new Map<number, { auto: boolean; human: boolean }>();
+  const stepDependsByIdx = new Map<number, string[]>();
+  const stepNameByIdx = new Map<number, string>();
+  const stepSkillsByIdx = new Map<number, string[]>();
+  const stepAltByIdx = new Map<number, { options: string[]; defaultSkill: string }>();
+  const stepSelectedSkillByIdx = new Map<number, string>();
+  const stepDescriptionByIdx = new Map<number, string>();
+  const stepArtifactByIdx = new Map<number, string>();
+  const stepArtifactPathByIdx = new Map<number, string>();
+  const stepProducesByIdx = new Map<number, string[]>();
+  /** Resolved paths of the `{ path, optional: true }` entries, per step. */
+  const stepOptionalByIdx = new Map<number, Set<string>>();
+  // Same context the runner resolves `produces` with, so the panel and
+  // `markStepDone` are looking at the same file.
+  const artifactContext: Record<string, string> = runState?.context ?? { epic: epicId };
+  if (pipelineCfg && Array.isArray(pipelineCfg.steps)) {
+    pipelineCfg.steps.forEach((raw, i) => {
+      const norm = normalizeStep(raw as PipelineStepConfig);
+      stepGateByIdx.set(i, { auto: norm.auto_review, human: norm.human_review });
+      stepDependsByIdx.set(i, norm.depends_on);
+      if (norm.name) { stepNameByIdx.set(i, norm.name); }
+      if (norm.skills && norm.skills.length > 0) { stepSkillsByIdx.set(i, norm.skills); }
+      const alt = stepSkillAlternatives(norm);
+      if (alt) { stepAltByIdx.set(i, alt); }
+      // What the card says the step does: its own `description`, else the
+      // description of the one skill it runs. Several skills leave it to the
+      // agent's description — picking one of them would be a guess — unless
+      // they are alternatives, where the one selected is the one that runs.
+      const remembered = runState?.steps.find((r) => r.stepIdx === i)?.skill;
+      const selected = alt
+        ? (remembered && alt.options.includes(remembered) ? remembered : alt.defaultSkill)
+        : undefined;
+      const description = norm.description
+        ?? (selected
+          ? skillDescription(selected)
+          : norm.skills?.length === 1 ? skillDescription(norm.skills[0]) : undefined);
+      if (selected) { stepSelectedSkillByIdx.set(i, selected); }
+      if (description) { stepDescriptionByIdx.set(i, description); }
+      // Surface the produced artifact for the per-step detail panel —
+      // `step.produces[0]` is the canonical artifact path on built-in
+      // pipelines (e.g. `docs/epics/{epic}/PRD.md`). The UI displays
+      // the basename and resolves the absolute path via `epic.epicDir`.
+      //
+      // Every entry is kept (`stepProducesByIdx`) so the panel can list a
+      // step that emits several files; the first stays the headline one.
+      // Take the label off the *resolved* path: a document pipeline names
+      // its output `docs/snp/analysis/{topic}.md`, and the raw basename
+      // would put the literal `{topic}.md` on the card.
+      const declared = norm.produces.filter((p): p is string => typeof p === 'string' && p.length > 0);
+      const resolvedProduces = declared.map((p) => resolvePath(p, artifactContext));
+      const optionalRaw = new Set(norm.produces_optional);
+      const optionalResolved = new Set(
+        declared.filter((p) => optionalRaw.has(p)).map((p) => resolvePath(p, artifactContext)),
+      );
+      if (optionalResolved.size > 0) { stepOptionalByIdx.set(i, optionalResolved); }
+      if (resolvedProduces.length > 0) {
+        stepProducesByIdx.set(i, resolvedProduces);
+        // The headline is what gates *Mark step done*, so it is the first
+        // required entry — an optional one only when there is nothing else.
+        const resolved = resolvedProduces.find((p) => !optionalResolved.has(p)) ?? resolvedProduces[0];
+        const basename = resolved.split(/[/\\]/).pop() ?? resolved;
+        if (basename) { stepArtifactByIdx.set(i, basename); }
+        stepArtifactPathByIdx.set(i, resolved);
+      }
+    });
+
+    // GH-TBD: Fall back to detecting artifacts from disk for steps that
+    // don't declare `produces`. This handles cases where a step runs and
+    // creates an artifact file (e.g. IMPLEMENT-SUMMARY.md) but the pipeline
+    // config doesn't list it in `produces`. Without this, the artifact won't
+    // display even though it exists on disk.
+    const artifactsDir = path.join(epicDir, 'artifacts');
+    if (fs.existsSync(artifactsDir)) {
+      try {
+        const onDiskFiles = new Set(
+          fs.readdirSync(artifactsDir)
+            .filter((n) => !n.startsWith('.') && /\.md$/i.test(n))
+            .map((n) => n.replace(/\.md$/i, '').toUpperCase())
+        );
+        // Reverse-map step names to indices to detect which step produced each artifact
+        const stepNameToIdx = new Map<string, number>();
+        pipelineCfg.steps.forEach((raw, i) => {
+          const norm = normalizeStep(raw as PipelineStepConfig);
+          if (norm.name) { stepNameToIdx.set(norm.name.toUpperCase(), i); }
+        });
+        // For each on-disk artifact not yet mapped, try to find its step by convention
+        for (const fileBase of onDiskFiles) {
+          // Check if already mapped
+          if (Array.from(stepArtifactByIdx.values()).some((v) =>
+            v.replace(/\.md$/i, '').toUpperCase() === fileBase)) { continue; }
+          // Try to match by step name (e.g., "IMPLEMENT" → implement step)
+          const stepIdx = stepNameToIdx.get(fileBase);
+          if (stepIdx !== undefined) {
+            stepArtifactByIdx.set(stepIdx, fileBase + '.md');
+          }
+        }
+      } catch { /* Ignore read errors */ }
+    }
+  }
+
+  // Resolve each step's slash command from workspace.yaml `slash_commands`
+  // (the source of truth) rather than reconstructing it — pipelines may use
+  // bare (`/implement`) or pipeline-namespaced (`/sdlc-parallel-full-implement`)
+  // command names, and only the table knows which was actually installed.
+  const slashNames = new Set(
+    Array.isArray(doc?.slash_commands)
+      ? (doc!.slash_commands as Array<{ name?: unknown }>).map((c) => String(c.name ?? ''))
+      : [],
+  );
+  const allPipelineIds = Array.isArray(doc?.pipelines)
+    ? (doc!.pipelines as Array<{ id?: unknown }>)
+        .map((p) => (typeof p.id === 'string' ? p.id : ''))
+        .filter(Boolean)
+    : [];
+  const slashForStep = (
+    stepName: string | undefined,
+    skills: string[] | undefined,
+  ): string | undefined => {
+    // A step's `skills:` names the command file that actually runs it, and
+    // it is the only entry that survives the epic owning its own pipeline:
+    // there, `pipelineId` is the epic id, so a namespaced guess spells
+    // `/CR-Y01-cr-solo-dev` — a command that cannot exist, and never will,
+    // because it would need a fresh command file per epic. The epic id is an
+    // argument (`/cr-solo-dev CR-Y01`), never part of the name.
+    const fromSkill = skills?.find((id) => id && slashNames.has(`/${id}`));
+    if (!stepName) { return fromSkill ? `/${fromSkill}` : undefined; }
+    const namespaced = pipelineId ? `/${pipelineId}-${stepName}` : '';
+    if (namespaced && slashNames.has(namespaced)) { return namespaced; }
+    const bare = `/${stepName}`;
+    if (slashNames.has(bare)) { return bare; }
+    if (fromSkill) { return `/${fromSkill}`; }
+    // A recipe-assembled epic runs on a per-epic pipeline (e.g. `SWIFT-142`),
+    // but the command files are only generated for the recipe's *source*
+    // pipeline (`/sdlc-parallel-full-implement`). The source command reads the
+    // epic id from its argument, so it works for the assembled epic too — find
+    // it by trying each known pipeline id + this exact step name (exact match
+    // avoids `plan` resolving to `test-plan`).
+    for (const pid of allPipelineIds) {
+      if (pid === pipelineId) { continue; }
+      const cand = `/${pid}-${stepName}`;
+      if (slashNames.has(cand)) { return cand; }
+    }
+    // Nothing is installed under either name yet (fresh build before
+    // re-apply). A skill the step declares is a real file id, so it beats a
+    // synthesized name; otherwise prefer namespaced when the pipeline id is
+    // known, and fall back to bare.
+    const declared = skills?.[0];
+    if (declared) { return `/${declared}`; }
+    return namespaced || bare;
+  };
+
+  const annotationHistory = readAnnotationHistory(path.join(epicDir, 'artifacts'));
+
+  const stepDetails = stepStatesRaw.map((s, i) => {
+    const agent = typeof s.agent === 'string' ? s.agent : '';
+    const gate = stepGateByIdx.get(i) ?? { auto: false, human: false };
+    const runStatus = runStepByIdx.get(i) ?? null;
+    const artifactForStep = stepArtifactByIdx.get(i);
+    const history = mergeHistory(
+      runHistoryByIdx.get(i),
+      artifactForStep ? annotationHistory[artifactForStep] : undefined,
+    );
+    const rejectCount = history
+      ? history.filter((e) => e.kind === 'reject').length
+      : 0;
+    // The state.json's per-step status doesn't sync from the run-state
+    // machine, so prefer the run status when it's present. Mapping:
+    //   approved                                  → done
+    //   rejected                                  → failed
+    //   awaiting_work | awaiting_auto_review |
+    //   awaiting_review                           → in_progress
+    //   pending / no run                          → fall back to state.json
+    const displayStatus =
+      runStatus === 'approved'
+        ? ('done' as const)
+        : runStatus === 'rejected'
+        ? ('failed' as const)
+        : runStatus === 'awaiting_work'
+        || runStatus === 'awaiting_auto_review'
+        || runStatus === 'awaiting_review'
+        ? ('in_progress' as const)
+        : asStatus(s.status);
+
+    // Existence is checked against the workspace root, not the epic folder:
+    // `produces` may name any path in the repo and the runner resolves it
+    // that way (PipelineRunner.markStepDone).
+    const artifactRel = stepArtifactPathByIdx.get(i);
+    const artifactAbs = artifactRel === undefined
+      ? undefined
+      : path.isAbsolute(artifactRel) ? artifactRel : path.join(workspaceRoot, artifactRel);
+    const artifactStat = artifactAbs === undefined ? undefined : statOrNull(artifactAbs);
+    const artifactOnDisk = artifactRel === undefined ? undefined : !!artifactStat;
+
+    // Consecutive steps may declare the *same* `produces` file — a document
+    // pipeline where one step drafts the analysis and the next appends to
+    // it. Existence alone then says nothing about whether *this* step has
+    // run: the file was already there when the step opened. Compare the
+    // file's mtime against the step's `startedAt` to tell "written for this
+    // step" from "inherited from an earlier one".
+    const stepStartedAt = runStartedAtByIdx.get(i)
+      ?? (typeof s.startedAt === 'string' ? s.startedAt : undefined);
+    const startedMs = stepStartedAt ? Date.parse(stepStartedAt) : NaN;
+    const artifactStale = !!artifactStat
+      && !Number.isNaN(startedMs)
+      && artifactStat.mtimeMs < startedMs;
+
+    // GH-74 Part 2: Parse branch info from artifact summary (for implement/branch-artifact steps)
+    const branchInfo = artifactForStep?.toUpperCase() === 'IMPLEMENT-SUMMARY.MD'
+      ? parseBranchInfoFromSummary(path.join(epicDir, 'artifacts', 'IMPLEMENT-SUMMARY.md'))
+      : undefined;
+
+    // Prefer what the run recorded over what the pipeline declares: a step
+    // that has finished knows its own output, while the declaration is only
+    // a promise until then.
+    // An optional entry the step did not write is absent from that record,
+    // and is added back from the declaration: a step that finished without
+    // its diagram should still say it had one to offer.
+    const optionalPaths = stepOptionalByIdx.get(i) ?? new Set<string>();
+    const artifactPaths = [
+      ...(runArtifactsByIdx.get(i) ?? stepProducesByIdx.get(i) ?? []),
+      ...optionalPaths,
+    ];
+    const artifacts = dedupeArtifacts(
+      [...new Set(artifactPaths)]
+        .map((rel) => {
+          const a = describeArtifact(workspaceRoot, rel);
+          return optionalPaths.has(rel) ? { ...a, optional: true } : a;
+        })
+        .flatMap((a) => expandDirectoryArtifact(workspaceRoot, a)),
+    );
+    const artifactOptional = artifactRel !== undefined && optionalPaths.has(artifactRel);
+
+    return {
+      agent,
+      name: stepNameByIdx.get(i),
+      ...(stepDescriptionByIdx.has(i) ? { description: stepDescriptionByIdx.get(i) } : {}),
+      // An alternative runs its own command, whatever the step is named —
+      // the step name resolves to one fixed command file.
+      slashCommand: stepSelectedSkillByIdx.has(i)
+        ? `/${stepSelectedSkillByIdx.get(i)}`
+        : slashForStep(stepNameByIdx.get(i), stepSkillsByIdx.get(i)),
+      ...(() => {
+        const alt = stepAltByIdx.get(i);
+        if (!alt) { return {}; }
+        return {
+          skillChoices: alt.options.map((id) => {
+            const description = skillDescription(id);
+            return { id, slashCommand: `/${id}`, ...(description ? { description } : {}) };
+          }),
+          selectedSkill: stepSelectedSkillByIdx.get(i),
+          defaultSkill: alt.defaultSkill,
+        };
+      })(),
+      artifact: stepArtifactByIdx.get(i),
+      ...(artifactRel === undefined
+        ? {}
+        : {
+            artifactPath: artifactRel,
+            artifactExists: !!artifactOnDisk,
+            artifactStale,
+            ...(artifactOptional ? { artifactOptional } : {}),
+          }),
+      artifacts,
+      status: displayStatus,
+      startedAt: typeof s.startedAt === 'string' ? s.startedAt : null,
+      finishedAt: typeof s.finishedAt === 'string' ? s.finishedAt : null,
+      runStatus,
+      isCurrentRunStep: !!runState && i === runCurrentStepIdx,
+      rejectReason: runRejectByIdx.get(i),
+      autoReviewVerdict: runVerdictByIdx.get(i),
+      stepHasAutoReview: gate.auto,
+      stepHasHumanReview: gate.human,
+      dependsOn: stepDependsByIdx.get(i) ?? [],
+      canUndoDone: !!runState && !!pipelineCfg
+        && canUndoStepDone({ state: runState, pipeline: pipelineCfg, stepIdx: i }).ok,
+      canRerun: !!runState && !!pipelineCfg
+        && canRerunApprovedStep({ state: runState, pipeline: pipelineCfg, stepIdx: i }).ok,
+      dirty: runState?.steps[i]?.dirty,
+      dirtyUpstream: runState && pipelineCfg
+        ? dirtyUpstreamOf({ state: runState, pipeline: pipelineCfg, stepIdx: i })
+            .map((d) => ({ stepIdx: d.stepIdx, step: d.step, byStep: d.dirty.byStep }))
+        : [],
+      history,
+      rejectCount,
+      feedback: runFeedbackByIdx.get(i),
+      ...(branchInfo && { branchInfo }),
+    };
   });
-  return epics;
+
+  const inputs = readInputs(epicDir);
+
+  // The state.json's overall status doesn't sync from the run-state
+  // machine either, so when a runState is present, derive epic status
+  // from it. `failed` is reserved for a run actually stuck on a rejection
+  // — a rejected step with work still open elsewhere (a parallel branch,
+  // an `optional` step) leaves the epic `in_progress`, which is what it
+  // is. Falls back to state.json when no runState exists.
+  const epicStatus = progress ? progress.status : asStatus(parsed.status);
+  const currentStep = displayCursor
+    ?? (typeof parsed.currentStep === 'number' ? parsed.currentStep : 0);
+
+  return {
+    id: epicId,
+    title: typeof parsed.title === 'string' ? parsed.title : '',
+    description: typeof parsed.description === 'string' ? parsed.description : '',
+    status: epicStatus,
+    createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
+    tags: readEpicTags(parsed),
+    pipeline: typeof parsed.pipeline === 'string' ? parsed.pipeline : null,
+    ...(() => {
+      const recipe = pipelineCfg
+        ? pipelineRecipeLabel(pipelineCfg, doc?.recipes as Array<{ id?: unknown; steps?: unknown }> | undefined)
+        : undefined;
+      return recipe ? { recipe } : {};
+    })(),
+    agent: typeof parsed.agent === 'string' ? parsed.agent : null,
+    agents: Array.isArray(parsed.agents) ? (parsed.agents as unknown[]).map(String) : [],
+    currentStep,
+    stepStatuses: stepDetails.map((s) => s.status),
+    stepDetails,
+    inputs,
+    inputsCount: Object.keys(inputs).length,
+    statePath: stateFile,
+    epicDir,
+    strictMode: epicStrictMode(parsed as { strict_mode?: unknown }),
+    runId: runState ? runState.runId : null,
+  };
 }
+
+/**
+ * Run states read for token attribution, by run file, valid for the mtime
+ * they were read at. Attribution needs every run's step windows on every
+ * refresh — overlap is a property of the whole set — but only a moved run
+ * has new ones.
+ */
+const usageRunStates = new Map<string, { mtimeMs: number; run: RunState }>();
 
 /**
  * Mutate the given epics in-place to fill in `tokenUsage` (epic-level) and
@@ -1174,10 +1357,15 @@ export async function enrichEpicsWithUsage(
     const runFile = path.join(workspaceRoot, '.aidlc', 'runs', `${epic.runId}.json`);
     let stat: fs.Stats;
     try { stat = fs.statSync(runFile); } catch { continue; }
-    let runState: RunState | null = null;
-    try { runState = RunStateStore.load(workspaceRoot, epic.runId); }
-    catch { continue; }
-    if (!runState) continue;
+    let runState = usageRunStates.get(runFile)?.mtimeMs === stat.mtimeMs
+      ? usageRunStates.get(runFile)!.run
+      : null;
+    if (!runState) {
+      try { runState = RunStateStore.load(workspaceRoot, epic.runId); }
+      catch { continue; }
+      if (!runState) continue;
+      usageRunStates.set(runFile, { mtimeMs: stat.mtimeMs, run: runState });
+    }
     runs.push(runState);
     mtimes.push(stat.mtimeMs);
   }

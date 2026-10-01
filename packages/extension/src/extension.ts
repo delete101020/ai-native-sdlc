@@ -15,6 +15,7 @@
 
 import * as vscode from 'vscode';
 import { exec } from 'child_process';
+import * as path from 'path';
 import * as yaml from 'js-yaml';
 
 import { registerV2WorkspaceCommands } from './v2/workspaceCommands';
@@ -30,6 +31,9 @@ import { registerClaudeAccounts } from './v2/claudeAccounts';
 import { registerClaudePlanUsage } from './v2/claudeUsage';
 import { migrateLegacySettings } from './v2/settingsMigration';
 import { EpicFocusController } from './v2/epicFocus';
+import { setEpicUsageCacheFile } from './v2/epicTokenAttribution';
+import { invalidateEpicListing } from './v2/epicsList';
+import { onDidSaveRun } from './v2/runCommands';
 import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './v2/epicsDirSync';
 import {
   WORKSPACE_DIR,
@@ -58,6 +62,13 @@ export function activate(context: vscode.ExtensionContext): void {
   // Before anything can open the workspace panel: it reads its saved UI
   // choices (the Epics sort) from here.
   WorkspaceWebview.useUiStore(context.globalState);
+
+  // Per-epic token figures survive a reload, so the first refresh does not
+  // re-read every transcript since the oldest epic began.
+  setEpicUsageCacheFile(
+    vscode.Uri.joinPath(context.globalStorageUri, 'epic-token-usage.json').fsPath,
+    String(context.extension.packageJSON.version ?? ''),
+  );
 
   // Settings moved from aidlc.* to aidlcNative.* in 4.0.0; copy what the user
   // had and offer a reload, since this activation already read the old state.
@@ -224,10 +235,17 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(runsWatcher);
   }
 
+  // The epic listing is cached per epic and re-read only where a file it
+  // depends on changed; this is what tells it which. Registered before any
+  // refresh can read it, and every refresh waits a beat, so the cache hears
+  // of a change before the rebuild that change set off.
+  registerEpicListingInvalidation(context);
+
   // Re-build watcher when the user opens/closes a folder so a freshly opened
   // project is reflected in the sidebar without a window reload.
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      invalidateEpicListing();
       sidebar.refresh();
     }),
   );
@@ -371,6 +389,27 @@ function createAidlcAssetsWatcher(): vscode.FileSystemWatcher | null {
   const pattern = new vscode.RelativePattern(folder, '.aidlc/{skills,agents}/**');
   const watcher = vscode.workspace.createFileSystemWatcher(pattern);
   return watcher;
+}
+
+/**
+ * Feed every workspace file event, and every run this extension saves, to the
+ * epic listing cache. The watcher is the whole tree on purpose: a pipeline may
+ * declare its artifacts anywhere in the repo, and the cache itself decides —
+ * cheaply — which events concern an epic.
+ */
+function registerEpicListingInvalidation(context: vscode.ExtensionContext): void {
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  context.subscriptions.push(onDidSaveRun((runId) => {
+    if (root) { invalidateEpicListing(path.join(root, WORKSPACE_DIR, 'runs', `${runId}.json`)); }
+  }));
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder) { return; }
+  const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, '**/*'));
+  const changed = (uri: vscode.Uri) => invalidateEpicListing(uri.fsPath);
+  watcher.onDidChange(changed, null, context.subscriptions);
+  watcher.onDidCreate(changed, null, context.subscriptions);
+  watcher.onDidDelete(changed, null, context.subscriptions);
+  context.subscriptions.push(watcher);
 }
 
 /**

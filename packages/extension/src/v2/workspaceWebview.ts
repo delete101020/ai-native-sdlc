@@ -283,6 +283,8 @@ import type {
 import { promptStepConfig, type PipelineStepConfigDraft } from './wizards';
 import {
   listEpics,
+  listEpicsCached,
+  invalidateEpicListing,
   epicPinningPipeline,
   enrichEpicsWithUsage,
   mirrorRunStateToEpic,
@@ -776,7 +778,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     }
   }
 
-  const epics = listEpics(root, doc).map((e) => toEpicSummaryUi(e));
+  const epics = listEpicsCached(root, doc).map((e) => toEpicSummaryUi(e));
 
   // No auto-injection: the Domain dropdown only shows pipelines that are
   // actually declared in workspace.yaml. Users add built-ins via the
@@ -1063,7 +1065,7 @@ async function mergeEpicTokenUsageInto(state: WorkspaceState): Promise<void> {
   const root = folder.uri.fsPath;
   let summaries: CoreEpicSummary[];
   try {
-    summaries = listEpics(root, readYaml(root));
+    summaries = listEpicsCached(root, readYaml(root));
   } catch { return; }
   try {
     await enrichEpicsWithUsage(root, summaries);
@@ -1799,6 +1801,11 @@ export class WorkspaceWebview {
   private latestState: WorkspaceState | undefined;
   /** Token figures from the last finished walk, shown until the next one lands. */
   private knownTokenUsage: KnownTokenUsage = new Map();
+  /**
+   * Each epic as the webview last received it, serialized, by id. Empty means
+   * the webview holds nothing we can count on, and the next post is whole.
+   */
+  private postedEpics = new Map<string, string>();
   private tokenUsageRunning = false;
   private tokenUsageStale = false;
 
@@ -2043,11 +2050,9 @@ export class WorkspaceWebview {
   /**
    * Post the panel state now, and the token figures once they are known.
    *
-   * Token attribution walks every Claude transcript since the oldest epic
-   * started, and its cache is keyed by every run file's mtime — so the one
-   * write a step transition makes misses it for the whole workspace. Waiting
-   * on it before posting is what held a moved step back for seconds after the
-   * toast announcing the move. The step is posted with the figures from the
+   * Token attribution re-reads this project's transcripts for every run that
+   * moved, since that run began. Waiting on it before posting is what held a
+   * moved step back for seconds after the toast announcing the move. The step is posted with the figures from the
    * last computation; the fresh ones follow in a second post.
    */
   private async refreshAsync(): Promise<void> {
@@ -2057,7 +2062,7 @@ export class WorkspaceWebview {
     const state = buildState(this.currentView);
     applyKnownTokenUsage(state, this.knownTokenUsage);
     this.latestState = state;
-    void this.panel.webview.postMessage({ type: 'state', state });
+    this.postState(state);
     await this.refreshTokenUsage();
   }
 
@@ -2079,12 +2084,41 @@ export class WorkspaceWebview {
         this.knownTokenUsage = collectTokenUsage(state);
         if (this.disposed) { return; }
         if (state === this.latestState && JSON.stringify([...this.knownTokenUsage]) !== before) {
-          void this.panel.webview.postMessage({ type: 'state', state });
+          this.postState(state);
         }
       } while (this.tokenUsageStale);
     } finally {
       this.tokenUsageRunning = false;
     }
+  }
+
+  /**
+   * Post `state`, sending only the epics that changed since the last post —
+   * the rest go by id (see `webview/lib/hostState`). A step moving on one epic
+   * used to send every epic, history and all, and have every card re-render;
+   * with hundreds of epics that is megabytes a post.
+   */
+  private postState(state: WorkspaceState): void {
+    const posted = new Map<string, string>();
+    const changed: WorkspaceState['epics'] = [];
+    for (const epic of state.epics) {
+      const json = JSON.stringify(epic);
+      if (this.postedEpics.get(epic.id) !== json) { changed.push(epic); }
+      posted.set(epic.id, json);
+    }
+    // Ids must name one epic each for the webview to put them back together.
+    const unique = posted.size === state.epics.length;
+    const whole = this.postedEpics.size === 0 || !unique;
+    this.postedEpics = unique ? posted : new Map();
+    if (whole) {
+      void this.panel.webview.postMessage({ type: 'state', state });
+      return;
+    }
+    void this.panel.webview.postMessage({
+      type: 'state',
+      state: { ...state, epics: [] },
+      lists: { epics: { ids: state.epics.map((e) => e.id), changed } },
+    });
   }
 
   setView(view: WorkspaceView): void {
@@ -2367,7 +2401,10 @@ export class WorkspaceWebview {
   private async handleMessage(msg: { type: string; [k: string]: unknown }): Promise<void> {
     switch (msg.type) {
       case 'ready': {
+        // A webview starting up holds only the state it was created with; one
+        // sent an epic delta it could not place says `ready` again.
         this.booted = true;
+        this.postedEpics.clear();
         this.refresh();
         const pending = this.pendingFocusEpic;
         this.pendingFocusEpic = null;
@@ -2380,6 +2417,7 @@ export class WorkspaceWebview {
       // watcher event never arrives) leaves the panel showing an epic that is
       // no longer on disk, with nothing the user can do about it.
       case 'refresh': {
+        invalidateEpicListing();
         this.refresh();
         return;
       }

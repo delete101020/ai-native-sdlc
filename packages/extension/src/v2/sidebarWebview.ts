@@ -19,6 +19,9 @@ import * as fs from 'fs';
 
 const DEMO_DIR_NAME = 'aidlc-demo-project';
 
+/** How long the sidebar waits for more refresh calls before rebuilding. */
+const SIDEBAR_REFRESH_COALESCE_MS = 30;
+
 import { readYaml, writeYaml } from './yamlIO';
 import {
   WORKSPACE_DIR,
@@ -42,7 +45,7 @@ import {
   isActiveStatus,
 } from '@aidlc/core';
 import type { PipelineConfig, DiscoveredAsset, EpicIdPrefixSource } from '@aidlc/core';
-import { listEpics } from './epicsList';
+import { listEpicsCached } from './epicsList';
 import type { PresetStore } from './presetStore';
 import { themeManager } from './themeManager';
 import { loadMcpServers, type McpServerInfo } from './mcpServers';
@@ -253,7 +256,7 @@ function buildState(
   const doc = readYaml(root);
 
   // Epics live on disk independent of workspace.yaml — list them either way.
-  const allEpics = listEpics(root, doc);
+  const allEpics = listEpicsCached(root, doc);
 
   // Discovered skills + agents from .claude/ (project) and ~/.claude/
   // (global). These are independent of workspace.yaml — they exist as
@@ -530,6 +533,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
   // user trigger refreshes from the UI.
   private mcp: McpSnapshot = { servers: null, loading: false, error: null };
   private mcpLoadPromise: Promise<void> | null = null;
+  private refreshQueued = false;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -561,12 +565,22 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     void this.loadMcp();
   }
 
+  /**
+   * Rebuild and post the state, once for every burst of calls. One step
+   * transition fires several watchers (the run file, the epic's state.json, an
+   * artifact) and each used to rebuild the whole sidebar in turn.
+   */
   refresh(): void {
-    if (!this.view) { return; }
-    void this.view.webview.postMessage({
-      type: 'state',
-      state: buildState(this.presetStore, this.mcp),
-    });
+    if (!this.view || this.refreshQueued) { return; }
+    this.refreshQueued = true;
+    setTimeout(() => {
+      this.refreshQueued = false;
+      if (!this.view) { return; }
+      void this.view.webview.postMessage({
+        type: 'state',
+        state: buildState(this.presetStore, this.mcp),
+      });
+    }, SIDEBAR_REFRESH_COALESCE_MS);
   }
 
   private async loadMcp(): Promise<void> {

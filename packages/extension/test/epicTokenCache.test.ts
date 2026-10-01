@@ -4,7 +4,12 @@ import * as path from 'path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { RunState } from '@aidlc/core';
-import { computeWorkspaceEpicUsage, getOrComputeWorkspaceEpicUsage } from '../src/v2/epicTokenAttribution';
+import {
+  computeWorkspaceEpicUsage,
+  getOrComputeWorkspaceEpicUsage,
+  setEpicUsageCacheFile,
+  transcriptFoldersFor,
+} from '../src/v2/epicTokenAttribution';
 
 let tmp: string;
 let root: string;
@@ -74,5 +79,32 @@ describe('getOrComputeWorkspaceEpicUsage', () => {
     expect(usage.get('RUN-A')?.total.calls).toBe(1);
     expect(usage.get('RUN-A')?.hasOverlap).toBe(true);
     expect(usage.get('RUN-B')?.hasOverlap).toBe(true);
+  });
+});
+
+describe('transcriptFoldersFor', () => {
+  it('keeps the root folder and those of directories above it', () => {
+    const folders = ['-Users-me', '-Users-me-repo', '-Users-me-repo-sub', '-Users-me-repo2', '-Users-other'];
+    expect(transcriptFoldersFor('/Users/me/repo', folders)).toEqual(['-Users-me', '-Users-me-repo']);
+  });
+
+  it('reads every folder when none matches or the name would be shortened', () => {
+    expect(transcriptFoldersFor('/Users/me/repo', ['-Users-other'])).toBeNull();
+    expect(transcriptFoldersFor(`/${'x'.repeat(250)}`, ['-x'])).toBeNull();
+  });
+});
+
+describe('setEpicUsageCacheFile', () => {
+  it('writes the figures out and reads them back for the same version only', async () => {
+    const file = path.join(tmp, 'cache', 'usage.json');
+    setEpicUsageCacheFile(file, 'v1');
+    const c = run('RUN-C', '2026-09-01T10:00:00Z', '2026-09-01T11:00:00Z');
+    await getOrComputeWorkspaceEpicUsage(root, [c], [7]);
+    for (let i = 0; i < 50 && !fs.existsSync(file); i++) { await new Promise((r) => setTimeout(r, 10)); }
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect(saved.version).toBe('v1');
+    expect(Object.keys(saved.entries).some((k) => k.endsWith('::RUN-C'))).toBe(true);
+
+    setEpicUsageCacheFile(null);
   });
 });
