@@ -297,6 +297,7 @@ import {
   chooseStepSkillInlineCommand,
   rerunApprovedStepInlineCommand,
   startPipelineRunInlineCommand,
+  onDidSaveRun,
 } from './runCommands';
 import { pickAndReadTextFile } from './pickAndReadTextFile';
 import { scaffoldRequirementAnalysis } from './requirementWizard';
@@ -1093,6 +1094,42 @@ async function mergeEpicTokenUsageInto(state: WorkspaceState): Promise<void> {
   }
 }
 
+/** How long {@link WorkspaceWebview.refresh} waits to gather a burst of calls. */
+const REFRESH_COALESCE_MS = 30;
+
+/** Token figures per epic id: the epic total and each step's, by position. */
+type KnownTokenUsage = Map<string, {
+  epic?: EpicTokenUsage;
+  steps: Array<EpicStepTokenUsage | undefined>;
+}>;
+
+function collectTokenUsage(state: WorkspaceState): KnownTokenUsage {
+  const out: KnownTokenUsage = new Map();
+  for (const epic of state.epics ?? []) {
+    out.set(epic.id, {
+      epic: epic.tokenUsage,
+      steps: epic.stepDetails.map((s) => s.tokenUsage),
+    });
+  }
+  return out;
+}
+
+/**
+ * Carry the last computed token figures onto a freshly built state, so the
+ * badges hold their numbers instead of blinking out until the walk finishes.
+ */
+function applyKnownTokenUsage(state: WorkspaceState, known: KnownTokenUsage): void {
+  for (const epic of state.epics ?? []) {
+    const k = known.get(epic.id);
+    if (!k) { continue; }
+    if (k.epic && !epic.tokenUsage) { epic.tokenUsage = k.epic; }
+    for (let i = 0; i < epic.stepDetails.length && i < k.steps.length; i++) {
+      const su = k.steps[i];
+      if (su && !epic.stepDetails[i].tokenUsage) { epic.stepDetails[i].tokenUsage = su; }
+    }
+  }
+}
+
 interface FollowUpHookFailureUi {
   hook: string;
   event: string;
@@ -1756,6 +1793,14 @@ export class WorkspaceWebview {
   private producesWatchers: vscode.Disposable[] = [];
   private producesGlobs: string[] = [];
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  private refreshQueued = false;
+  private disposed = false;
+  /** The state last posted, which a token walk in flight fills in. */
+  private latestState: WorkspaceState | undefined;
+  /** Token figures from the last finished walk, shown until the next one lands. */
+  private knownTokenUsage: KnownTokenUsage = new Map();
+  private tokenUsageRunning = false;
+  private tokenUsageStale = false;
 
   static show(extensionUri: vscode.Uri, initialView: WorkspaceView = 'builder'): void {
     const column = vscode.ViewColumn.One;
@@ -1929,12 +1974,28 @@ export class WorkspaceWebview {
     this.disposables.push(agentActivity.onDidChange(() => this.refresh()));
     // A hook result lands in the parent's ledger, which no file watcher covers.
     this.disposables.push(onDidRecordFollowUpHook(() => this.refresh()));
+    // A transition saved by this extension; the watchers would get there too,
+    // only later.
+    this.disposables.push(onDidSaveRun(() => this.refresh()));
 
     this.refresh();
   }
 
+  /**
+   * Rebuild and post the panel state, coalescing a burst into one rebuild.
+   *
+   * A single transition writes the run file, the epic's state.json and often
+   * its committed artifacts, and every watcher above fires for each of them —
+   * each one used to rebuild the whole state for every epic. The rebuild runs
+   * a moment after the first call and reads the files after all of them.
+   */
   refresh(): void {
-    void this.refreshAsync();
+    if (this.refreshQueued || this.disposed) { return; }
+    this.refreshQueued = true;
+    setTimeout(() => {
+      this.refreshQueued = false;
+      void this.refreshAsync();
+    }, REFRESH_COALESCE_MS);
   }
 
   /**
@@ -1979,12 +2040,51 @@ export class WorkspaceWebview {
     }, 400);
   }
 
+  /**
+   * Post the panel state now, and the token figures once they are known.
+   *
+   * Token attribution walks every Claude transcript since the oldest epic
+   * started, and its cache is keyed by every run file's mtime — so the one
+   * write a step transition makes misses it for the whole workspace. Waiting
+   * on it before posting is what held a moved step back for seconds after the
+   * toast announcing the move. The step is posted with the figures from the
+   * last computation; the fresh ones follow in a second post.
+   */
   private async refreshAsync(): Promise<void> {
+    if (this.disposed) { return; }
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (root) { this.ensureWorkflowProjectFiles(root); }
     const state = buildState(this.currentView);
-    await mergeEpicTokenUsageInto(state);
+    applyKnownTokenUsage(state, this.knownTokenUsage);
+    this.latestState = state;
     void this.panel.webview.postMessage({ type: 'state', state });
+    await this.refreshTokenUsage();
+  }
+
+  /**
+   * One attribution walk at a time. A refresh landing mid-walk only marks the
+   * result stale; the walk then runs once more against the newest state
+   * rather than once per refresh in parallel.
+   */
+  private async refreshTokenUsage(): Promise<void> {
+    if (this.tokenUsageRunning) { this.tokenUsageStale = true; return; }
+    this.tokenUsageRunning = true;
+    try {
+      do {
+        this.tokenUsageStale = false;
+        const state = this.latestState;
+        if (!state) { return; }
+        const before = JSON.stringify([...collectTokenUsage(state)]);
+        await mergeEpicTokenUsageInto(state);
+        this.knownTokenUsage = collectTokenUsage(state);
+        if (this.disposed) { return; }
+        if (state === this.latestState && JSON.stringify([...this.knownTokenUsage]) !== before) {
+          void this.panel.webview.postMessage({ type: 'state', state });
+        }
+      } while (this.tokenUsageStale);
+    } finally {
+      this.tokenUsageRunning = false;
+    }
   }
 
   setView(view: WorkspaceView): void {
@@ -2005,6 +2105,7 @@ export class WorkspaceWebview {
   }
 
   private dispose(): void {
+    this.disposed = true;
     WorkspaceWebview.current = undefined;
     if (this.refreshTimer) { clearTimeout(this.refreshTimer); this.refreshTimer = undefined; }
     while (this.producesWatchers.length) { this.producesWatchers.pop()?.dispose(); }

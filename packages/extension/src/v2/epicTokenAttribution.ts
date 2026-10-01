@@ -194,27 +194,12 @@ function stepStartedAt(step: StepRecord): string | null {
   return null;
 }
 
-interface ComputeInput {
-  workspaceRoot: string;
-  run: RunState;
-  /** Other runs in the same workspace — used to detect parallel overlap. */
-  otherRuns: RunState[];
-}
-
-const cache = new Map<string, EpicUsage>();
-
-function cacheKey(input: ComputeInput, mtimes: number[]): string {
-  return `${input.workspaceRoot}::${input.run.runId}::${mtimes.join(':')}`;
-}
-
 /**
- * Get cached usage if available, else null. Sync — safe to call from
- * `listEpics` without making it async. Caller should later trigger
- * `computeWorkspaceEpicUsage` to populate cache for next refresh.
+ * Last computed usage per run, keyed by `<workspace>::<runId>` and valid for
+ * the run file's mtime it was computed at. A run's usage depends only on its
+ * own step windows, so one run moving leaves every other entry good.
  */
-export function getCachedEpicUsage(input: ComputeInput, mtimes: number[]): EpicUsage | null {
-  return cache.get(cacheKey(input, mtimes)) ?? null;
-}
+const cache = new Map<string, { mtimeMs: number; usage: EpicUsage }>();
 
 /**
  * Compute (and cache) usage for every run in a workspace. Single jsonl
@@ -323,27 +308,7 @@ export async function computeWorkspaceEpicUsage(
     }
   }
 
-  // Detect overlap between any pair of step windows from different runs.
-  // Two steps overlapping in time means the same usage record can fall into
-  // both — flagged via `hasOverlap` so the UI can warn the user.
-  const overlapByRunId = new Map<string, boolean>();
-  for (let i = 0; i < ctxByRun.length; i++) {
-    let overlap = false;
-    outer: for (let j = 0; j < ctxByRun.length; j++) {
-      if (i === j) continue;
-      for (const wi of ctxByRun[i].windows) {
-        if (!Number.isFinite(wi.startMs) || wi.endMs <= wi.startMs) continue;
-        for (const wj of ctxByRun[j].windows) {
-          if (!Number.isFinite(wj.startMs) || wj.endMs <= wj.startMs) continue;
-          if (wi.startMs < wj.endMs && wj.startMs < wi.endMs) {
-            overlap = true;
-            break outer;
-          }
-        }
-      }
-    }
-    overlapByRunId.set(ctxByRun[i].run.runId, overlap);
-  }
+  const overlapByRunId = detectOverlaps(ctxByRun.map((c) => ({ runId: c.run.runId, windows: c.windows })));
 
   // Finalize per-run totals. Epic total = sum of per-step usage. Steps
   // without `startedAt` contribute zero — old runs that pre-date the
@@ -367,6 +332,35 @@ export async function computeWorkspaceEpicUsage(
   // Cache by mtimes of state.json files (caller passes them in via cacheKey).
   // We don't have direct access to mtimes here, so the caller holds the cache.
   return result;
+}
+
+/**
+ * Detect overlap between any pair of step windows from different runs.
+ * Two steps overlapping in time means the same usage record can fall into
+ * both — flagged via `hasOverlap` so the UI can warn the user.
+ */
+function detectOverlaps(
+  runs: Array<{ runId: string; windows: StepWindow[] }>,
+): Map<string, boolean> {
+  const overlapByRunId = new Map<string, boolean>();
+  for (let i = 0; i < runs.length; i++) {
+    let overlap = false;
+    outer: for (let j = 0; j < runs.length; j++) {
+      if (i === j) continue;
+      for (const wi of runs[i].windows) {
+        if (!Number.isFinite(wi.startMs) || wi.endMs <= wi.startMs) continue;
+        for (const wj of runs[j].windows) {
+          if (!Number.isFinite(wj.startMs) || wj.endMs <= wj.startMs) continue;
+          if (wi.startMs < wj.endMs && wj.startMs < wi.endMs) {
+            overlap = true;
+            break outer;
+          }
+        }
+      }
+    }
+    overlapByRunId.set(runs[i].runId, overlap);
+  }
+  return overlapByRunId;
 }
 
 interface RunCtxLike {
@@ -481,36 +475,40 @@ async function processJsonl(
 }
 
 /**
- * Caller-facing wrapper: caches the result across calls, recomputing only
- * when the run state mtimes change.
+ * Caller-facing wrapper: caches each run's usage across calls, re-walking the
+ * transcripts only for the runs whose state file changed.
  *
- * Pass the resolved mtime list (parallel to `runs`) so the cache key is
- * stable across processes.
+ * Pass the resolved mtime list (parallel to `runs`). The cache used to be
+ * keyed by every mtime at once, so a single step transition anywhere threw
+ * the whole workspace's usage away and re-read every transcript since the
+ * oldest epic began. Overlap is a property of the run set rather than of one
+ * run, so it is re-derived from the step windows on every call — that needs
+ * no transcript at all.
  */
 export async function getOrComputeWorkspaceEpicUsage(
   workspaceRoot: string,
   runs: RunState[],
   mtimes: number[],
 ): Promise<Map<string, EpicUsage>> {
-  const allCached = runs.length > 0 && runs.every((run) => {
-    const key = `${path.resolve(workspaceRoot)}::${run.runId}::${mtimes.join(':')}`;
-    return cache.has(key);
-  });
-  if (allCached) {
-    const m = new Map<string, EpicUsage>();
-    for (const run of runs) {
-      const key = `${path.resolve(workspaceRoot)}::${run.runId}::${mtimes.join(':')}`;
-      m.set(run.runId, cache.get(key)!);
+  const root = path.resolve(workspaceRoot);
+  const keyOf = (runId: string) => `${root}::${runId}`;
+  const stale = runs.filter((run, i) => cache.get(keyOf(run.runId))?.mtimeMs !== mtimes[i]);
+  if (stale.length > 0) {
+    const mtimeByRun = new Map(runs.map((run, i) => [run.runId, mtimes[i]] as const));
+    const computed = await computeWorkspaceEpicUsage(workspaceRoot, stale);
+    for (const [runId, usage] of computed) {
+      cache.set(keyOf(runId), { mtimeMs: mtimeByRun.get(runId) ?? NaN, usage });
     }
-    return m;
   }
 
-  const computed = await computeWorkspaceEpicUsage(workspaceRoot, runs);
-  for (const [runId, usage] of computed) {
-    const key = `${path.resolve(workspaceRoot)}::${runId}::${mtimes.join(':')}`;
-    cache.set(key, usage);
+  const overlaps = detectOverlaps(runs.map((run) => ({ runId: run.runId, windows: buildStepWindows(run) })));
+  const result = new Map<string, EpicUsage>();
+  for (const run of runs) {
+    const usage = cache.get(keyOf(run.runId))?.usage;
+    if (!usage) continue;
+    result.set(run.runId, { ...usage, hasOverlap: overlaps.get(run.runId) ?? false });
   }
-  return computed;
+  return result;
 }
 
 export function fmtCost(c: number): string {

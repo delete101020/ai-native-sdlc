@@ -62,6 +62,15 @@ import { readYaml } from './yamlIO';
 import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
 import { agentActivity } from './agentActivity';
 
+const runSaved = new vscode.EventEmitter<string>();
+/**
+ * Fires with the run id once a transition is on disk. Panels that show the run
+ * redraw from this instead of waiting for a file watcher to notice the write —
+ * the toast announcing the move goes up the moment the save returns, and the
+ * card it talks about should move with it.
+ */
+export const onDidSaveRun = runSaved.event;
+
 /**
  * Save the runtime RunState file AND mirror its display fields + per-step
  * history into the epic's docs/epics/<id>/state.json so the on-disk record
@@ -118,6 +127,7 @@ function saveRun(workspaceRoot: string, next: RunState, prev?: RunState): void {
       `AIDLC: failed to mirror run state into epic state.json — ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+  runSaved.fire(next.runId);
   if (!prev) { return; }
 
   const result = commitApprovedArtifacts({ workspaceRoot, before: prev, after: next, doc });
