@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp, Star, List, ListTree, Search, Archive } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter, FollowUpContext } from '@/lib/types';
@@ -599,7 +599,9 @@ export function EpicsView({
             // A family of one is just an epic. Wrapping it in a header would
             // add a row of chrome around every epic in the list to serve the
             // handful that were opened from an incident.
-            if (f.epics.length < 2) { return cards; }
+            // Keyed, or the cards sit at their family's index: archiving one
+            // shifts every later card and remounts it, folding open cards.
+            if (f.epics.length < 2) { return <Fragment key={f.rootId}>{cards}</Fragment>; }
 
             const root = f.epics.find((e) => e.id === f.rootId);
             const running = f.epics.filter((e) => e.status === 'in_progress').length;

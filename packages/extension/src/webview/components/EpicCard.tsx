@@ -169,6 +169,9 @@ function progressTitle(epic: EpicSummary): string {
  */
 export const EpicCard = memo(EpicCardView);
 
+/** The last focus request a card acted on — see the focus effect. */
+let consumedFocus = '';
+
 function EpicCardView({
   epic,
   agentMeta,
@@ -194,9 +197,14 @@ function EpicCardView({
   const scrollPending = useRef(false);
   useEffect(() => {
     if (!focusNonce) { return; }
+    // The list keeps its last focus request, so a card remounted later (a
+    // filter, the Archived toggle) would reopen and scroll to it. Once only.
+    const req = `${epic.id}:${focusNonce}`;
+    if (req === consumedFocus) { return; }
+    consumedFocus = req;
     scrollPending.current = true;
     setExpanded(true);
-  }, [focusNonce]);
+  }, [focusNonce, epic.id]);
   useEffect(() => {
     if (!expanded || !scrollPending.current) { return; }
     const raf = requestAnimationFrame(() => {
