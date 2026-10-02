@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { RunState } from '@aidlc/core';
 import {
+  claudeProjectFolderName,
   computeWorkspaceEpicUsage,
   getOrComputeWorkspaceEpicUsage,
   setEpicUsageCacheFile,
@@ -84,8 +85,10 @@ describe('getOrComputeWorkspaceEpicUsage', () => {
 
 describe('transcriptFoldersFor', () => {
   it('keeps the root folder and those of directories above it', () => {
-    const folders = ['-Users-me', '-Users-me-repo', '-Users-me-repo-sub', '-Users-me-repo2', '-Users-other'];
-    expect(transcriptFoldersFor('/Users/me/repo', folders)).toEqual(['-Users-me', '-Users-me-repo']);
+    // path.resolve adds the drive on Windows (C:\Users\me → C--Users-me).
+    const f = (d: string) => claudeProjectFolderName(path.resolve(d));
+    const folders = [f('/Users/me'), f('/Users/me/repo'), f('/Users/me/repo/sub'), f('/Users/me/repo2'), f('/Users/other')];
+    expect(transcriptFoldersFor('/Users/me/repo', folders)).toEqual([f('/Users/me'), f('/Users/me/repo')]);
   });
 
   it('reads every folder when none matches or the name would be shortened', () => {
