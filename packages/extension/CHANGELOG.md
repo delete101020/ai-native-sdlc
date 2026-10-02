@@ -1,5 +1,30 @@
 # Changelog
 
+## 4.0.33
+
+Epics you are not working on can be archived out of the way, and each step
+can run on the model you pick for it.
+
+### Added
+
+- **Archive** on an epic card hides the epic from the Epics list, whatever its
+  status, so finished or shelved epics stop crowding it. The **Archived** chip
+  shows them again, with **Unarchive** on each card. Archived epics stay in the
+  sidebar's My epics, dimmed with an archive mark. The flag is
+  `archived: true` in the epic's `state.json`.
+- CLI: `aidlc epic archive <id>`, `aidlc epic unarchive <id>`, and
+  `aidlc epic list --archived`. `epic list` now leaves archived epics out.
+- An agent can offer several models (`models: [sonnet, opus]` beside its
+  `model`), and a pipeline step can set its own `model`, which overrides the
+  agent's. The epic card has a Model picker per step and the Start epic dialog
+  one per agent. The pick is used by both Run with Claude and the unattended
+  runner.
+- Reject/approve history records which model each revision ran on.
+
+### Changed
+
+- Built with TypeScript 7 and Vite 8; bundle sizes are unchanged.
+
 ## 4.0.32
 
 The Epics panel and sidebar stay quick as the number of epics grows.
