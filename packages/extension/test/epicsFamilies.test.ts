@@ -40,6 +40,8 @@ describe('epic families fold by default', () => {
   });
 
   it('leaves a lone epic unwrapped', () => {
-    expect(view).toContain('if (f.epics.length < 2) { return cards; }');
+    // A keyed Fragment, not a bare array: unkeyed, the cards sit at their
+    // family's index, and archiving one remounts every card after it.
+    expect(view).toContain('if (f.epics.length < 2) { return <Fragment key={f.rootId}>{cards}</Fragment>; }');
   });
 });
