@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.0.34
+
+Archiving an epic leaves the rest of the list as it was.
+
+### Changed
+
+- The Start epic dialog no longer has a model picker. Pick each step's model
+  with the Model picker on the epic card.
+
+### Fixed
+
+- Archiving an epic no longer opens and scrolls to some other epic. Cards
+  you had open stay open, and folded ones stay folded.
+
 ## 4.0.33
 
 Epics you are not working on can be archived out of the way, and each step
