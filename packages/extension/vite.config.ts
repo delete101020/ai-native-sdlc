@@ -20,7 +20,7 @@ export default defineConfig({
     sourcemap: false,
     target: 'es2022',
     minify: 'esbuild',
-    rollupOptions: {
+    rolldownOptions: {
       input: {
         sidebar: resolve(__dirname, 'src/webview/sidebar/main.tsx'),
         workspace: resolve(__dirname, 'src/webview/workspace/main.tsx'),
@@ -36,14 +36,13 @@ export default defineConfig({
           if (info.name && info.name.endsWith('.css')) { return 'styles.css'; }
           return 'assets/[name][extname]';
         },
-        manualChunks(id) {
-          if (id.includes('node_modules')) { return 'vendor'; }
-          // Force our shared lib + hooks into a deterministically-named
-          // chunk so the host can reference it by stable filename.
-          if (id.includes('/src/webview/lib/') || id.includes('/src/webview/hooks/')) {
-            return 'common';
-          }
-          return undefined;
+        codeSplitting: {
+          groups: [
+            { name: 'vendor', test: /node_modules/, priority: 2 },
+            // Force our shared lib + hooks into a deterministically-named
+            // chunk so the host can reference it by stable filename.
+            { name: 'common', test: /[\\/]src[\\/]webview[\\/](lib|hooks)[\\/]/, priority: 1 },
+          ],
         },
       },
     },

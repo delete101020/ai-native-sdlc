@@ -16,7 +16,6 @@
     "useDefineForClassFields": true,
     "noImplicitAny": true,
     "noFallthroughCasesInSwitch": true,
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/webview/*"]
     },
