@@ -120,6 +120,13 @@ export interface StepRecord {
    * one produced the output that was judged.
    */
   skill?: string;
+  /**
+   * The model this step was last launched with (or picked on the card), for
+   * an agent that offers several (`models`). Like {@link skill}, it doubles as
+   * provenance: reject/approve history entries copy it as `model`. Kept apart
+   * from {@link model}, which is the runner-resolved id — empty for Claude.
+   */
+  chosenModel?: string;
   /** Optional human feedback supplied at rerun time. Carried forward. */
   feedback?: string;
   /** Reason supplied with the most recent rejection. Cleared on rerun. */
@@ -157,6 +164,8 @@ export type StepHistoryEntry =
       sentBackToIdx: number;
       /** {@link StepRecord.skill} of the revision that was rejected. */
       skill?: string;
+      /** {@link StepRecord.chosenModel} of the revision that was rejected. */
+      model?: string;
     }
   | {
       kind: 'rerun';
@@ -180,6 +189,8 @@ export type StepHistoryEntry =
       revision: number;
       /** {@link StepRecord.skill} of the revision that was approved. */
       skill?: string;
+      /** {@link StepRecord.chosenModel} of the revision that was approved. */
+      model?: string;
     }
   | {
       /**

@@ -36,6 +36,7 @@ import {
   Undo2,
   Tag as TagIcon,
   Star,
+  Cpu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -1291,6 +1292,10 @@ function StepDetail({
   const skillChoices = focused.skillChoices;
   const [pickedSkill, setPickedSkill] = useState(focused.selectedSkill);
   useEffect(() => { setPickedSkill(focused.selectedSkill); }, [focused.selectedSkill, focusedIdx]);
+  // Same for an agent that offers several models.
+  const modelChoices = focused.modelChoices;
+  const [pickedModel, setPickedModel] = useState(focused.selectedModel);
+  useEffect(() => { setPickedModel(focused.selectedModel); }, [focused.selectedModel, focusedIdx]);
   const slashCommand =
     skillChoices?.find((c) => c.id === pickedSkill)?.slashCommand ?? resolvedSlashCommand;
   // A step may declare several `produces` entries. The first is the headline
@@ -1489,6 +1494,30 @@ function StepDetail({
               {skillChoices.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.id}{c.id === focused.defaultSkill ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+
+        {modelChoices && modelChoices.length > 0 && epic.runId && (
+          <>
+            <DetailLabel icon={<Cpu className="h-3 w-3" />} text="Model" />
+            <select
+              value={pickedModel ?? ''}
+              disabled={!!activity}
+              title={activity ? 'An agent is working on this step — pick after it finishes' : undefined}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                const model = e.target.value;
+                setPickedModel(model);
+                postMessage({ type: 'chooseStepModel', runId: epic.runId!, stepIdx: focusedIdx, model });
+              }}
+              className="w-fit rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[11px] text-foreground disabled:opacity-50"
+            >
+              {modelChoices.map((m) => (
+                <option key={m} value={m}>
+                  {m}{m === focused.defaultModel ? ' (default)' : ''}
                 </option>
               ))}
             </select>
@@ -1962,6 +1991,7 @@ function HistoryLabel({ entry }: { entry: StepHistoryEntry }) {
             </span>
           )}
           {entry.skill && <span className="ml-1 font-mono font-normal text-muted-foreground">· {entry.skill}</span>}
+          {entry.model && <span className="ml-1 font-mono font-normal text-muted-foreground">· {entry.model}</span>}
         </span>
       );
     case 'rerun':
@@ -1977,6 +2007,7 @@ function HistoryLabel({ entry }: { entry: StepHistoryEntry }) {
         <span className="font-semibold text-success">
           Approved
           {entry.skill && <span className="ml-1 font-mono font-normal text-muted-foreground">· {entry.skill}</span>}
+          {entry.model && <span className="ml-1 font-mono font-normal text-muted-foreground">· {entry.model}</span>}
         </span>
       );
     case 'undo':

@@ -491,6 +491,7 @@ export function submitAutoReviewVerdict(args: {
       reason: verdict.reason,
       sentBackToIdx: idx,
       ...(nextStep.skill ? { skill: nextStep.skill } : {}),
+      ...(nextStep.chosenModel ? { model: nextStep.chosenModel } : {}),
     });
     next.status = 'running';
     settleOptionalRejection(next, idx, pipeline);
@@ -648,6 +649,7 @@ export function rejectStep(args: {
       reason,
       sentBackToIdx: targetIdx as number,
       ...(next.steps[idx].skill ? { skill: next.steps[idx].skill } : {}),
+      ...(next.steps[idx].chosenModel ? { model: next.steps[idx].chosenModel } : {}),
     });
 
     // Choose between sequential index-range and DAG transitive-descendants
@@ -728,6 +730,7 @@ export function rejectStep(args: {
       reason,
       sentBackToIdx: idx,
       ...(step.skill ? { skill: step.skill } : {}),
+      ...(step.chosenModel ? { model: step.chosenModel } : {}),
     }),
   };
   next.status = 'running';
@@ -811,6 +814,32 @@ export function chooseStepSkill(args: {
   }
   const next = clone(state);
   next.steps[stepIdx] = { ...target, skill };
+  return next;
+}
+
+/**
+ * Pick which of an agent's `models` a step runs on next. Same contract as
+ * {@link chooseStepSkill}: only the choice moves, and a model the agent does
+ * not offer is refused.
+ */
+export function chooseStepModel(args: {
+  state: RunState;
+  stepIdx: number;
+  models: readonly string[] | undefined;
+  model: string;
+}): RunState {
+  const { state, stepIdx, models, model } = args;
+  if (!Number.isInteger(stepIdx) || stepIdx < 0 || stepIdx >= state.steps.length) {
+    throw new PipelineRunError(`Invalid stepIdx ${stepIdx}`);
+  }
+  const target = state.steps[stepIdx];
+  if (!models?.includes(model)) {
+    throw new PipelineRunError(
+      `Model "${model}" is not one agent "${target.agent}" offers (${models?.join(', ') || 'none'}).`,
+    );
+  }
+  const next = clone(state);
+  next.steps[stepIdx] = { ...target, chosenModel: model };
   return next;
 }
 
@@ -1159,6 +1188,7 @@ function advance(next: RunState, idx: number, pipeline: PipelineConfig): RunStat
       at: finishedAt,
       revision: approved.revision,
       ...(approved.skill ? { skill: approved.skill } : {}),
+      ...(approved.chosenModel ? { model: approved.chosenModel } : {}),
     }),
   };
 

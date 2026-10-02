@@ -66,6 +66,7 @@ import {
   deleteRunCommand,
   deleteEpicCommand,
   recordLaunchedSkill,
+  recordLaunchedModel,
   launchModelFor,
 } from './runCommands';
 
@@ -454,6 +455,7 @@ export function registerV2WorkspaceCommands(
 
       ensureCommandFiles(root);
       recordLaunchedSkill(root, id, step, slash);
+      recordLaunchedModel(root, id, step);
 
       const prompt = fb
         ? `${slash} ${id} — Update artifact per feedback: "${fb.replace(/"/g, '\\"')}"`

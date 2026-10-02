@@ -21,6 +21,7 @@ import {
   mergeEpicPipelines,
   splitEpicPipelines,
   writeEpicPipelines,
+  stepModelOptions,
 } from '@aidlc/core';
 
 export interface YamlDocument {
@@ -34,6 +35,24 @@ export interface YamlDocument {
   state?: Record<string, unknown>;
   sidebar?: Record<string, unknown>;
   [key: string]: unknown;
+}
+
+/**
+ * What a step offers from the raw YAML — the agent's `model` / `models`,
+ * with the step's own `model` (if any) as its default. See `stepModelOptions`.
+ */
+export function agentModelOptions(
+  doc: YamlDocument | null,
+  agentId: string | undefined,
+  stepModel?: string,
+): { model?: string; models?: string[] } {
+  const agent = doc?.agents?.find((a) => a.id === agentId);
+  if (!agent) { return stepModelOptions({}, stepModel); }
+  const model = typeof agent.model === 'string' && agent.model.trim() ? agent.model.trim() : undefined;
+  const models = Array.isArray(agent.models)
+    ? agent.models.filter((m): m is string => typeof m === 'string' && m.trim() !== '').map((m) => m.trim())
+    : [];
+  return stepModelOptions({ model, models }, stepModel);
 }
 
 export function workspaceYamlPath(workspaceRoot: string): string {

@@ -581,6 +581,8 @@ export type StepHistoryEntry =
       revision: number;
       reason?: string;
       sentBackToIdx: number;
+      /** Model the rejected revision ran, on an agent with several `models`. */
+      model?: string;
       /** Skill the rejected revision ran, on a step with alternatives. */
       skill?: string;
     }
@@ -602,6 +604,8 @@ export type StepHistoryEntry =
       kind: 'approve';
       at: string;
       revision: number;
+      /** Model the approved revision ran, on an agent with several `models`. */
+      model?: string;
       /** Skill the approved revision ran, on a step with alternatives. */
       skill?: string;
     }
@@ -695,6 +699,12 @@ export interface EpicStepDetailFull {
   selectedSkill?: string;
   /** The step's `default_skill`. */
   defaultSkill?: string;
+  /** Set when the agent offers several `models`: the ones the card can pick. */
+  modelChoices?: string[];
+  /** The model preselected: last picked, else the agent's `model`. */
+  selectedModel?: string;
+  /** The agent's `model`. */
+  defaultModel?: string;
   /** Basename of the step's first `produces:` path — the file the user
    *  expects to see written by this step (e.g. `PRD.md`). Falls back to
    *  the agent meta artifact when the step doesn't declare one. */
@@ -814,6 +824,10 @@ export interface AgentMeta {
   artifact: string;
   /** Capability ids declared on the agent (used by Start Epic to ask for run-time bindings). */
   capabilities?: string[];
+  /** The agent's `model`. */
+  model?: string;
+  /** Set when the agent offers several models — Start Epic lets the user pick one. */
+  models?: string[];
 }
 
 export interface WorkspaceState {

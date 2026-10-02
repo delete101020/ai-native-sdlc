@@ -30,6 +30,31 @@ export const CODING_MODEL = 'sonnet';
 /** Cheap and fast: mechanical passes where judgement is not the bottleneck. */
 export const FAST_MODEL = 'haiku';
 
+/**
+ * The model an agent's step runs on: the one picked on the card when the
+ * agent still offers it (`models`), else the agent's `model`, else the first
+ * of its `models`.
+ */
+export function pickAgentModel(
+  agent: { model?: string; models?: readonly string[] },
+  chosen?: string,
+): string | undefined {
+  return chosen && agent.models?.includes(chosen) ? chosen : agent.model ?? agent.models?.[0];
+}
+
+/**
+ * What one step offers, in {@link pickAgentModel}'s shape: the step's `model`
+ * is its default over the agent's, and one more choice beside the agent's
+ * `models`. `models` is omitted unless there is an actual choice (two or more).
+ */
+export function stepModelOptions(
+  agent: { model?: string; models?: readonly string[] },
+  stepModel?: string,
+): { model?: string; models?: string[] } {
+  const models = [...new Set([...(agent.models ?? []), ...(stepModel ? [stepModel] : [])])];
+  return { model: stepModel ?? agent.model, ...(models.length > 1 ? { models } : {}) };
+}
+
 // ── Cross-provider model resolution (MULTI_PROVIDER_ALIGNMENT.md §P1) ───────
 
 /**

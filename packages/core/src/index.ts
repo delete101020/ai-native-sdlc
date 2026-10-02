@@ -440,6 +440,7 @@ export {
   rerunStep,
   requestStepUpdate,
   chooseStepSkill,
+  chooseStepModel,
   canRerunApprovedStep,
   rerunApprovedStep,
   dirtyUpstreamOf,
@@ -527,7 +528,7 @@ export type { BuiltinWorkflow, WorkspacePreset as BuiltinWorkspacePreset, Worksp
 // Aliases, not pinned ids, so a preset does not age out on the next release.
 export {
   PLANNING_MODEL, CODING_MODEL, FAST_MODEL,
-  CLAUDE_TIER_ALIASES, isClaudeTierAlias, resolveProviderModel,
+  CLAUDE_TIER_ALIASES, isClaudeTierAlias, resolveProviderModel, pickAgentModel, stepModelOptions,
 } from './presets/models';
 
 // Global Claude-config-dir install of built-in agent/skill files (ext + CLI).

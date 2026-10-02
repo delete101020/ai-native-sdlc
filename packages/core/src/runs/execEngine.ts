@@ -29,7 +29,7 @@ import { isActiveStatus, isStepOptional } from './runProgress';
 import { checkBudget, type CostAccounting } from './budget';
 import { snapshotProduces, unchangedProduces } from './producesSnapshot';
 import { estimateCostUsd, ratesFromConfig, providerAliases } from './pricing';
-import { resolveProviderModel } from '../presets/models';
+import { pickAgentModel, resolveProviderModel, stepModelOptions } from '../presets/models';
 import type { RunState } from './RunState';
 import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, resolveStepSkills, stepSkillAlternatives } from '../schema/WorkspaceSchema';
@@ -415,6 +415,9 @@ async function execStep(
   const alternatives = norm ? stepSkillAlternatives(norm) : undefined;
   const chosen = opts.skill && alternatives?.options.includes(opts.skill) ? opts.skill : stepRec.skill;
   const skillIds = norm ? resolveStepSkills(norm, agent.skills, chosen) : [...agent.skills];
+  // An agent (or step) offering several models runs the one picked on the card.
+  const modelOpts = stepModelOptions(agent, norm?.model);
+  const agentModel = pickAgentModel(modelOpts, stepRec.chosenModel);
 
   // Resolved before the prompt because the prompt depends on what this
   // runner's harness already supplies.
@@ -454,7 +457,7 @@ async function execStep(
 
   hooks.onStepStart?.({
     stepIdx, agent: agentId, revision: stepRec.revision,
-    skills: skillIds, model: agent.model, context: userMessage,
+    skills: skillIds, model: agentModel, context: userMessage,
     dirtyUpstream: dirtyUpstreamOf({ state, pipeline, stepIdx })
       .map((d) => ({ stepIdx: d.stepIdx, step: d.step, byStep: d.dirty.byStep })),
   });
@@ -464,7 +467,7 @@ async function execStep(
   // recorded on the step, so a finished run says which model wrote each
   // artifact instead of only which tier was asked for.
   const aliases = providerAliases(ws.config.providers, agent.runner);
-  const resolvedModel = resolveProviderModel(agent.runner, agent.model, aliases);
+  const resolvedModel = resolveProviderModel(agent.runner, agentModel, aliases);
 
   // Fingerprinted before the runner starts: on a rerun the previous
   // revision's artifact would otherwise pass the `produces` check unchanged.
@@ -475,7 +478,7 @@ async function execStep(
     env,
     args: userMessage ? [userMessage] : [],
     workspaceRoot: root,
-    model: agent.model,
+    model: agentModel,
     modelAliases: aliases,
     onOutput: (chunk) => hooks.onOutput?.(chunk),
     onError: (chunk) => hooks.onErrorOutput?.(chunk),
@@ -511,6 +514,7 @@ async function execStep(
     rec.runner = agent.runner;
     rec.model = resolvedModel;
     if (alternatives) { rec.skill = skillIds[0]; }
+    if (modelOpts.models) { rec.chosenModel = agentModel; }
     rec.usage = result.usage;
     if (typeof result.costUsd === 'number') {
       // A cost the CLI reported always wins: it knows about cache hits and the
@@ -521,7 +525,7 @@ async function execStep(
       const est = estimateCostUsd({
         table: ratesFromConfig(ws.config.providers),
         provider: agent.runner,
-        model: resolvedModel ?? agent.model,
+        model: resolvedModel ?? agentModel,
         usage: result.usage,
       });
       if (est) {

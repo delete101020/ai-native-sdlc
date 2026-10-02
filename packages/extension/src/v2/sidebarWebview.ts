@@ -56,6 +56,7 @@ import {
   rerunStepInlineCommand,
   requestStepUpdateInlineCommand,
   chooseStepSkillInlineCommand,
+  chooseStepModelInlineCommand,
   rerunApprovedStepInlineCommand,
   startPipelineRunInlineCommand,
 } from './runCommands';
@@ -852,6 +853,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const skill = String(msg.skill ?? '');
         if (!runId || !Number.isInteger(stepIdx) || !skill) { return; }
         await chooseStepSkillInlineCommand(runId, stepIdx, skill);
+        this.refresh();
+        return;
+      }
+      case 'chooseStepModel': {
+        const runId = String(msg.runId ?? '');
+        const stepIdx = Number(msg.stepIdx);
+        const model = String(msg.model ?? '');
+        if (!runId || !Number.isInteger(stepIdx) || !model) { return; }
+        await chooseStepModelInlineCommand(runId, stepIdx, model);
         this.refresh();
         return;
       }

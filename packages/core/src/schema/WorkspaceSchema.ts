@@ -61,6 +61,12 @@ const AgentSchema = z.preprocess(
   /** Skill ids — every entry must reference a skill in the workspace `skills` list. */
   skills: z.array(z.string().min(1)).min(1, 'Agent must reference at least one skill'),
   model: z.string().optional(),
+  /**
+   * Models the user may pick between on the epic card (e.g. `[sonnet, opus]`),
+   * `model` preselected. For steps where two tiers are both good enough and
+   * the trade is cost against depth. Omitted = the agent runs on `model` only.
+   */
+  models: z.array(z.string().min(1)).optional(),
   // `default` keeps meaning Claude Code: renaming it to `claude` would
   // invalidate every workspace.yaml already on disk and buy nothing
   // (MULTI_PROVIDER_ALIGNMENT.md P0/D1). A closed enum is what lets
@@ -199,6 +205,11 @@ const PipelineStepObjectSchema = z
      * once, as before.
      */
     default_skill: z.string().min(1).optional(),
+    /**
+     * Model this step runs on by default, over the agent's `model`. Joins the
+     * agent's `models` as one more choice on the card; a pick there wins.
+     */
+    model: z.string().min(1).optional(),
     /** Artifact paths required from upstream. Gate-checked before work AND on Mark step done. */
     requires: z.array(z.string().min(1)).default([]),
     /**
@@ -359,6 +370,8 @@ export interface NormalizedStep {
   skills?: string[];
   /** Set when `skills` are alternatives to pick one of — see the schema. */
   default_skill?: string;
+  /** Step's default model, over the agent's — see the schema. */
+  model?: string;
   enabled: boolean;
   /** Rejecting this step never fails the run — see the schema for semantics. */
   optional: boolean;
@@ -447,6 +460,7 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
     ...(typeof obj.default_skill === 'string' && skills?.includes(obj.default_skill)
       ? { default_skill: obj.default_skill }
       : {}),
+    ...(typeof obj.model === 'string' && obj.model.trim() ? { model: obj.model.trim() } : {}),
     enabled: typeof obj.enabled === 'boolean' ? obj.enabled : true,
     optional: obj.optional === true,
     produces,

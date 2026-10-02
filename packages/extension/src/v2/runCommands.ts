@@ -45,6 +45,9 @@ import {
   rerunStep,
   requestStepUpdate,
   chooseStepSkill,
+  chooseStepModel,
+  pickAgentModel,
+  normalizeStep,
   submitAutoReviewVerdict,
   retryAutoReview,
   runAutoReview,
@@ -58,7 +61,7 @@ import {
 } from '@aidlc/core';
 import type { PipelineConfig, ProviderConfig, RunState } from '@aidlc/core';
 
-import { readYaml } from './yamlIO';
+import { agentModelOptions, readYaml, type YamlDocument } from './yamlIO';
 import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
 import { agentActivity } from './agentActivity';
 
@@ -1099,6 +1102,61 @@ export async function chooseStepSkillInlineCommand(
 }
 
 /**
+ * What step `idx` of a run offers: its agent's `model` / `models`, with the
+ * pipeline step's own `model` as the default over them.
+ */
+export function stepModelOptionsFor(
+  doc: YamlDocument | null,
+  state: RunState,
+  idx: number,
+): { model?: string; models?: string[] } {
+  const rec = state.steps[idx];
+  const pipeline = (doc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === state.pipelineId);
+  const cfg = rec ? pipeline?.steps[rec.stepIdx] : undefined;
+  return agentModelOptions(doc, rec?.agent, cfg ? normalizeStep(cfg).model : undefined);
+}
+
+/**
+ * Apply the Start-epic dialog's per-agent model picks to a freshly started
+ * run: every step of that agent which offers the model runs on it. A step
+ * that does not offer it keeps its own default.
+ */
+export function applyStartModelPicks(root: string, runId: string, picks: Record<string, string>): void {
+  if (Object.keys(picks).length === 0) { return; }
+  const state = RunStateStore.load(root, runId);
+  if (!state) { return; }
+  const doc = readYaml(root);
+  let next = state;
+  state.steps.forEach((rec, idx) => {
+    const model = picks[rec.agent];
+    const { models } = stepModelOptionsFor(doc, state, idx);
+    if (model && models?.includes(model)) { next = chooseStepModel({ state: next, stepIdx: idx, models, model }); }
+  });
+  if (next !== state) { saveRun(root, next, state); }
+}
+
+/**
+ * Remember which of the agent's `models` a step runs on next — picked on the
+ * epic card, read back by Run with Claude and by the unattended runner alike.
+ */
+export async function chooseStepModelInlineCommand(
+  runId: string,
+  stepIdx: number,
+  model: string,
+): Promise<void> {
+  const root = requireRoot('Choose Step Model');
+  if (!root) { return; }
+  const state = RunStateStore.load(root, runId);
+  if (!state) { return; }
+  const { models } = stepModelOptionsFor(readYaml(root), state, stepIdx);
+  try {
+    saveRun(root, chooseStepModel({ state, stepIdx, models, model }), state);
+  } catch (err) {
+    surfaceRunError(err);
+  }
+}
+
+/**
  * Note which alternative a Run with Claude launch is about to run, so the step
  * records the skill even when the card's default was never touched — the
  * history stamps it on the verdict, and without it a default run is
@@ -1121,6 +1179,25 @@ export function recordLaunchedSkill(root: string, runId: string, stepIdx: number
 }
 
 /**
+ * {@link recordLaunchedSkill} for the model: stamp the one a launch runs on, so
+ * a default run is recorded in history too, not only a picked one.
+ */
+export function recordLaunchedModel(root: string, runId: string, stepIdx: number | null): void {
+  if (stepIdx === null) { return; }
+  try {
+    const state = RunStateStore.load(root, runId);
+    const rec = state?.steps[stepIdx];
+    if (!state || !rec) { return; }
+    const opts = stepModelOptionsFor(readYaml(root), state, stepIdx);
+    const model = pickAgentModel(opts, rec.chosenModel);
+    if (!opts.models || !model || rec.chosenModel === model) { return; }
+    saveRun(root, chooseStepModel({ state, stepIdx, models: opts.models, model }), state);
+  } catch {
+    // Not an agent with models, or its default is not among them: nothing to record.
+  }
+}
+
+/**
  * The `--model` a Run with Claude launch passes, taken from the agent that owns
  * the step — the same model the unattended runner uses. Without it the
  * terminal runs the user's session default, so a `sonnet` step ran on Opus.
@@ -1131,13 +1208,14 @@ export function launchModelFor(root: string, runId: string, stepIdx: number | nu
   try {
     const state = RunStateStore.load(root, runId);
     if (!state) { return undefined; }
-    const agentId = state.steps[stepIdx ?? state.currentStepIdx]?.agent;
+    const rec = state.steps[stepIdx ?? state.currentStepIdx];
+    const agentId = rec?.agent;
     const doc = readYaml(root);
     const agent = doc?.agents.find((a) => a.id === agentId);
     if (!agent) { return undefined; }
     const runner = typeof agent.runner === 'string' && agent.runner.trim() ? agent.runner.trim() : 'default';
     if (runner !== 'default') { return undefined; }
-    const model = typeof agent.model === 'string' ? agent.model : undefined;
+    const model = pickAgentModel(stepModelOptionsFor(doc, state, stepIdx ?? state.currentStepIdx), rec?.chosenModel);
     const providers = doc?.providers as Record<string, ProviderConfig> | undefined;
     return claudeModelArg(model, providerAliases(providers, 'default'));
   } catch {

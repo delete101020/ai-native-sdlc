@@ -19,6 +19,7 @@ import {
   dirtyUpstreamOf,
   normalizeStep,
   stepSkillAlternatives,
+  pickAgentModel,
   resolvePath,
   expandHome,
   mirrorRunStateToEpic,
@@ -37,7 +38,7 @@ import type {
   StepDirtyMark,
 } from '@aidlc/core';
 
-import { readYaml, type YamlDocument } from './yamlIO';
+import { agentModelOptions, readYaml, type YamlDocument } from './yamlIO';
 import {
   getOrComputeWorkspaceEpicUsage,
   type EpicUsage,
@@ -106,6 +107,12 @@ export interface EpicSummary {
     selectedSkill?: string;
     /** The step's `default_skill`, so the card can label it. */
     defaultSkill?: string;
+    /** Set when the agent offers several `models`: what the card lets the user pick. */
+    modelChoices?: string[];
+    /** The model preselected: last picked, else the agent's `model`. */
+    selectedModel?: string;
+    /** The agent's `model`, so the card can label it. */
+    defaultModel?: string;
     /** Basename of the first `produces:` path — surfaced as the step's
      *  artifact label on the Epic detail panel. */
     artifact?: string;
@@ -1009,6 +1016,7 @@ function readEpicSummary(
   const stepSkillsByIdx = new Map<number, string[]>();
   const stepAltByIdx = new Map<number, { options: string[]; defaultSkill: string }>();
   const stepSelectedSkillByIdx = new Map<number, string>();
+  const stepModelByIdx = new Map<number, string>();
   const stepDescriptionByIdx = new Map<number, string>();
   const stepArtifactByIdx = new Map<number, string>();
   const stepArtifactPathByIdx = new Map<number, string>();
@@ -1027,6 +1035,7 @@ function readEpicSummary(
       if (norm.skills && norm.skills.length > 0) { stepSkillsByIdx.set(i, norm.skills); }
       const alt = stepSkillAlternatives(norm);
       if (alt) { stepAltByIdx.set(i, alt); }
+      if (norm.model) { stepModelByIdx.set(i, norm.model); }
       // What the card says the step does: its own `description`, else the
       // description of the one skill it runs. Several skills leave it to the
       // agent's description — picking one of them would be a guess — unless
@@ -1254,6 +1263,15 @@ function readEpicSummary(
           }),
           selectedSkill: stepSelectedSkillByIdx.get(i),
           defaultSkill: alt.defaultSkill,
+        };
+      })(),
+      ...(() => {
+        const opts = agentModelOptions(doc, agent, stepModelByIdx.get(i));
+        if (!opts.models) { return {}; }
+        return {
+          modelChoices: opts.models,
+          selectedModel: pickAgentModel(opts, runState?.steps.find((r) => r.stepIdx === i)?.chosenModel),
+          defaultModel: pickAgentModel(opts),
         };
       })(),
       artifact: stepArtifactByIdx.get(i),
