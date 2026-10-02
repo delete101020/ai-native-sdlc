@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.0.32
+
+The Epics panel and sidebar stay quick as the number of epics grows.
+
+### Changed
+
+- Moving an epic to its next step redraws the card right away; token figures
+  follow once they are counted, instead of holding the card back.
+- Only this project's Claude transcript folders are read for token figures,
+  and per-run figures are kept across reloads, so a reload no longer re-reads
+  every transcript.
+- Refreshes re-read and redraw only the epics that changed.
+
 ## 4.0.31
 
 The Epics list is easier to get around when there are many epics.
