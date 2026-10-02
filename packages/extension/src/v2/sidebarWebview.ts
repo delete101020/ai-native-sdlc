@@ -134,6 +134,7 @@ interface EpicRef {
   /** "step 3/6 · implement", or '' for an epic with no steps. */
   step: string;
   watched: boolean;
+  archived?: boolean;
 }
 
 interface SidebarState {
@@ -278,6 +279,7 @@ function buildState(
     statePath: e.statePath,
     step: stepLabel(e),
     watched: focus.watched.includes(e.id),
+    ...(e.archived ? { archived: true } : {}),
   });
   // My epics read in the order the Epics view is sorted by, so an epic sits
   // in the same place relative to the others in both.

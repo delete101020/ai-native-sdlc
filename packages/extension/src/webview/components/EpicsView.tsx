@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp, Star, List, ListTree, Search } from 'lucide-react';
+import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp, Star, List, ListTree, Search, Archive } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter, FollowUpContext } from '@/lib/types';
 import { EpicCard } from './EpicCard';
@@ -75,6 +75,14 @@ export function EpicsView({
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   // Narrows whatever the status and tag filters show, like one more facet.
   const [watchedOnly, setWatchedOnly] = useState(false);
+  // Archived epics are a separate list, not a facet: off shows only live ones,
+  // on shows only archived ones. Every count and filter below reads `pool`.
+  const [showArchived, setShowArchived] = useState(false);
+  const archivedCount = useMemo(() => state.epics.filter((e) => e.archived).length, [state.epics]);
+  const pool = useMemo(
+    () => state.epics.filter((e) => !!e.archived === showArchived),
+    [state.epics, showArchived],
+  );
   // Matches id or title, case-insensitively, as one more facet.
   const [query, setQuery] = useState('');
   const watchedIds = useMemo(() => new Set(state.watchedEpics ?? []), [state.watchedEpics]);
@@ -134,7 +142,10 @@ export function EpicsView({
   // A deep link has to win over the filter — landing on an empty list because
   // the epic is done and the filter says "in progress" reads as a broken link.
   useEffect(() => {
-    if (focus) { setFilter('all'); setTagFilter([]); setWatchedOnly(false); setQuery(''); }
+    if (focus) {
+      setFilter('all'); setTagFilter([]); setWatchedOnly(false); setQuery('');
+      setShowArchived(!!epicsRef.current.find((e) => e.id === focus.id)?.archived);
+    }
   }, [focus]);
 
   // A tag that no epic carries any more (its last epic was retagged or deleted)
@@ -163,29 +174,29 @@ export function EpicsView({
 
   const counts = useMemo(() => {
     const out: Record<EpicFilter, number> = {
-      all: state.epics.length,
+      all: pool.length,
       in_progress: 0,
       pending: 0,
       done: 0,
       failed: 0,
     };
-    for (const e of state.epics) { out[e.status] = (out[e.status] ?? 0) + 1; }
+    for (const e of pool) { out[e.status] = (out[e.status] ?? 0) + 1; }
     return out;
-  }, [state.epics]);
+  }, [pool]);
 
   // Sorted before grouping: a family takes the place of whichever of its
   // epics sorts first, so one follow-up awaiting review lifts its incident.
   const q = query.trim().toLowerCase();
   const visible = useMemo(
     () => sortEpics(
-      state.epics.filter((e) =>
+      pool.filter((e) =>
         matches(e, filter) && matchesTags(e, tagFilter) && (!watchedOnly || watchedIds.has(e.id))
         && (!q || e.id.toLowerCase().includes(q) || e.title.toLowerCase().includes(q))),
       effectiveSort,
       sortReversed,
       prefix,
     ),
-    [state.epics, filter, tagFilter, watchedOnly, watchedIds, q, effectiveSort, sortReversed, prefix],
+    [pool, filter, tagFilter, watchedOnly, watchedIds, q, effectiveSort, sortReversed, prefix],
   );
 
   /**
@@ -196,7 +207,7 @@ export function EpicsView({
    */
   const tagCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const e of state.epics) {
+    for (const e of pool) {
       if (!matches(e, filter)) { continue; }
       for (const t of e.tags ?? []) { counts.set(t, (counts.get(t) ?? 0) + 1); }
     }
@@ -204,7 +215,7 @@ export function EpicsView({
     // narrowed its count to zero — it is the only way back out of that state.
     for (const t of tagFilter) { if (!counts.has(t)) { counts.set(t, 0); } }
     return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }, [state.epics, filter, tagFilter]);
+  }, [pool, filter, tagFilter]);
 
   // Every card gets this list, so it keeps its identity while its contents
   // do: one epic moving must not re-render all of them.
@@ -420,6 +431,26 @@ export function EpicsView({
             </span>
           </button>
         )}
+        {(archivedCount > 0 || showArchived) && (
+          <button
+            type="button"
+            onClick={() => setShowArchived((v) => !v)}
+            aria-pressed={showArchived}
+            title={showArchived ? 'Back to the live epics' : 'Show the archived epics instead'}
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+              showArchived
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-secondary text-secondary-foreground hover:bg-accent',
+            )}
+          >
+            <Archive className="h-3 w-3" />
+            Archived
+            <span className={cn('text-[10px] tabular-nums', showArchived ? 'text-primary-foreground/70' : 'text-muted-foreground')}>
+              {archivedCount}
+            </span>
+          </button>
+        )}
         <div className="ml-auto flex items-center gap-1">
           <label className="relative flex items-center">
             <Search className="pointer-events-none absolute left-1.5 h-3 w-3 text-muted-foreground" />
@@ -539,7 +570,8 @@ export function EpicsView({
             ? 'None of the epics you watch match these filters.'
             : tagFilter.length > 0
             ? `No epics tagged ${tagFilter.join(' + ')}${filter === 'all' ? '' : ` in ${filter.replace('_', ' ')}`}.`
-            : filter === 'all' ? 'No epics yet.' : `No ${filter.replace('_', ' ')} epics.`}
+            : showArchived ? `No archived${filter === 'all' ? '' : ` ${filter.replace('_', ' ')}`} epics.`
+            : filter === 'all' ? (archivedCount > 0 ? 'Every epic is archived.' : 'No epics yet.') : `No ${filter.replace('_', ' ')} epics.`}
         </div>
       ) : (
         <div className="space-y-2">

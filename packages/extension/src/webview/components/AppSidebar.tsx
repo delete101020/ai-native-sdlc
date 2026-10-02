@@ -23,6 +23,7 @@ import {
   AlertTriangle,
   Search,
   Star,
+  Archive,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -643,10 +644,16 @@ function EpicRow({
   return (
     <div
       {...openEpicHandlers(e.id)}
-      className="group flex cursor-pointer items-center gap-2 rounded-md border border-border bg-card/50 px-2.5 py-1.5 text-[11px] transition-colors hover:bg-accent"
+      className={cn(
+        'group flex cursor-pointer items-center gap-2 rounded-md border border-border bg-card/50 px-2.5 py-1.5 text-[11px] transition-colors hover:bg-accent',
+        e.archived && 'border-dashed opacity-60 hover:opacity-100',
+      )}
     >
       <EpicDot status={e.status} />
       <span className="shrink-0 font-mono text-[10px] font-bold text-primary">{e.id}</span>
+      {e.archived && (
+        <Archive className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Archived" />
+      )}
       {e.title && (
         <span className="min-w-0 flex-1 truncate text-muted-foreground" title={e.step || undefined}>· {e.title}</span>
       )}

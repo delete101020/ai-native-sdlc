@@ -37,6 +37,8 @@ export interface EpicSummary {
   createdAt: string;
   /** Canonical (uppercase) tags from state.json — see core `loader/epicTags`. */
   tags: string[];
+  /** `archived: true` in state.json — hidden from `epic list` unless `--archived`. */
+  archived: boolean;
   pipeline: string | null;
   agents: string[];
   currentStep: number;
@@ -132,6 +134,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       status:       asStatus(parsed.status),
       createdAt:    typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
       tags:         readEpicTags(parsed),
+      archived:     parsed.archived === true,
       pipeline:     pipelineId,
       agents:       Array.isArray(parsed.agents) ? (parsed.agents as unknown[]).map(String) : [],
       currentStep:  typeof parsed.currentStep === 'number' ? parsed.currentStep : 0,

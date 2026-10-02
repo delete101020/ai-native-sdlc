@@ -30,6 +30,8 @@ import {
   ShieldCheck,
   ClipboardList,
   Trash2,
+  Archive,
+  ArchiveRestore,
   Gauge,
   Loader2,
   Workflow,
@@ -2695,12 +2697,24 @@ function EpicActions({
         <Brain className="h-3 w-3" />
         Memory
       </button>
+      {/* No confirm: archiving only hides the card, and Unarchive puts it back. */}
+      <button
+        type="button"
+        onClick={() => postMessage({ type: 'setEpicArchived', epicId: epic.id, archived: !epic.archived })}
+        className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+        title={epic.archived
+          ? 'Move this epic back to the main list'
+          : 'Hide this epic from the main list — nothing is deleted, and it can resume any time'}
+      >
+        {epic.archived ? <ArchiveRestore className="h-3 w-3" /> : <Archive className="h-3 w-3" />}
+        {epic.archived ? 'Unarchive' : 'Archive'}
+      </button>
       <button
         type="button"
         onClick={() => setDeleteOpen(true)}
         disabled={busy}
         className={cn(
-          'ml-auto inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-[11px] text-destructive',
+          'inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-1.5 text-[11px] text-destructive',
           busy
             ? 'cursor-not-allowed opacity-40'
             : 'hover:border-destructive/60 hover:bg-destructive/15',

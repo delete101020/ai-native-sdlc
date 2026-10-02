@@ -76,6 +76,8 @@ export interface EpicSummary {
   createdAt: string;
   /** Canonical (uppercase) tags from state.json — see core `loader/epicTags`. */
   tags: string[];
+  /** `archived: true` in state.json — hidden from the Epics list by default. Independent of status. */
+  archived?: boolean;
   pipeline: string | null;
   /**
    * The recipe the epic was started with, from its pipeline's `recipe:`
@@ -1329,6 +1331,7 @@ function readEpicSummary(
     status: epicStatus,
     createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
     tags: readEpicTags(parsed),
+    ...(parsed.archived === true ? { archived: true } : {}),
     pipeline: typeof parsed.pipeline === 'string' ? parsed.pipeline : null,
     ...(() => {
       const recipe = pipelineCfg

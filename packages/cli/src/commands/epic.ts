@@ -76,10 +76,11 @@ export function registerEpic(program: Command): void {
       'Filter by tag — repeatable, and an epic must carry all of them. Case and accents are folded, so --tag "thanh toán" finds THANH-TOAN',
       collectKv, [] as string[],
     )
-    .action((opts: { json?: boolean; status?: string; tag: string[] }, actionCmd: Command) => {
+    .option('--archived', 'List only archived epics (they are hidden otherwise)')
+    .action((opts: { json?: boolean; status?: string; tag: string[]; archived?: boolean }, actionCmd: Command) => {
       const root = resolveWorkspaceRoot(actionCmd);
       const doc  = readYaml(root);
-      let epics  = listEpics(root, doc);
+      let epics  = listEpics(root, doc).filter(e => e.archived === (opts.archived === true));
 
       if (opts.status) {
         epics = epics.filter(e => e.status === opts.status);
@@ -816,6 +817,32 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
       console.log(chalk.green('✔') + ` ${epicId}: strict_mode ${truthy.includes(v)}`);
       console.log(chalk.dim('  Takes effect on the next phase run — nothing already written changes.'));
     });
+
+  // ── archive / unarchive ────────────────────────────────────────────────────
+  // Hides an epic from `epic list` and the Epics panel, whatever its status —
+  // nothing is deleted and it can resume any time.
+  for (const archived of [true, false]) {
+    cmd
+      .command(`${archived ? 'archive' : 'unarchive'} <epicId>`)
+      .description(archived
+        ? 'Hide an epic from `epic list` and the Epics panel (any status; nothing is deleted)'
+        : 'Bring an archived epic back to `epic list` and the Epics panel')
+      .action((epicId: string, _opts: unknown, actionCmd: Command) => {
+        const root = resolveWorkspaceRoot(actionCmd);
+        const file = path.join(epicsRoot(root, readYaml(root)), epicId, 'state.json');
+        let state: Record<string, unknown>;
+        try {
+          state = JSON.parse(fs.readFileSync(file, 'utf8'));
+        } catch (err) {
+          console.error(chalk.red(`Could not read ${file}: ${err instanceof Error ? err.message : String(err)}`));
+          process.exit(1);
+          return;
+        }
+        if (archived) { state.archived = true; } else { delete state.archived; }
+        fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n', 'utf8');
+        console.log(chalk.green('✔') + ` ${epicId} ${archived ? 'archived' : 'unarchived'}`);
+      });
+  }
 
   const stepCmd = cmd
     .command('step')

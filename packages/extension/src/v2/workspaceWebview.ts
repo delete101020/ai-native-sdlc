@@ -1249,6 +1249,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     runId: e.runId,
     inputs: e.inputs,
     tags: e.tags,
+    ...(e.archived ? { archived: true } : {}),
     epicDir,
     existingArtifacts,
     // Cheap and exact: the file core writes is the only marker of an incident
@@ -3032,6 +3033,27 @@ export class WorkspaceWebview {
         } catch (err) {
           void vscode.window.showWarningMessage(
             `AIDLC: could not update tags for ${epicId} — ${String(err)}`,
+          );
+          return;
+        }
+        this.refresh();
+        return;
+      }
+      case 'setEpicArchived': {
+        const epicId = String(msg.epicId ?? '');
+        const root = this.getRootOrWarn();
+        if (!root || !epicId) { return; }
+        const doc = readYaml(root);
+        const file = path.join(epicsRoot(root, doc), epicId, 'state.json');
+        try {
+          // Read-modify-write, as with tags. Removed rather than set false, so
+          // an unarchived epic's state.json reads as it did before.
+          const state = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+          if (msg.archived === true) { state.archived = true; } else { delete state.archived; }
+          fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n', 'utf8');
+        } catch (err) {
+          void vscode.window.showWarningMessage(
+            `AIDLC: could not ${msg.archived === true ? 'archive' : 'unarchive'} ${epicId} — ${String(err)}`,
           );
           return;
         }

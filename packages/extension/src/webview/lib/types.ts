@@ -105,6 +105,8 @@ export interface RecentEpicRef {
   /** "step 3/6 · implement", or '' for an epic with no steps. */
   step: string;
   watched: boolean;
+  /** Archived in the Epics view — still listed here because it is watched. */
+  archived?: boolean;
 }
 
 export interface SlashCommandRef {
@@ -788,6 +790,8 @@ export interface EpicSummary {
   /** Canonical (uppercase) tags from state.json. Optional so an older host
    *  bundle that predates tags renders as "no tags" rather than crashing. */
   tags?: string[];
+  /** `archived: true` in state.json — hidden from the list unless the Archived chip is on. */
+  archived?: boolean;
   /** `strict_mode` from state.json: false = phases stay proportional to the
    *  work. Absent on disk reads as true. */
   strictMode: boolean;
