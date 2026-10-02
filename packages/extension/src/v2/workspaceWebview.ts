@@ -165,7 +165,7 @@ function describeExecError(err: unknown): string {
 }
 
 import * as jsYaml from 'js-yaml';
-import { agentModelOptions, readYaml, writeYaml, type YamlDocument } from './yamlIO';
+import { readYaml, writeYaml, type YamlDocument } from './yamlIO';
 import {
   claudeConfigDir,
   claudeConfigEnv,
@@ -298,7 +298,6 @@ import {
   requestStepUpdateInlineCommand,
   chooseStepSkillInlineCommand,
   chooseStepModelInlineCommand,
-  applyStartModelPicks,
   rerunApprovedStepInlineCommand,
   startPipelineRunInlineCommand,
   onDidSaveRun,
@@ -770,7 +769,6 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
         outputs: typeof a.outputs === 'string' ? a.outputs : '',
         artifact: typeof a.artifact === 'string' ? a.artifact : '',
         capabilities: capabilities.length > 0 ? capabilities : undefined,
-        ...agentModelOptions(doc, id),
       };
     }
     for (const c of doc.slash_commands) {
@@ -4689,15 +4687,6 @@ export class WorkspaceWebview {
       );
       return;
     }
-
-    // Per-agent model picks from the dialog; the run id is the epic id.
-    const modelPicks: Record<string, string> = {};
-    if (draft.models && typeof draft.models === 'object') {
-      for (const [agent, model] of Object.entries(draft.models as Record<string, unknown>)) {
-        if (typeof model === 'string' && model.trim()) { modelPicks[agent] = model.trim(); }
-      }
-    }
-    applyStartModelPicks(root, epicId, modelPicks);
 
     if (parentEpicId) {
       // Same hook a manifest batch runs, so whatever mirrors a parent's

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, Wand2, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch, GitBranchPlus, Gauge, AlertTriangle, Cpu } from 'lucide-react';
+import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, Wand2, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch, GitBranchPlus, Gauge, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AgentMeta, ExtraProject, FollowUpContext, PipelineSummary, RecipeSummary } from '@/lib/types';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
@@ -54,8 +54,6 @@ export interface StartEpicDraft {
    * run, this picks how far each one goes.
    */
   strictMode: boolean;
-  /** Agent id → model picked for every step of that agent. Unpicked agents are absent. */
-  models?: Record<string, string>;
   /**
    * Set when this epic is a follow-up of another. The host writes the edge
    * (`from_epic`, `follow_up_key`) itself — the key is re-derived there, so two
@@ -584,13 +582,6 @@ export function StartEpicModal({
     return out;
   }, [selectedAgents, agentMeta]);
 
-  // Agents in the chosen workflow that offer a choice of model.
-  const modelAgents = useMemo(
-    () => [...new Set(selectedAgents)].filter((a) => (agentMeta[a]?.models?.length ?? 0) > 1),
-    [selectedAgents, agentMeta],
-  );
-  const [modelPicks, setModelPicks] = useState<Record<string, string>>({});
-
   // Shown in the collapsed header so folding never hides that values are set.
   const filledCapCount = useMemo(
     () => capabilities.filter((c) => (inputs[c] ?? '').trim()).length,
@@ -636,9 +627,6 @@ export function StartEpicModal({
       inputs: cleanInputs,
       extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
       strictMode,
-      models: Object.fromEntries(
-        Object.entries(modelPicks).filter(([a, m]) => m && modelAgents.includes(a)),
-      ),
       ...(followUp ? { followUp: { parentEpicId: followUp.parentEpicId } } : {}),
     });
     onClose();
@@ -1005,32 +993,6 @@ export function StartEpicModal({
               </span>
             </span>
           </label>
-          {modelAgents.length > 0 && (
-            <div className="mt-1.5 rounded-md border border-border bg-card/50 px-3 py-2">
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
-                <Cpu className="h-3 w-3 text-muted-foreground" />
-                Models
-              </div>
-              <div className="mt-1 grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1">
-                {modelAgents.map((a) => (
-                  <label key={a} className="contents">
-                    <span className="font-mono text-[11px] text-muted-foreground">{a}</span>
-                    <select
-                      value={modelPicks[a] ?? ''}
-                      onChange={(e) => setModelPicks((cur) => ({ ...cur, [a]: e.target.value }))}
-                      className="w-fit rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[11px] text-foreground"
-                    >
-                      <option value="">default per step</option>
-                      {agentMeta[a].models!.map((m) => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  </label>
-                ))}
-              </div>
-              <span className="mt-1 block text-[10.5px] leading-relaxed text-muted-foreground">
-                Applies to every step of that agent; still changeable per step on the epic card.
-              </span>
-            </div>
-          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">

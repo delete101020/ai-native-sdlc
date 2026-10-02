@@ -1117,25 +1117,6 @@ export function stepModelOptionsFor(
 }
 
 /**
- * Apply the Start-epic dialog's per-agent model picks to a freshly started
- * run: every step of that agent which offers the model runs on it. A step
- * that does not offer it keeps its own default.
- */
-export function applyStartModelPicks(root: string, runId: string, picks: Record<string, string>): void {
-  if (Object.keys(picks).length === 0) { return; }
-  const state = RunStateStore.load(root, runId);
-  if (!state) { return; }
-  const doc = readYaml(root);
-  let next = state;
-  state.steps.forEach((rec, idx) => {
-    const model = picks[rec.agent];
-    const { models } = stepModelOptionsFor(doc, state, idx);
-    if (model && models?.includes(model)) { next = chooseStepModel({ state: next, stepIdx: idx, models, model }); }
-  });
-  if (next !== state) { saveRun(root, next, state); }
-}
-
-/**
  * Remember which of the agent's `models` a step runs on next — picked on the
  * epic card, read back by Run with Claude and by the unattended runner alike.
  */

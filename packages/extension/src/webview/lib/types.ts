@@ -828,10 +828,6 @@ export interface AgentMeta {
   artifact: string;
   /** Capability ids declared on the agent (used by Start Epic to ask for run-time bindings). */
   capabilities?: string[];
-  /** The agent's `model`. */
-  model?: string;
-  /** Set when the agent offers several models — Start Epic lets the user pick one. */
-  models?: string[];
 }
 
 export interface WorkspaceState {
