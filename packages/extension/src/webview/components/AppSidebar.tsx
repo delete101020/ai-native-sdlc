@@ -24,6 +24,13 @@ import {
   Search,
   Star,
   Archive,
+  Hourglass,
+  Bot,
+  Eye,
+  CircleX,
+  Circle,
+  CircleCheck,
+  type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -591,19 +598,20 @@ function SectionHeader({
   );
 }
 
-const RUN_STEP_STATUS: Record<string, { label: string; cls: string }> = {
-  awaiting_work: { label: 'Awaiting work', cls: 'border-warning/40 bg-warning/15 text-warning' },
-  awaiting_auto_review: { label: 'Auto-review', cls: 'border-primary/40 bg-primary/15 text-primary' },
-  awaiting_review: { label: 'Awaiting review', cls: 'border-primary/40 bg-primary/15 text-primary' },
-  rejected: { label: 'Rejected', cls: 'border-destructive/40 bg-destructive/15 text-destructive' },
-  pending: { label: 'Pending', cls: 'border-border bg-secondary text-muted-foreground' },
-  approved: { label: 'Approved', cls: 'border-success/40 bg-success/15 text-success' },
+const RUN_STEP_STATUS: Record<string, { label: string; cls: string; icon: LucideIcon }> = {
+  awaiting_work: { label: 'Awaiting work', cls: 'border-warning/40 bg-warning/15 text-warning', icon: Hourglass },
+  awaiting_auto_review: { label: 'Auto-review', cls: 'border-primary/40 bg-primary/15 text-primary', icon: Bot },
+  awaiting_review: { label: 'Awaiting review', cls: 'border-primary/40 bg-primary/15 text-primary', icon: Eye },
+  rejected: { label: 'Rejected', cls: 'border-destructive/40 bg-destructive/15 text-destructive', icon: CircleX },
+  pending: { label: 'Pending', cls: 'border-border bg-secondary text-muted-foreground', icon: Circle },
+  approved: { label: 'Approved', cls: 'border-success/40 bg-success/15 text-success', icon: CircleCheck },
 };
 
-function runStatus(run: ActiveRun): { label: string; cls: string } {
+function runStatus(run: ActiveRun): { label: string; cls: string; icon: LucideIcon } {
   return RUN_STEP_STATUS[run.currentStepStatus] ?? {
     label: run.currentStepStatus || 'unknown',
     cls: 'border-border bg-secondary text-muted-foreground',
+    icon: Circle,
   };
 }
 
@@ -645,7 +653,9 @@ function EpicRow({
     <div
       {...openEpicHandlers(e.id)}
       className={cn(
-        'group flex cursor-pointer items-center gap-2 rounded-md border border-border bg-card/50 px-2.5 py-1.5 text-[11px] transition-colors hover:bg-accent',
+        // A container, so the status pill can fold to an icon as the sidebar
+        // narrows instead of eating the title.
+        '@container group flex cursor-pointer items-center gap-2 rounded-md border border-border bg-card/50 px-2.5 py-1.5 text-[11px] transition-colors hover:bg-accent',
         e.archived && 'border-dashed opacity-60 hover:opacity-100',
       )}
     >
@@ -661,10 +671,12 @@ function EpicRow({
         {busy && <Loader2 className="h-3 w-3 animate-spin text-primary" aria-label="Agent running" />}
         {status && run && (
           <span
-            className={cn('rounded-full border px-1.5 py-px text-[8.5px] font-bold uppercase tracking-wider group-hover:hidden', status.cls)}
+            className={cn('inline-flex items-center rounded-full border px-1 py-px text-[8.5px] font-bold uppercase tracking-wider group-hover:hidden @[16rem]:px-1.5', status.cls)}
             title={`${status.label} · step ${run.currentStepIdx + 1}/${run.totalSteps} · ${run.currentAgent}`}
+            aria-label={status.label}
           >
-            {status.label}
+            <status.icon className="h-2.5 w-2.5 @[16rem]:hidden" />
+            <span className="hidden @[16rem]:inline">{status.label}</span>
           </span>
         )}
         <WatchButton epic={e} />

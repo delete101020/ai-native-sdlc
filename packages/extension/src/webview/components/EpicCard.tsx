@@ -256,7 +256,9 @@ function EpicCardView({
     <div
       ref={cardRef}
       className={cn(
-        'group relative rounded-lg border bg-card transition-all hover:border-primary/30',
+        // A container, so the header can drop what it can spare as the panel
+        // narrows rather than overflowing onto its own id.
+        '@container group relative rounded-lg border bg-card transition-all hover:border-primary/30',
         // Says *which* card the click landed on — after a scroll the reader
         // has no other way to tell the deep-linked one from its neighbours.
         focusNonce ? 'border-primary/60 ring-1 ring-primary/40' : 'border-border',
@@ -272,8 +274,13 @@ function EpicCardView({
         )}
       />
 
-      <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+      {/* Narrowing order: tags, then links and tokens, then the progress bar
+          (its % stays), then the status label (its icon stays). The star and
+          the id sit outside the part that shrinks, so they are the floor; the
+          title and its chips give way first, clipped rather than spilling under
+          the right-hand group. */}
+      <div className="flex items-center gap-2 px-3 py-3.5 @md:gap-3 @md:px-5">
+        <div className="flex shrink-0 items-center gap-3">
           {/* Always shown once starred, so a watched card reads as one at a
               glance; otherwise only on hover, to keep the list quiet. */}
           <button
@@ -290,26 +297,33 @@ function EpicCardView({
             <Star className={cn('h-3.5 w-3.5', watched && 'fill-current')} />
           </button>
           <span className="shrink-0 font-mono text-xs font-bold text-primary">{epic.id}</span>
-          <span className="truncate text-sm text-foreground">{epic.title}</span>
-          <EpicLinks fromEpic={fromEpic} followUps={followUps} onNavigate={onNavigate} />
-          <TagChips tags={epic.tags ?? []} onTagClick={onTagClick} />
+        </div>
+        <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+          <span className="min-w-0 truncate text-sm text-foreground">{epic.title}</span>
+          <span className="hidden shrink-0 @xl:flex">
+            <EpicLinks fromEpic={fromEpic} followUps={followUps} onNavigate={onNavigate} />
+          </span>
+          <span className="hidden shrink-0 @2xl:flex">
+            <TagChips tags={epic.tags ?? []} onTagClick={onTagClick} />
+          </span>
           {(epic.followUpHookFailures?.length ?? 0) > 0 && (
             <span
               title="A follow-up hook failed — expand the card for its error, then Sync follow-ups."
-              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-destructive/40 bg-destructive/10 px-1 py-0.5 text-[10px] font-medium text-destructive @md:px-2"
             >
               <AlertTriangle className="h-2.5 w-2.5" />
-              hook failed
+              <span className="hidden @md:inline">hook failed</span>
             </span>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-3">
-          {/* In the header, not the expanded details: a step the recipe leaves
-              out reads as missed unless the reader can see which recipe ran. */}
-          {epic.recipe && (
+        <div className="flex shrink-0 items-center gap-2 @md:gap-3">
+          {/* Next to the steps it explains, so only while they are on show: a
+              step the recipe leaves out reads as missed unless the reader can
+              see which recipe ran. Folded, it is noise on a scanning row. */}
+          {expanded && epic.recipe && (
             <span
               className={cn(
-                'inline-flex max-w-[12rem] items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium',
+                'hidden max-w-[12rem] items-center gap-1 @xl:inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium',
                 epic.recipe.modified
                   ? 'border-warning/40 bg-warning/10 text-warning'
                   : 'border-border/60 bg-muted/40 text-muted-foreground',
@@ -324,7 +338,7 @@ function EpicCardView({
             </span>
           )}
           <div className="flex items-center gap-1.5" title={progressTitle(epic)}>
-            <div className="h-1.5 w-20 overflow-hidden rounded-full bg-secondary">
+            <div className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-secondary @lg:block">
               <div
                 className={cn(
                   'h-full rounded-full transition-all',
@@ -339,7 +353,7 @@ function EpicCardView({
           </div>
           {epic.tokenUsage && epic.tokenUsage.total.calls > 0 && (
             <span
-              className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground"
+              className="hidden items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground @lg:inline-flex"
               title={
                 `${fmtTokens(epic.tokenUsage.total.totalTokens)} tokens · ${epic.tokenUsage.total.calls} calls · ${fmtCost(epic.tokenUsage.total.cost)} API equiv` +
                 (epic.tokenUsage.hasOverlap ? ' · ⚠ overlaps with another run in this project — totals may double-count' : '')
@@ -352,7 +366,7 @@ function EpicCardView({
               )}
             </span>
           )}
-          <StatusBadge status={ui} />
+          <StatusBadge status={ui} collapsible />
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
