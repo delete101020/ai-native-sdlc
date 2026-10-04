@@ -4,9 +4,9 @@
  *  - **Go to Epic** (`aidlcNative.goToEpic`, Ctrl+Alt+E): a quick pick over
  *    every epic, searchable by id, title, description and tags, with the active,
  *    recent and watched ones on top. Enter opens it and makes it active.
- *  - **Active epic** in the status bar: the epic being worked on, one click from
- *    the picker. Also written to `.aidlc/user.yaml` so a skill in a Claude
- *    terminal (`/epic-context` with no id) and `aidlc epic current` agree.
+ *  - **Active epic**: the epic being worked on, written to `.aidlc/user.yaml`
+ *    so a skill in a Claude terminal (`/epic-context` with no id) and
+ *    `aidlc epic current` agree.
  *  - **Follows the git branch**: checking out `feature/EPIC-012-…` makes
  *    EPIC-012 active (setting `aidlcNative.epics.followGitBranch`).
  *  - **Watched epics**: the epics you care about, listed under My epics in the
@@ -91,7 +91,6 @@ function gitHeadPath(root: string): string | null {
 type EpicPickItem = vscode.QuickPickItem & { epicId?: string };
 
 export class EpicFocusController implements vscode.Disposable {
-  private readonly status: vscode.StatusBarItem;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly changed = new vscode.EventEmitter<void>();
   /** Fires whenever the working set or the epics behind it may have changed. */
@@ -103,10 +102,7 @@ export class EpicFocusController implements vscode.Disposable {
     private readonly context: vscode.ExtensionContext,
     private readonly extensionUri: vscode.Uri,
   ) {
-    // Just right of the "AIDLC" launcher (priority 50).
-    this.status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49.5);
-    this.status.command = 'aidlcNative.goToEpic';
-    this.disposables.push(this.status, this.changed);
+    this.disposables.push(this.changed);
 
     this.disposables.push(
       vscode.commands.registerCommand('aidlcNative.goToEpic', () => this.goToEpic()),
@@ -182,26 +178,6 @@ export class EpicFocusController implements vscode.Disposable {
   }
 
   refresh(): void {
-    const snap = this.snapshot();
-    if (!snap) { this.status.hide(); this.changed.fire(); return; }
-
-    const active = snap.focus.active
-      ? snap.epics.find((e) => e.id === snap.focus.active)
-      : undefined;
-    if (active) {
-      this.status.text = `$(target) ${active.id}`;
-      const md = new vscode.MarkdownString(undefined, true);
-      md.appendMarkdown(`**${active.id}** — ${active.title || '(untitled)'}\n\n`);
-      md.appendMarkdown(`${STATUS_ICON[active.status] ?? ''} ${STATUS_TEXT[active.status] ?? active.status}`);
-      const step = stepLabel(active);
-      if (step) { md.appendMarkdown(` · ${step}`); }
-      md.appendMarkdown('\n\n---\n\nClick to switch epic (Ctrl+Alt+E)');
-      this.status.tooltip = md;
-    } else {
-      this.status.text = '$(target) Epic…';
-      this.status.tooltip = 'No active epic — click to pick one (Ctrl+Alt+E)';
-    }
-    this.status.show();
     this.changed.fire();
   }
 
