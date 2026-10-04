@@ -20,6 +20,7 @@ import * as yaml from 'js-yaml';
 
 import { registerV2WorkspaceCommands } from './v2/workspaceCommands';
 import { SidebarWebviewProvider } from './v2/sidebarWebview';
+import { agentActivity, type AgentStop } from './v2/agentActivity';
 import { WorkspaceWebview } from './v2/workspaceWebview';
 import { themeManager } from './v2/themeManager';
 import { registerTokenMonitor } from './v2/tokenMonitor';
@@ -40,6 +41,9 @@ import {
   WORKSPACE_FILENAME,
   activateBackendFromWorkspace,
 } from '@aidlc/core';
+
+/** workspaceState key for {@link agentActivity}'s stops. */
+const AGENT_STOPS_KEY = 'aidlcNative.agentStops';
 
 /**
  * Select the run-state backend declared in the first workspace folder's
@@ -142,6 +146,16 @@ export function activate(context: vscode.ExtensionContext): void {
   // Builder, Open Claude CLI). All under the `aidlcNative.*` namespace.
   const { disposables, presetStore } = registerV2WorkspaceCommands(context, output);
   context.subscriptions.push(...disposables);
+
+  // An agent that stopped while its step waits on the user is a to-do, and a
+  // window reload must not lose it — the terminals go, the step does not move.
+  agentActivity.restoreStops(context.workspaceState.get<AgentStop[]>(AGENT_STOPS_KEY, []));
+  context.subscriptions.push(agentActivity.onDidChange(() => {
+    void context.workspaceState.update(
+      AGENT_STOPS_KEY,
+      Object.values(agentActivity.stopsSnapshot()).flat(),
+    );
+  }));
 
   // Sidebar webview — minimalist launcher into the Builder panel.
   const sidebar = new SidebarWebviewProvider(context.extensionUri, presetStore);

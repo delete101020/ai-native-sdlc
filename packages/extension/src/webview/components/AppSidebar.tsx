@@ -30,6 +30,7 @@ import {
   CircleX,
   Circle,
   CircleCheck,
+  BellRing,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -40,6 +41,8 @@ import type {
   McpServerInfo,
   ActiveRun,
   AgentActivityMap,
+  AgentStop,
+  AgentStopMap,
   EpicIdPrefixSource,
 } from '@/lib/types';
 import { ConfirmModal } from './ConfirmModal';
@@ -139,6 +142,7 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
                 epicsCount={state.epicsCount}
                 runs={state.activeRuns}
                 activity={state.agentActivity ?? {}}
+                stops={state.agentStops ?? {}}
                 collapsed={collapsed.myEpics}
                 onToggle={() => toggleSection('myEpics')}
               />
@@ -638,25 +642,51 @@ function epicAction(type: 'toggleWatchEpic', id: string) {
   };
 }
 
+/** What the stop indicator's tooltip says happened, newest stop first. */
+function describeStops(stops: AgentStop[]): string {
+  return [...stops].reverse().map((s) => {
+    const what = s.reason === 'closed'
+      ? 'Agent terminal closed'
+      : s.exitCode === undefined ? 'Agent stopped'
+      : s.exitCode === 0 ? 'Agent finished'
+      : `Agent exited with code ${s.exitCode}`;
+    const at = new Date(s.stoppedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const step = s.stepIdx === null ? '' : ` · step ${s.stepIdx + 1}`;
+    return `${what} at ${at}${step}`;
+  }).join('\n') + '\nWaiting on you — mark done, review or rerun. × to dismiss.';
+}
+
 function EpicRow({
   epic: e,
   run,
   activity,
+  stops: stopMap,
 }: {
   epic: RecentEpicRef;
   run: ActiveRun | undefined;
   activity: AgentActivityMap;
+  stops: AgentStopMap;
 }) {
-  const busy = run ? (activity[run.runId]?.length ?? 0) > 0 : false;
+  // The convention is runId === epic id, which also covers an epic whose run
+  // is not among the active ones.
+  const runId = run?.runId ?? e.id;
+  const busy = (activity[runId]?.length ?? 0) > 0;
+  // A sibling step still running outranks one that stopped: the spinner says
+  // so, and the stop waits its turn.
+  const stops = busy ? [] : stopMap[runId] ?? [];
+  const stopped = stops.length > 0;
+  const failed = stops.some((s) => s.reason === 'exited' && s.exitCode !== undefined && s.exitCode !== 0);
   const status = run ? runStatus(run) : null;
   return (
     <div
       {...openEpicHandlers(e.id)}
+      {...(e.transient ? { title: `Open ${e.id} — listed while an agent you started works on it` } : {})}
       className={cn(
         // A container, so the status pill can fold to an icon as the sidebar
         // narrows instead of eating the title.
         '@container group flex cursor-pointer items-center gap-2 rounded-md border border-border bg-card/50 px-2.5 py-1.5 text-[11px] transition-colors hover:bg-accent',
         e.archived && 'border-dashed opacity-60 hover:opacity-100',
+        stopped && (failed ? 'border-destructive/50 bg-destructive/5' : 'border-warning/50 bg-warning/5'),
       )}
     >
       <EpicDot status={e.status} />
@@ -669,6 +699,27 @@ function EpicRow({
       )}
       <span className="ml-auto flex shrink-0 items-center gap-1">
         {busy && <Loader2 className="h-3 w-3 animate-spin text-primary" aria-label="Agent running" />}
+        {stopped && (
+          <>
+            <span className="inline-flex group-hover:hidden" title={describeStops(stops)}>
+              <BellRing
+                className={cn('h-3 w-3', failed ? 'text-destructive' : 'text-warning')}
+                aria-label="Agent stopped — waiting on you"
+              />
+            </span>
+            <button
+              type="button"
+              onClick={(ev) => {
+                ev.stopPropagation();
+                postMessage({ type: 'dismissAgentStops', runId });
+              }}
+              title={describeStops(stops)}
+              className="hidden text-muted-foreground hover:text-primary group-hover:inline-flex"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </>
+        )}
         {status && run && (
           <span
             className={cn('inline-flex items-center rounded-full border px-1 py-px text-[8.5px] font-bold uppercase tracking-wider group-hover:hidden @[16rem]:px-1.5', status.cls)}
@@ -708,7 +759,9 @@ const MY_EPICS_LIMIT = 8;
 /**
  * The epics this user watches (`watched_epics` in `.aidlc/user.yaml`), in the
  * order the Epics view is sorted by, so the two never disagree about which
- * comes first. The Go to Epic picker (Ctrl+Alt+E) is the way to everything
+ * comes first — except that the host lifts epics whose agent stopped, then
+ * those with one running, to the top, and adds unwatched ones while an agent
+ * is on them. The Go to Epic picker (Ctrl+Alt+E) is the way to everything
  * else. A run shows on its epic's row; there is no separate runs list.
  */
 function MyEpicsSection({
@@ -716,6 +769,7 @@ function MyEpicsSection({
   epicsCount,
   runs,
   activity,
+  stops,
   collapsed,
   onToggle,
 }: {
@@ -723,6 +777,7 @@ function MyEpicsSection({
   epicsCount: number;
   runs: ActiveRun[];
   activity: AgentActivityMap;
+  stops: AgentStopMap;
   collapsed: boolean;
   onToggle: () => void;
 }) {
@@ -764,7 +819,7 @@ function MyEpicsSection({
             </div>
           ) : (
             shown.map((e) => (
-              <EpicRow key={e.id} epic={e} run={runFor(e.id)} activity={activity} />
+              <EpicRow key={e.id} epic={e} run={runFor(e.id)} activity={activity} stops={stops} />
             ))
           )}
           {epics.length > MY_EPICS_LIMIT && (

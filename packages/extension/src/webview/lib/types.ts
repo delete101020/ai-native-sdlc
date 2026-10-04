@@ -78,6 +78,22 @@ export interface AgentActivity {
  */
 export type AgentActivityMap = Record<string, AgentActivity[]>;
 
+/**
+ * A dispatch whose agent stopped while its step still waits on the user.
+ * Mirrors `AgentStop` in `src/v2/agentActivity.ts`.
+ */
+export interface AgentStop extends AgentActivity {
+  /** Epoch ms when the end signal arrived. */
+  stoppedAt: number;
+  /** The command returned (`exited`), or its terminal was closed. */
+  reason: 'exited' | 'closed';
+  /** The command's exit code, when the shell reported one. */
+  exitCode?: number;
+}
+
+/** Stops keyed by run id. */
+export type AgentStopMap = Record<string, AgentStop[]>;
+
 export interface ActiveRun {
   runId: string;
   /** Set when this run belongs to an epic (`runId === epic.id`); undefined for
@@ -107,6 +123,9 @@ export interface RecentEpicRef {
   watched: boolean;
   /** Archived in the Epics view — still listed here because it is watched. */
   archived?: boolean;
+  /** Not watched — listed only while an agent is running on it or has
+   * stopped and is waiting on the user. */
+  transient?: boolean;
 }
 
 export interface SlashCommandRef {
@@ -447,6 +466,8 @@ export interface SidebarState {
    * user's own Claude window is invisible to it.
    */
   agentActivity: AgentActivityMap;
+  /** Agents that stopped while their step waits on the user, keyed by run id. */
+  agentStops?: AgentStopMap;
 }
 
 export type AssetScope = 'project' | 'aidlc' | 'global';

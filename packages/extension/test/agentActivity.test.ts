@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { AgentActivityRegistry, MAX_AGE_MS } from '../src/v2/agentActivity';
+import { AgentActivityRegistry, MAX_AGE_MS, STOP_MAX_AGE_MS } from '../src/v2/agentActivity';
 
 /**
  * The registry behind the "agent running" indicator.
@@ -202,5 +202,101 @@ describe('AgentActivityRegistry', () => {
     reg.markTracked('EPIC-001', 2);
     expect(reg.getStep('EPIC-001', 1, 1000)?.tracked).toBe(false);
     expect(reg.getStep('EPIC-001', 2, 1000)?.tracked).toBe(true);
+  });
+});
+
+/**
+ * Stops: an agent that let go while its step still waits on the user. The
+ * sidebar used to lose that fact the moment the terminal ended, so with
+ * several epics running nothing said which one had just finished.
+ */
+describe('AgentActivityRegistry stops', () => {
+  it('turns a running entry into a stop, with how it ended', () => {
+    const reg = new AgentActivityRegistry();
+    reg.begin(activity('EPIC-001', 1000, 2));
+    reg.stop('EPIC-001', 2, { reason: 'exited', exitCode: 0 }, 2000);
+
+    expect(reg.isBusy('EPIC-001', 2000)).toBe(false);
+    const stops = reg.stopsSnapshot(2000);
+    expect(stops['EPIC-001']).toHaveLength(1);
+    expect(stops['EPIC-001'][0]).toMatchObject({ stepIdx: 2, stoppedAt: 2000, reason: 'exited', exitCode: 0 });
+  });
+
+  it('records nothing when the step already moved on before the agent stopped', () => {
+    const reg = new AgentActivityRegistry();
+    reg.begin(activity('EPIC-001', 1000, 2));
+    // The user marked the step done while Claude was still typing…
+    reg.end('EPIC-001', 2);
+    // …so the terminal closing later has nothing left to report.
+    reg.stop('EPIC-001', 2, { reason: 'closed' }, 2000);
+    expect(reg.stopsSnapshot(2000)).toEqual({});
+  });
+
+  it('is settled by the step moving, a re-dispatch, or a dismiss', () => {
+    const reg = new AgentActivityRegistry();
+    const stopped = (step: number) => {
+      reg.begin(activity('EPIC-001', 1000, step));
+      reg.stop('EPIC-001', step, { reason: 'closed' }, 2000);
+    };
+
+    stopped(1);
+    reg.end('EPIC-001', 1);
+    expect(reg.stopsSnapshot(2000)).toEqual({});
+
+    stopped(1);
+    reg.begin(activity('EPIC-001', 3000, 1));
+    expect(reg.stopsSnapshot(3000)).toEqual({});
+    expect(reg.isStepBusy('EPIC-001', 1, 3000)).toBe(true);
+
+    reg.end('EPIC-001');
+    stopped(1);
+    reg.dismissStops('EPIC-001');
+    expect(reg.stopsSnapshot(2000)).toEqual({});
+  });
+
+  it('dismissing stops leaves a sibling step that is still running alone', () => {
+    const reg = new AgentActivityRegistry();
+    reg.begin(activity('EPIC-001', 1000, 1));
+    reg.begin(activity('EPIC-001', 1000, 2));
+    reg.stop('EPIC-001', 1, { reason: 'exited', exitCode: 1 }, 2000);
+
+    reg.dismissStops('EPIC-001');
+    expect(reg.stopsSnapshot(2000)).toEqual({});
+    expect(reg.isStepBusy('EPIC-001', 2, 2000)).toBe(true);
+  });
+
+  it('expires a stop nobody acted on, but far later than a running entry', () => {
+    const reg = new AgentActivityRegistry();
+    reg.begin(activity('EPIC-001', 1000, 0));
+    reg.stop('EPIC-001', 0, { reason: 'closed' }, 2000);
+
+    expect(Object.keys(reg.stopsSnapshot(2000 + MAX_AGE_MS + 1))).toEqual(['EPIC-001']);
+    expect(reg.stopsSnapshot(2000 + STOP_MAX_AGE_MS + 1)).toEqual({});
+  });
+
+  it('restores saved stops, skipping expired ones and steps already running again', () => {
+    const reg = new AgentActivityRegistry();
+    const base = { command: '/spec', startedAt: 1000, tracked: true, reason: 'closed' as const };
+    reg.begin(activity('BUSY', 5000, 0));
+    reg.restoreStops([
+      { ...base, runId: 'KEEP', stepIdx: 1, stoppedAt: 4000 },
+      { ...base, runId: 'OLD', stepIdx: 1, stoppedAt: 4000 - STOP_MAX_AGE_MS },
+      { ...base, runId: 'BUSY', stepIdx: 0, stoppedAt: 4000 },
+    ], 5000);
+
+    expect(Object.keys(reg.stopsSnapshot(5000))).toEqual(['KEEP']);
+  });
+
+  it('notifies listeners on stop and dismiss', () => {
+    const reg = new AgentActivityRegistry();
+    const listener = vi.fn();
+    reg.onDidChange(listener);
+    reg.begin(activity('EPIC-001', 1000, 0));
+    reg.stop('EPIC-001', 0, { reason: 'closed' }, 2000);
+    reg.dismissStops('EPIC-001');
+    expect(listener).toHaveBeenCalledTimes(3);
+    // Nothing left to dismiss — no redraw.
+    reg.dismissStops('EPIC-001');
+    expect(listener).toHaveBeenCalledTimes(3);
   });
 });

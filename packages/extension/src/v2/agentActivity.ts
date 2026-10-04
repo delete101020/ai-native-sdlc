@@ -61,6 +61,38 @@ export interface AgentActivity {
 export const MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 /**
+ * How the agent's terminal let go: the command returned (with its exit code,
+ * when the shell reported one), or the terminal was closed under it.
+ */
+export type AgentStopReason = 'exited' | 'closed';
+
+/**
+ * A dispatch whose agent has stopped while its step is still waiting on the
+ * user. Ending used to delete the entry, so the row went back to looking like
+ * every other one — with several epics running at once, nothing said which of
+ * them had just finished and wanted a *Mark step done* or a review. This is
+ * that fact, kept until the step moves, the step is re-dispatched, or the user
+ * dismisses it.
+ */
+export interface AgentStop extends AgentActivity {
+  /** `Date.now()` when the end signal arrived. */
+  stoppedAt: number;
+  reason: AgentStopReason;
+  /** The command's exit code, when the shell reported one. */
+  exitCode?: number;
+}
+
+/**
+ * How long a stop counts for. Much longer than {@link MAX_AGE_MS}: it is a
+ * to-do the user has not got round to, not a busy flag that blocks buttons,
+ * and an overnight gap is exactly when it is needed.
+ */
+export const STOP_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+
+/** Stops keyed by run id, for the webview payload. */
+export type AgentStopMap = Record<string, AgentStop[]>;
+
+/**
  * Serialisable form handed to the webviews: every live entry for a run, keyed
  * by run id.
  *
@@ -84,6 +116,7 @@ function keyOf(runId: string, stepIdx: number | null): string {
 
 export class AgentActivityRegistry {
   private readonly entries = new Map<string, AgentActivity>();
+  private readonly stops = new Map<string, AgentStop>();
   private readonly listeners = new Set<() => void>();
 
   /**
@@ -102,7 +135,10 @@ export class AgentActivityRegistry {
    * a sibling step is a separate entry and leaves this one alone.
    */
   begin(activity: AgentActivity): void {
-    this.entries.set(keyOf(activity.runId, activity.stepIdx), activity);
+    const key = keyOf(activity.runId, activity.stepIdx);
+    this.entries.set(key, activity);
+    // Re-dispatching the step is the user acting on the stop.
+    this.stops.delete(key);
     this.emit();
   }
 
@@ -119,32 +155,113 @@ export class AgentActivityRegistry {
   }
 
   /**
-   * Drop entries for `runId`. With a `stepIdx` — including an explicit `null`,
-   * the unattributed slot — only that one goes; without one, every entry the
-   * run has, which is what a run-wide signal such as the exec loop finishing
-   * actually means. Silent when there is nothing to drop.
+   * The agent for this dispatch stopped on its own terms — its command
+   * returned or its terminal closed — so the step now waits on the user.
+   * Moves the running entry to the stops rather than dropping it. No-op when
+   * there is no running entry: the step already moved on (`end`) and there is
+   * nothing left to act on.
+   */
+  stop(
+    runId: string,
+    stepIdx: number | null,
+    how: { reason: AgentStopReason; exitCode?: number },
+    now: number = Date.now(),
+  ): void {
+    const key = keyOf(runId, stepIdx);
+    const found = this.entries.get(key);
+    if (!found) { return; }
+    this.entries.delete(key);
+    this.stops.set(key, {
+      ...found,
+      stoppedAt: now,
+      reason: how.reason,
+      ...(how.exitCode !== undefined ? { exitCode: how.exitCode } : {}),
+    });
+    this.emit();
+  }
+
+  /**
+   * Drop entries for `runId` — running and stopped alike, since both are
+   * settled by the same things: the step moving, or the user dismissing. With
+   * a `stepIdx` — including an explicit `null`, the unattributed slot — only
+   * that one goes; without one, every entry the run has, which is what a
+   * run-wide signal such as the exec loop finishing actually means. Silent
+   * when there is nothing to drop.
    */
   end(runId: string, stepIdx?: number | null): void {
     if (stepIdx !== undefined) {
-      if (!this.entries.delete(keyOf(runId, stepIdx))) { return; }
+      const key = keyOf(runId, stepIdx);
+      const dropped = this.entries.delete(key);
+      if (!this.stops.delete(key) && !dropped) { return; }
       this.emit();
       return;
     }
     let dropped = false;
-    for (const [key, entry] of [...this.entries]) {
-      if (entry.runId !== runId) { continue; }
-      this.entries.delete(key);
-      dropped = true;
+    for (const map of [this.entries, this.stops] as Map<string, AgentActivity>[]) {
+      for (const [key, entry] of [...map]) {
+        if (entry.runId !== runId) { continue; }
+        map.delete(key);
+        dropped = true;
+      }
     }
     if (!dropped) { return; }
     this.emit();
   }
 
+  /**
+   * The user's "seen it, nothing to do": drop the run's stops and leave any
+   * agent still running on a sibling step alone.
+   */
+  dismissStops(runId: string): void {
+    let dropped = false;
+    for (const [key, stop] of [...this.stops]) {
+      if (stop.runId !== runId) { continue; }
+      this.stops.delete(key);
+      dropped = true;
+    }
+    if (dropped) { this.emit(); }
+  }
+
   /** Drop everything — used when the workspace folder changes underneath us. */
   clear(): void {
-    if (this.entries.size === 0) { return; }
+    if (this.entries.size === 0 && this.stops.size === 0) { return; }
     this.entries.clear();
+    this.stops.clear();
     this.emit();
+  }
+
+  /**
+   * Live stops, keyed by run id, oldest first. Expired ones are dropped here,
+   * the same lazy way {@link snapshot} drops expired running entries.
+   */
+  stopsSnapshot(now: number = Date.now()): AgentStopMap {
+    const out: AgentStopMap = {};
+    for (const [key, stop] of [...this.stops]) {
+      if (now - stop.stoppedAt >= STOP_MAX_AGE_MS) {
+        this.stops.delete(key);
+        continue;
+      }
+      (out[stop.runId] ??= []).push(stop);
+    }
+    for (const list of Object.values(out)) {
+      list.sort((a, b) => a.stoppedAt - b.stoppedAt);
+    }
+    return out;
+  }
+
+  /**
+   * Put back stops saved by an earlier session. A window reload loses the
+   * terminals but not the to-do: the step is still waiting on the user.
+   * Silent — restoring is not a change anyone needs to redraw for twice.
+   */
+  restoreStops(saved: readonly AgentStop[], now: number = Date.now()): void {
+    for (const stop of saved) {
+      if (!stop || typeof stop.runId !== 'string' || typeof stop.stoppedAt !== 'number') { continue; }
+      if (now - stop.stoppedAt >= STOP_MAX_AGE_MS) { continue; }
+      const key = keyOf(stop.runId, stop.stepIdx ?? null);
+      if (this.entries.has(key)) { continue; }
+      this.stops.set(key, stop);
+    }
   }
 
   /**

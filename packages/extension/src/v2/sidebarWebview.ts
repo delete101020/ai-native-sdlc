@@ -64,7 +64,7 @@ import { WorkspaceWebview } from './workspaceWebview';
 import { stepLabel } from './epicFocus';
 import { DEFAULT_EPIC_SORT, isEpicSort, sortEpics } from '../webview/lib/epicSort';
 import { missingBundleHtml } from './webviewBundleGuard';
-import { agentActivity, type AgentActivityMap } from './agentActivity';
+import { agentActivity, type AgentActivityMap, type AgentStopMap } from './agentActivity';
 import { guardMessages } from './webviewMessageGuard';
 
 // VS Code reuses output channels by name, so this resolves to the same
@@ -135,6 +135,12 @@ interface EpicRef {
   step: string;
   watched: boolean;
   archived?: boolean;
+  /**
+   * Not watched, but listed anyway because an agent this window dispatched is
+   * running on it or has stopped and is waiting on the user — typically a
+   * step run for a teammate's epic. Drops off again once that settles.
+   */
+  transient?: boolean;
 }
 
 interface SidebarState {
@@ -199,6 +205,12 @@ interface SidebarState {
    * see {@link agentActivity} for why that case is unknowable.
    */
   agentActivity: AgentActivityMap;
+  /**
+   * Dispatches whose agent has stopped while the step still waits on the
+   * user, keyed by run id. Cleared when the step moves, is re-dispatched, or
+   * the user dismisses it.
+   */
+  agentStops: AgentStopMap;
 }
 
 interface McpSnapshot {
@@ -251,6 +263,7 @@ function buildState(
       epicIdPrefixSuggestion: null,
       epicIdPrefixNeedsSetup: false,
       agentActivity: {},
+      agentStops: {},
     };
   }
 
@@ -292,7 +305,9 @@ function buildState(
     sort === 'mine' ? epicIdPrefixFields(root, doc).epicIdPrefix : null,
   );
   const focusedEpic = focus.active ? byId.get(focus.active) : undefined;
-  const myEpics = inEpicsOrder(focus.watched).map(toRef);
+  const running = agentActivity.snapshot();
+  const stops = agentActivity.stopsSnapshot();
+  const myEpics = myEpicRefs(allEpics, focus.watched, running, stops, inEpicsOrder, toRef);
 
   // GH-67: read extra_projects from the epic being worked on — the active one,
   // else the most recent in-progress one — for sidebar display.
@@ -342,7 +357,8 @@ function buildState(
       epicIdPrefixSource: null,
       epicIdPrefixSuggestion: null,
       epicIdPrefixNeedsSetup: false,
-      agentActivity: agentActivity.snapshot(),
+      agentActivity: running,
+      agentStops: stops,
     };
   }
 
@@ -389,8 +405,40 @@ function buildState(
     // free top-level string the schema knows about and this type does not.
     artifactLanguage: resolveArtifactLanguage(doc as { artifact_language?: unknown }),
     ...epicIdPrefixFields(root, doc),
-    agentActivity: agentActivity.snapshot(),
+    agentActivity: running,
+    agentStops: stops,
   };
+}
+
+/**
+ * My epics: the watched ones, plus any epic an agent from this window is
+ * running on or has just stopped on — running steps for a teammate's epic is
+ * routine, and that epic is rarely starred. Those needing the user come
+ * first, then those with an agent working, then the rest; each group keeps
+ * the Epics view's order, so nothing reshuffles among its peers.
+ */
+function myEpicRefs<E extends { id: string; runId: string | null }>(
+  allEpics: readonly E[],
+  watched: readonly string[],
+  running: AgentActivityMap,
+  stops: AgentStopMap,
+  inEpicsOrder: (ids: string[]) => E[],
+  toRef: (e: E) => EpicRef,
+): EpicRef[] {
+  // The convention is runId === epic.id; the explicit runId wins when set.
+  const runOf = (e: E) => e.runId ?? e.id;
+  const isStopped = (e: E) => (stops[runOf(e)]?.length ?? 0) > 0;
+  const isRunning = (e: E) => (running[runOf(e)]?.length ?? 0) > 0;
+  const watchedSet = new Set(watched);
+  const ids = [...watched];
+  for (const e of allEpics) {
+    if (!watchedSet.has(e.id) && (isStopped(e) || isRunning(e))) { ids.push(e.id); }
+  }
+  const rank = (e: E) => (isStopped(e) ? 0 : isRunning(e) ? 1 : 2);
+  return inEpicsOrder(ids)
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => rank(a.e) - rank(b.e) || a.i - b.i)
+    .map(({ e }) => ({ ...toRef(e), ...(watchedSet.has(e.id) ? {} : { transient: true }) }));
 }
 
 /**
@@ -527,6 +575,19 @@ function listTemplates(
   }
 }
 
+/**
+ * The activity-bar count of epics waiting on the user after their agent
+ * stopped — the one fact worth seeing while the sidebar is not on screen.
+ */
+function stopsBadge(stops: AgentStopMap): vscode.ViewBadge | undefined {
+  const n = Object.keys(stops).length;
+  if (n === 0) { return undefined; }
+  return {
+    value: n,
+    tooltip: n === 1 ? '1 epic: agent stopped, waiting on you' : `${n} epics: agent stopped, waiting on you`,
+  };
+}
+
 export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'aidlcNativeSidebar';
   private view: vscode.WebviewView | undefined;
@@ -579,10 +640,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     setTimeout(() => {
       this.refreshQueued = false;
       if (!this.view) { return; }
-      void this.view.webview.postMessage({
-        type: 'state',
-        state: buildState(this.presetStore, this.mcp),
-      });
+      const state = buildState(this.presetStore, this.mcp);
+      this.view.badge = stopsBadge(state.agentStops);
+      void this.view.webview.postMessage({ type: 'state', state });
     }, SIDEBAR_REFRESH_COALESCE_MS);
   }
 
@@ -879,6 +939,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'startPipelineRun':
         await vscode.commands.executeCommand('aidlcNative.startPipelineRun');
         return;
+      case 'dismissAgentStops': {
+        const runId = String(msg.runId ?? '');
+        if (runId) { agentActivity.dismissStops(runId); }
+        return;
+      }
       case 'clearAgentActivity': {
         // The user's override: they can see the agent is finished even though
         // no end signal reached us. Trusting them here is what keeps a missed

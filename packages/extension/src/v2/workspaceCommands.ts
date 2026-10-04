@@ -42,7 +42,7 @@ import { loadAllBuiltinPresets, BUILTIN_WORKFLOWS } from './builtinPresets';
 import { installWorkflowGlobalsCommand } from './installWorkflowGlobalsCommand';
 import { uninstallWorkflowGlobalsCommand } from './uninstallWorkflowGlobalsCommand';
 import { readYaml } from './yamlIO';
-import { agentActivity } from './agentActivity';
+import { agentActivity, type AgentStopReason } from './agentActivity';
 import { StandardPickerWebview } from './standardPickerWebview';
 import { startEpicCommand, editEpicDescriptionCommand, changeEpicWorkflowCommand } from './epicWizard';
 import { analyzeRequirementsCommand } from './requirementWizard';
@@ -140,10 +140,12 @@ function trackAgentRun(
   });
 
   const subs: vscode.Disposable[] = [];
-  const finish = () => {
+  const finish = (how: { reason: AgentStopReason; exitCode?: number }) => {
     // Only this dispatch's entry: a parallel sibling may have an agent of its
     // own still working, and this terminal closing says nothing about it.
-    agentActivity.end(runId, stepIdx);
+    // Kept as a stop rather than dropped, so the sidebar can say this step is
+    // now waiting on the user.
+    agentActivity.stop(runId, stepIdx, how);
     for (const s of subs) { s.dispose(); }
     subs.length = 0;
   };
@@ -156,13 +158,13 @@ function trackAgentRun(
       onEnd((e) => {
         // The terminal is created fresh per dispatch and runs exactly one
         // command, so matching on the terminal is enough to identify it.
-        if (e.terminal === terminal) { finish(); }
+        if (e.terminal === terminal) { finish({ reason: 'exited', exitCode: e.exitCode }); }
       }),
     );
   }
   subs.push(
     vscode.window.onDidCloseTerminal((t) => {
-      if (t === terminal) { finish(); }
+      if (t === terminal) { finish({ reason: 'closed' }); }
     }),
   );
 }
