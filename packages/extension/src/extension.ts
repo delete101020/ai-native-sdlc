@@ -295,6 +295,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Auto-open the workspace webview so the user sees the panel immediately.
   // No folder → Epics tab (start epic / load from folder); folder → Builder.
+  // A panel left over from before an extension restart (update) or reload is
+  // dead — nothing in this host owns it. Close it; the auto-open below is the
+  // one live panel, instead of a second tab beside the stale one.
+  context.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer('aidlc.workspace', {
+      deserializeWebviewPanel: async (panel) => { panel.dispose(); },
+    }),
+  );
   const hasFolder = (vscode.workspace.workspaceFolders ?? []).length > 0;
   WorkspaceWebview.show(context.extensionUri, hasFolder ? 'builder' : 'epics');
 
