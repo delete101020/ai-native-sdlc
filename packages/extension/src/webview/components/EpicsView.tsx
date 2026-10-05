@@ -141,11 +141,17 @@ export function EpicsView({
 
   // A deep link has to win over the filter — landing on an empty list because
   // the epic is done and the filter says "in progress" reads as a broken link.
+  // Only the filters that would hide it are cleared; the rest stay as set.
   useEffect(() => {
     if (focus) {
-      setFilter('all'); setTagFilter([]); setWatchedOnly(false); setQuery('');
-      setShowArchived(!!epicsRef.current.find((e) => e.id === focus.id)?.archived);
+      const target = epicsRef.current.find((e) => e.id === focus.id);
+      setFilter((f) => (target && matches(target, f) ? f : 'all'));
+      setTagFilter((t) => (target && matchesTags(target, t) ? t : []));
+      setWatchedOnly((w) => w && (state.watchedEpics ?? []).includes(focus.id));
+      setQuery('');
+      setShowArchived(!!target?.archived);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus]);
 
   // A tag that no epic carries any more (its last epic was retagged or deleted)
