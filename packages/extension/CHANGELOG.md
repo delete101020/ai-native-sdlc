@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.0.36
+
+Opening an epic from the sidebar no longer drops the Watching filter.
+
+### Fixed
+
+- Clicking an epic in the sidebar used to clear every filter in the Epics
+  view, Watching included, even when the epic was one you watch. Now only the
+  filters that would hide the epic are cleared.
+
 ## 4.0.35
 
 With several epics running, My epics now tells you which agent just stopped
