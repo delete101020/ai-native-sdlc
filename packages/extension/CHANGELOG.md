@@ -1,5 +1,29 @@
 # Changelog
 
+## 4.0.35
+
+With several epics running, My epics now tells you which agent just stopped
+and is waiting on you.
+
+### Added
+
+- My epics marks an epic whose agent stopped with a bell (red on a non-zero
+  exit). These rows sort to the top, and you can dismiss the bell on hover.
+  Stops are kept across reloads and clear when the step moves or the agent
+  runs again.
+- Epics you don't watch are listed while an agent is running or stopped on
+  them, for example steps you ran for a teammate's epic.
+- The sidebar's activity-bar badge counts the epics waiting on you.
+
+### Changed
+
+- The epic card header and sidebar epic rows fold down on narrow panels:
+  tags, epic links and token usage drop out, the progress bar shrinks to a
+  percentage, and status labels become icons. The title truncates instead of
+  spilling over.
+- The active epic no longer takes a slot in the status bar. Use Go to Epic
+  (Ctrl+Alt+E) or the sidebar.
+
 ## 4.0.34
 
 Archiving an epic leaves the rest of the list as it was.
