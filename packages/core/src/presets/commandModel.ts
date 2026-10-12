@@ -29,6 +29,7 @@ import * as path from 'path';
 
 import { artifactLanguageSection, commandBodyPredatesArtifactLanguage } from '../loader/artifactLanguage';
 import { strictModeSection } from '../loader/strictMode';
+import { inheritedContextNote } from '../loader/inheritedContext';
 import { commandBodyIsStale } from './commandBodyFreshness';
 import type { PipelineConfig, WorkspaceConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, resolveStepSkills, stepDagId } from '../schema/WorkspaceSchema';
@@ -314,7 +315,7 @@ Claude — but still follow the structural contract below.
 
 1. Read \`${epicRoot}/<epic>/state.json\` for prior feedback/history and address
    any rejection reasons in this revision.
-2. Read \`${epicRoot}/<epic>/inputs.json\` for capability inputs.
+2. Read \`${epicRoot}/<epic>/inputs.json\` for capability inputs. ${inheritedContextNote(epicRoot)}
 3. Before writing, read the blank template for that artifact at
    \`.aidlc/aidlc-templates/<templatesId>/<FILE>\` and follow its structure —
    \`<templatesId>\` is the pipeline's \`derived_from\` when it has one (a
@@ -362,7 +363,7 @@ procedure exactly as \`/aidlc <epic> ${phase.id}\` would:
    ones — and only fall back to \`.claude/skills/<id>.md\` and
    \`.claude/agents/<id>.md\` when none is declared. Adopt them (unless the
    active standard is \`none\`), then follow the structural contract: read
-   state/inputs, write to
+   state/inputs (${inheritedContextNote(epicRoot)}), write to
    \`${epicRoot}/<epic>/artifacts/${phase.artifact}\` (or the step's declared
    artifact), and tell the user to click **"Mark step done"**.
 

@@ -49,6 +49,16 @@ function parentOf(epic: EpicSummary): string | null {
   return from || null;
 }
 
+/**
+ * Other epics this one also follows (`also_from`, comma-separated). Linked both
+ * ways, but the epic is grouped under `from_epic` alone — a card in two
+ * families would be two cards for one epic.
+ */
+function alsoFromOf(epic: EpicSummary): string[] {
+  const from = parentOf(epic);
+  return (epic.inputs?.also_from ?? '').split(',').map((id) => id.trim()).filter((id) => id && id !== from);
+}
+
 /** Root of the family an epic belongs to — itself, unless it follows another. */
 function familyOf(epic: EpicSummary): string {
   return parentOf(epic) ?? epic.id;
@@ -234,16 +244,23 @@ export function EpicsView({
     return allTagsRef.current;
   }, [state.epics]);
 
-  /** epic id → epics opened from it. Read by the cards to draw the link back. */
-  const followUpsRef = useRef<Record<string, string[]>>({});
-  const followUpsByEpic = useMemo(() => {
-    const out: Record<string, string[]> = {};
+  /**
+   * epic id → epics opened from it, and epic id → the other epics it also
+   * follows. Read by the cards to draw the links both ways.
+   */
+  const linksRef = useRef<{ followUps: Record<string, string[]>; alsoFrom: Record<string, string[]> }>({ followUps: {}, alsoFrom: {} });
+  const { followUps: followUpsByEpic, alsoFrom: alsoFromByEpic } = useMemo(() => {
+    const followUps: Record<string, string[]> = {};
+    const alsoFrom: Record<string, string[]> = {};
     for (const e of state.epics) {
-      const from = parentOf(e);
-      if (from) { (out[from] ??= []).push(e.id); }
+      const others = alsoFromOf(e);
+      if (others.length > 0) { alsoFrom[e.id] = others; }
+      for (const from of [parentOf(e), ...others]) {
+        if (from) { (followUps[from] ??= []).push(e.id); }
+      }
     }
-    followUpsRef.current = shareStructure(followUpsRef.current, out);
-    return followUpsRef.current;
+    linksRef.current = shareStructure(linksRef.current, { followUps, alsoFrom });
+    return linksRef.current;
   }, [state.epics]);
 
   // Group after filtering, not before: a filter is a question about epics, and
@@ -596,6 +613,7 @@ export function EpicsView({
                 // A list: a DAG can have an agent on each of its open steps.
                 activities={(e.runId && state.agentActivity?.[e.runId]) || NONE}
                 fromEpic={parentOf(e)}
+                alsoFrom={alsoFromByEpic[e.id] ?? NONE}
                 followUps={followUpsByEpic[e.id] ?? NONE}
                 onNavigate={navigate}
                 tagSuggestions={allTags}

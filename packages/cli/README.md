@@ -313,6 +313,13 @@ the pipeline it was derived from) and inherits its tags; override with
 runs: the child waits at its first step until someone starts it. The
 extension's card offers the same as **New follow-up epic**.
 
+One epic can follow several: `epic follow-up SEAL-CUT --also SEAL-CLASSIFY`
+(repeatable; **Also follows** in the extension) when one change reworks what two
+earlier epics built. The extra parents go into `also_from` — linked from both
+cards, while the child stays grouped under `<parent>`. Every phase prompt tells
+the agent to read each parent's `intent.md` and `spec.md` first, so the child
+starts from their rules instead of a change request on each.
+
 **Tags** are free text in and one canonical form on disk: uppercase, ASCII,
 dash-separated — `"thanh toán VNPay"` is stored as `THANH-TOAN-VNPAY`, and the
 accents and case are folded on the way *in* to a filter too, so `--tag "thanh

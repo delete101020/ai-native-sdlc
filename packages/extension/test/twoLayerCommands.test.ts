@@ -14,7 +14,7 @@ import {
   provisionShortcutDocs,
   CANONICAL_PHASE_IDS,
 } from '../src/v2/builtinPresets';
-import { ARTIFACT_LANGUAGE_HEADING, STRICT_MODE_HEADING } from '@aidlc/core';
+import { ARTIFACT_LANGUAGE_HEADING, STRICT_MODE_HEADING, INHERITED_CONTEXT_MARKER } from '@aidlc/core';
 
 function tmpRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-2layer-'));
@@ -65,7 +65,7 @@ describe('GH-71: two-layer command model (extension surface)', () => {
     const planPath = path.join(root, '.claude', 'commands', 'plan.md');
     // Keeps both generated sections: a body missing either is treated as
     // predating the setting it belongs to and gets refreshed regardless.
-    const edited = `USER EDITED\n\n${ARTIFACT_LANGUAGE_HEADING}\n\n${STRICT_MODE_HEADING}\n`;
+    const edited = `USER EDITED\n\n${ARTIFACT_LANGUAGE_HEADING}\n\n${STRICT_MODE_HEADING}\n\n${INHERITED_CONTEXT_MARKER}\n`;
     fs.writeFileSync(planPath, edited, 'utf8');
 
     writeTwoLayerCommands(root, { epicRoot: 'docs/epics' }); // default: no overwrite

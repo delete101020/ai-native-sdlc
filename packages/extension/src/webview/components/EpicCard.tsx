@@ -133,6 +133,8 @@ interface Props {
   activities?: AgentActivity[];
   /** The incident this epic was opened from (`from_epic` in inputs.json). */
   fromEpic?: string | null;
+  /** Other epics it also follows (`also_from`) — linked, not grouped under. */
+  alsoFrom?: string[];
   /** Epics opened from this one — an incident's fix, or a manifest's children. */
   followUps?: string[];
   /** Jump the list to another epic — expands it, scrolls to it, highlights it. */
@@ -181,6 +183,7 @@ function EpicCardView({
   watched = false,
   activities = [],
   fromEpic = null,
+  alsoFrom = [],
   followUps = [],
   onNavigate,
   tagSuggestions = [],
@@ -301,7 +304,7 @@ function EpicCardView({
         <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
           <span className="min-w-0 truncate text-sm text-foreground">{epic.title}</span>
           <span className="hidden shrink-0 @xl:flex">
-            <EpicLinks fromEpic={fromEpic} followUps={followUps} onNavigate={onNavigate} />
+            <EpicLinks fromEpic={fromEpic} alsoFrom={alsoFrom} followUps={followUps} onNavigate={onNavigate} />
           </span>
           <span className="hidden shrink-0 @2xl:flex">
             <TagChips tags={epic.tags ?? []} onTagClick={onTagClick} />
@@ -557,10 +560,12 @@ function FollowUpHookFailures({ epic }: { epic: EpicSummary }) {
  */
 function EpicLinks({
   fromEpic,
+  alsoFrom,
   followUps,
   onNavigate,
 }: {
   fromEpic: string | null;
+  alsoFrom: string[];
   followUps: string[];
   onNavigate?: (epicId: string) => void;
 }) {
@@ -572,7 +577,7 @@ function EpicLinks({
       {fromEpic && (
         <button
           type="button"
-          title={`Opened from ${fromEpic} — the incident this epic fixes`}
+          title={`Opened from ${fromEpic}`}
           onClick={(e) => { e.stopPropagation(); onNavigate?.(fromEpic); }}
           className={chip}
         >
@@ -580,6 +585,18 @@ function EpicLinks({
           <span className="truncate">{fromEpic}</span>
         </button>
       )}
+      {alsoFrom.map((id) => (
+        <button
+          key={id}
+          type="button"
+          title={`Also follows ${id} — its intent and spec are read as this epic's starting rules`}
+          onClick={(e) => { e.stopPropagation(); onNavigate?.(id); }}
+          className={chip}
+        >
+          <CornerDownRight className="h-2.5 w-2.5 shrink-0" />
+          <span className="truncate">{id}</span>
+        </button>
+      ))}
       {followUps.length > 0 && (
         <button
           type="button"

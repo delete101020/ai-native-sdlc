@@ -13,6 +13,8 @@
  * maps them to a progress panel.
  */
 
+import * as path from 'path';
+
 import { WorkspaceLoader } from '../loader/WorkspaceLoader';
 import { RunStateStore } from './RunStateStore';
 import {
@@ -35,6 +37,7 @@ import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, resolveStepSkills, stepSkillAlternatives } from '../schema/WorkspaceSchema';
 import { resolveArtifactLanguage } from '../loader/artifactLanguage';
 import { resolveEpicStrictMode } from '../loader/strictMode';
+import { inheritedContextNote } from '../loader/inheritedContext';
 import { composeAgentPrompt, type ComposedPrompt } from '../loader/promptComposer';
 import { findProjectInstructions } from '../loader/projectInstructions';
 import { harnessCapabilities, type AidlcRunner } from '../runner/types';
@@ -442,7 +445,11 @@ async function execStep(
   // claude --print always needs a non-empty prompt: explicit message → context
   // pairs → agent name fallback.
   const contextStr = Object.entries(state.context).map(([k, v]) => `${k}=${v}`).join(' ');
-  const userMessage = opts.message ?? (contextStr || `Execute step: ${agentId}`);
+  // A follow-up reads the epics it follows — the slash-command bodies say so in
+  // their inputs step; a headless step only ever sees these pairs.
+  const epicRoot = path.relative(root, epicsRoot(root, ws.config)).split(path.sep).join('/');
+  const inherited = state.context.from_epic ? `\n\nAbout these inputs: ${inheritedContextNote(epicRoot)}` : '';
+  const userMessage = opts.message ?? (contextStr ? contextStr + inherited : `Execute step: ${agentId}`);
 
   if (opts.dryRun) {
     hooks.onDryRunPreview?.({

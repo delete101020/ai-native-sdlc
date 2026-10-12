@@ -59,7 +59,7 @@ export interface StartEpicDraft {
    * (`from_epic`, `follow_up_key`) itself — the key is re-derived there, so two
    * follow-ups opened at once cannot both claim `F1`.
    */
-  followUp?: { parentEpicId: string };
+  followUp?: { parentEpicId: string; alsoFrom?: string[] };
 }
 
 interface Props {
@@ -153,6 +153,9 @@ export function StartEpicModal({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState<string[]>(followUp?.tags ?? []);
+  // Other epics this follow-up also follows (`also_from`): one epic that changes
+  // what two earlier ones built, without a change request on each.
+  const [alsoFrom, setAlsoFrom] = useState<string[]>([]);
   const [inputs, setInputs] = useState<Record<string, string>>({});
   // Capability inputs are all optional (blank = skip) and every one of them is a
   // path or URL only the user can supply, so the common case is to fill none.
@@ -627,7 +630,7 @@ export function StartEpicModal({
       inputs: cleanInputs,
       extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
       strictMode,
-      ...(followUp ? { followUp: { parentEpicId: followUp.parentEpicId } } : {}),
+      ...(followUp ? { followUp: { parentEpicId: followUp.parentEpicId, ...(alsoFrom.length > 0 ? { alsoFrom } : {}) } } : {}),
     });
     onClose();
   };
@@ -651,6 +654,44 @@ export function StartEpicModal({
               {followUp.parentTitle && <> — {followUp.parentTitle}</>} as an epic of its own, linked back to it.
               Nothing runs until you start it. Workflow and tags are copied from the parent; change them if this
               work is a different shape.
+            </div>
+          </div>
+        )}
+        {followUp && (
+          <div>
+            <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+              Also follows <span className="font-normal normal-case tracking-normal text-muted-foreground/80">
+                (optional — other epics whose rules this one changes; their intent and spec are read too)
+              </span>
+            </label>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {alsoFrom.map((id) => (
+                <span
+                  key={id}
+                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[10.5px] font-semibold text-primary"
+                >
+                  {id}
+                  <button
+                    type="button"
+                    onClick={() => setAlsoFrom((cur) => cur.filter((x) => x !== id))}
+                    title={`Remove ${id}`}
+                    className="rounded-full text-primary/70 hover:text-primary"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </span>
+              ))}
+              <select
+                value=""
+                onChange={(e) => { const id = e.target.value; if (id) { setAlsoFrom((cur) => [...cur, id]); } }}
+                className="rounded-md border border-border bg-input/50 px-2 py-1 font-mono text-[11px] text-foreground focus:border-primary focus:outline-none"
+              >
+                <option value="">+ Add epic…</option>
+                {existingEpicIds
+                  .filter((id) => id !== followUp.parentEpicId && !alsoFrom.includes(id))
+                  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+                  .map((id) => <option key={id} value={id}>{id}</option>)}
+              </select>
             </div>
           </div>
         )}

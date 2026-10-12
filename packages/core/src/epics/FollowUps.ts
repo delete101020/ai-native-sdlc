@@ -241,6 +241,14 @@ export function openManifestFollowUp(args: OpenManifestFollowUpArgs): OpenManife
 }
 
 /**
+ * Other parents of a follow-up, comma-separated in inputs.json. `from_epic`
+ * stays the one parent the epic list groups under and the follow-up hooks
+ * answer to; these are only linked, and read for context like `from_epic` is —
+ * one epic that changes the rules two earlier epics implemented.
+ */
+export const ALSO_FROM_INPUT = 'also_from';
+
+/**
  * `inputs` with the edge back to the parent added — last, so nothing the caller
  * passes can overwrite the edge the child is drawn from.
  */
@@ -248,8 +256,16 @@ export function withFollowUpProvenance(
   inputs: Record<string, string>,
   parentEpicId: string,
   key: string,
+  alsoFrom: string[] = [],
 ): Record<string, string> {
-  return { ...inputs, from_epic: parentEpicId, follow_up_key: key };
+  const { [ALSO_FROM_INPUT]: _ignored, ...rest } = inputs;
+  const others = [...new Set(alsoFrom.map((id) => id.trim()).filter((id) => id && id !== parentEpicId))];
+  return {
+    ...rest,
+    from_epic: parentEpicId,
+    follow_up_key: key,
+    ...(others.length > 0 ? { [ALSO_FROM_INPUT]: others.join(',') } : {}),
+  };
 }
 
 // ── Follow-ups opened by hand ────────────────────────────────────────────────

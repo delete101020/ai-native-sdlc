@@ -292,6 +292,7 @@ export function registerEpic(program: Command): void {
     .option('--pipeline <id>', 'use an existing pipeline as-is (default: the parent\'s workflow)')
     .option('--from <pipelineId>', 'override the recipe\'s source pipeline')
     .option('--epic <id>', 'id for the follow-up (default: <parentEpic>-F<n>)')
+    .option('--also <epic>', 'another epic this one also follows (repeatable) — linked and read for context; <parentEpic> stays the one it is grouped under', collectKv, [] as string[])
     .option('--input <kv>', 'capability input as key=value (repeatable)', collectKv, [] as string[])
     .option('--tag <tag>', 'extra tag (repeatable) — added to the ones inherited from the parent', collectKv, [] as string[])
     .option('--no-inherit-tags', 'do not copy the parent\'s tags')
@@ -299,7 +300,7 @@ export function registerEpic(program: Command): void {
     .option('--json', 'output the result as JSON')
     .action((parentEpic: string, opts: {
       title: string; desc?: string; recipe?: string; pipeline?: string; from?: string; epic?: string;
-      input: string[]; tag: string[]; inheritTags: boolean; strict: boolean; json?: boolean;
+      also: string[]; input: string[]; tag: string[]; inheritTags: boolean; strict: boolean; json?: boolean;
     }, actionCmd: Command) => {
       const root = resolveWorkspaceRoot(actionCmd);
       const doc  = requireYaml(root);
@@ -324,6 +325,17 @@ export function registerEpic(program: Command): void {
       } catch (err) {
         console.error(chalk.red(err instanceof Error ? err.message : String(err)));
         process.exit(1);
+      }
+
+      // Each extra parent must exist — a typo would link to nothing and feed the
+      // agents a spec path that is not there.
+      for (const other of opts.also) {
+        try {
+          followUpDefaults(root, doc, other.trim());
+        } catch (err) {
+          console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+          process.exit(1);
+        }
       }
 
       const epicId = opts.epic?.trim() || defaults.epicId;
@@ -362,7 +374,7 @@ export function registerEpic(program: Command): void {
           description: opts.desc?.trim() ?? '',
           target: { kind: 'pipeline', id: pipelineCfg.id },
           agents,
-          inputs: withFollowUpProvenance(inputs, parentEpic, defaults.key),
+          inputs: withFollowUpProvenance(inputs, parentEpic, defaults.key, opts.also),
           pipeline: pipelineCfg,
           strictMode: opts.strict,
           tags,
@@ -370,11 +382,12 @@ export function registerEpic(program: Command): void {
 
         if (opts.json) {
           console.log(JSON.stringify({
-            epicId, epicDir, pipeline: pipelineCfg.id, fromEpic: parentEpic, followUpKey: defaults.key, tags,
+            epicId, epicDir, pipeline: pipelineCfg.id, fromEpic: parentEpic, alsoFrom: opts.also, followUpKey: defaults.key, tags,
           }, null, 2));
           return;
         }
-        console.log(chalk.green('✔') + ` Opened follow-up ${chalk.bold(epicId)} of ${chalk.bold(parentEpic)}`);
+        const others = opts.also.length > 0 ? ` (also ${opts.also.map((id) => chalk.bold(id)).join(', ')})` : '';
+        console.log(chalk.green('✔') + ` Opened follow-up ${chalk.bold(epicId)} of ${chalk.bold(parentEpic)}${others}`);
         console.log(chalk.dim(`  Pipeline: ${pipelineCfg.id}`));
         console.log(chalk.dim(`  Steps:    ${agents.join(' → ')}`));
         console.log(chalk.dim(`  Dir:      ${epicDir}`));

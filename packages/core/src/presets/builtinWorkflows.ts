@@ -27,6 +27,7 @@ import * as path from 'path';
 
 import { artifactLanguageSection } from '../loader/artifactLanguage';
 import { strictModeSection } from '../loader/strictMode';
+import { inheritedContextNote } from '../loader/inheritedContext';
 import { CODING_MODEL, PLANNING_MODEL } from './models';
 import { renderTemplate } from './templateRenderer';
 
@@ -1122,7 +1123,7 @@ The user invoked you with epic id \`$ARGUMENTS\`.
 1. Read \`${epicRoot}/$ARGUMENTS/state.json\` to understand the current run state.
    - If the step has \`feedback\` from a prior rejection, address it explicitly in this revision.
    - Check \`history\` entries for rejection reasons and context.
-2. Read \`${epicRoot}/$ARGUMENTS/inputs.json\` for capability inputs (Jira ticket, Figma URL, files glob, GitHub repo, etc.).
+2. Read \`${epicRoot}/$ARGUMENTS/inputs.json\` for capability inputs (Jira ticket, Figma URL, files glob, GitHub repo, etc.). ${inheritedContextNote(epicRoot)}
 ${artifactInstruction}
 4. When finished, summarize what you produced and tell the user to click **"Mark step done"** in the AIDLC panel to advance the pipeline.
 

@@ -4563,6 +4563,7 @@ export class WorkspaceWebview {
     // follow-ups opened at once cannot both claim `F1`.
     const followUpRaw = draft.followUp as Record<string, unknown> | undefined;
     const parentEpicId = followUpRaw ? String(followUpRaw.parentEpicId ?? '').trim() : '';
+    const alsoFrom = Array.isArray(followUpRaw?.alsoFrom) ? followUpRaw.alsoFrom.map((v) => String(v)) : [];
     let followUpKey = '';
     if (parentEpicId) {
       try {
@@ -4662,7 +4663,7 @@ export class WorkspaceWebview {
         description,
         target: { kind: targetKind as 'pipeline' | 'agent', id: targetId },
         agents,
-        inputs: parentEpicId ? withFollowUpProvenance(inputs, parentEpicId, followUpKey) : inputs,
+        inputs: parentEpicId ? withFollowUpProvenance(inputs, parentEpicId, followUpKey, alsoFrom) : inputs,
         extraProjects: extraProjects && extraProjects.length > 0 ? extraProjects : undefined,
         pipeline: pipelineCfg,
         // Absent means strict — an older webview bundle that does not send the

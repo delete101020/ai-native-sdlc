@@ -356,6 +356,8 @@ export {
   resolveEpicStrictMode,
   strictModeSection,
 } from './loader/strictMode';
+// What a follow-up inherits from the epics it follows — named in every phase prompt.
+export { INHERITED_CONTEXT_MARKER, inheritedContextNote } from './loader/inheritedContext';
 // Epic tags — free text in, one canonical SCREAMING-KEBAB form on disk.
 export {
   EPIC_TAGS_KEY,

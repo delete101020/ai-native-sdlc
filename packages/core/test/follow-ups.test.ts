@@ -150,6 +150,12 @@ describe('withFollowUpProvenance', () => {
     expect(withFollowUpProvenance({ a: '1', from_epic: 'X' }, 'P', 'F1'))
       .toEqual({ a: '1', from_epic: 'P', follow_up_key: 'F1' });
   });
+
+  it('records other parents as also_from, minus blanks, repeats and the primary', () => {
+    expect(withFollowUpProvenance({ also_from: 'SPOOF' }, 'SEAL-CUT', 'F1', [' SEAL-CLASS ', 'SEAL-CUT', '', 'SEAL-CLASS']))
+      .toEqual({ from_epic: 'SEAL-CUT', follow_up_key: 'F1', also_from: 'SEAL-CLASS' });
+    expect(withFollowUpProvenance({ also_from: 'SPOOF' }, 'P', 'F1')).toEqual({ from_epic: 'P', follow_up_key: 'F1' });
+  });
 });
 
 describe('followUpDefaults', () => {

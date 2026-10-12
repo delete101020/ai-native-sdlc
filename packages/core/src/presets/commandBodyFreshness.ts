@@ -14,8 +14,10 @@
 
 import { commandBodyPredatesArtifactLanguage } from '../loader/artifactLanguage';
 import { commandBodyPredatesStrictMode } from '../loader/strictMode';
+import { commandBodyPredatesInheritedContext } from '../loader/inheritedContext';
 
 export function commandBodyIsStale(existing: string): boolean {
   return commandBodyPredatesArtifactLanguage(existing)
-    || commandBodyPredatesStrictMode(existing);
+    || commandBodyPredatesStrictMode(existing)
+    || commandBodyPredatesInheritedContext(existing);
 }
