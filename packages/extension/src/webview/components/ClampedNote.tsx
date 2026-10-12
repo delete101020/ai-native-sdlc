@@ -9,7 +9,16 @@ import { cn } from '@/lib/utils';
  * card. The clamp keeps the card its usual height, the toggle shows the rest
  * in place, and line breaks survive either way so a numbered list stays one.
  */
-export function ClampedNote({ text, className }: { text: string; className?: string }) {
+export function ClampedNote({
+  text,
+  className,
+  uncapped = false,
+}: {
+  text: string;
+  className?: string;
+  /** Expanded shows the whole text rather than a scrollable box. */
+  uncapped?: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
@@ -33,7 +42,7 @@ export function ClampedNote({ text, className }: { text: string; className?: str
         ref={ref}
         className={cn(
           'whitespace-pre-line break-words',
-          expanded ? 'max-h-64 overflow-y-auto' : 'line-clamp-3',
+          expanded ? (uncapped ? undefined : 'max-h-64 overflow-y-auto') : 'line-clamp-3',
         )}
       >
         {text.trim()}

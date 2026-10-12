@@ -954,7 +954,13 @@ function EpicDescription({ epic }: { epic: EpicSummary }) {
           {reqFile}
         </button>
       ) : saved ? (
-        <p className="min-w-0 flex-1 text-xs italic leading-relaxed text-muted-foreground">{saved}</p>
+        // A follow-up's description can run to a full brief of headed
+        // sections; clamped, the card keeps its controls in view.
+        <ClampedNote
+          text={saved}
+          uncapped
+          className="min-w-0 flex-1 text-xs italic leading-relaxed text-muted-foreground"
+        />
       ) : (
         <span className="text-[11px] text-muted-foreground">No description</span>
       )}
