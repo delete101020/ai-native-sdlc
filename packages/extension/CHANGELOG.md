@@ -1,5 +1,30 @@
 # Changelog
 
+## 4.0.37
+
+A follow-up epic can now follow two epics at once, and its agents read the
+rules it inherits from them.
+
+### Added
+
+- **Also follows** in the New follow-up epic form, and `--also <epic>` on
+  `aidlc epic follow-up`: when one change reworks what two earlier epics built,
+  open a single follow-up instead of a change request on each. The child stays
+  grouped under the epic you opened it from; both parents' cards link to it.
+
+### Changed
+
+- Every phase now tells the agent to read the `intent.md` and `spec.md` of
+  each epic a follow-up follows before writing, and to say what it changes.
+  Before, the parent was only a link and no agent saw its spec. Generated
+  command files in `.claude/commands/` are rewritten on the next install to
+  pick this up.
+
+### Fixed
+
+- Updating the extension no longer leaves a stale AIDLC Workspace tab open
+  beside the new one.
+
 ## 4.0.36
 
 Opening an epic from the sidebar no longer drops the Watching filter.
