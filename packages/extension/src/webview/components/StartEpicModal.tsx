@@ -156,6 +156,15 @@ export function StartEpicModal({
   // Other epics this follow-up also follows (`also_from`): one epic that changes
   // what two earlier ones built, without a change request on each.
   const [alsoFrom, setAlsoFrom] = useState<string[]>([]);
+  const [alsoQuery, setAlsoQuery] = useState('');
+  const alsoMatches = useMemo(() => {
+    const q = alsoQuery.trim().toUpperCase();
+    if (!q || !followUp) { return []; }
+    return existingEpicIds
+      .filter((id) => id !== followUp.parentEpicId && !alsoFrom.includes(id) && id.toUpperCase().includes(q))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .slice(0, 12);
+  }, [alsoQuery, alsoFrom, existingEpicIds, followUp]);
   // The id follows the parents picked — `CR-Y01` + `CR-Y02` → `CR-Y01Y02-F1` —
   // until the person types one of their own. Mirrors core's combinedParentId +
   // followUpChildId (the webview cannot import core).
@@ -704,20 +713,37 @@ export function StartEpicModal({
                   </button>
                 </span>
               ))}
-              <select
-                value=""
-                onChange={(e) => { const id = e.target.value; if (id) { updateAlsoFrom([...alsoFrom, id]); } }}
-                // Opaque bg: the native option list cannot draw a translucent one
-                // and falls back to white under the theme's light text.
-                className="rounded-md border border-border bg-card px-2 py-1 font-mono text-[11px] text-foreground focus:border-primary focus:outline-none"
-              >
-                <option value="">+ Add epic…</option>
-                {existingEpicIds
-                  .filter((id) => id !== followUp.parentEpicId && !alsoFrom.includes(id))
-                  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-                  .map((id) => <option key={id} value={id}>{id}</option>)}
-              </select>
+              <input
+                type="text"
+                value={alsoQuery}
+                onChange={(e) => setAlsoQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter takes the first match rather than submitting the modal.
+                  if (e.key === 'Enter' && alsoQuery.trim()) {
+                    e.preventDefault();
+                    if (alsoMatches[0]) { updateAlsoFrom([...alsoFrom, alsoMatches[0]]); setAlsoQuery(''); }
+                  }
+                }}
+                placeholder="+ Search epic…"
+                className="w-36 rounded-md border border-border bg-input/50 px-2 py-1 font-mono text-[11px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none"
+              />
             </div>
+            {alsoQuery.trim() && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                {alsoMatches.length === 0 && <span className="text-[10px] text-muted-foreground">No epic matches.</span>}
+                {alsoMatches.map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => { updateAlsoFrom([...alsoFrom, id]); setAlsoQuery(''); }}
+                    title={`Add ${id}`}
+                    className="rounded-full border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:border-primary/40 hover:text-primary"
+                  >
+                    {id}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {isFirstEpic && hasFolder && !followUp && (
