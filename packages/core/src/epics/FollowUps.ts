@@ -413,15 +413,21 @@ export function followUpDefaults(
     own = pipelines.find((p) => p.id === state.pipeline) ?? null;
   }
 
-  const key = nextManualFollowUpKey(followUpsOf(workspaceRoot, doc, parentEpicId).map((f) => f.key ?? ''));
   const taken = fs.existsSync(root) ? fs.readdirSync(root) : [];
+  // A follow-up of several epics counts `F<n>` within that combination, not
+  // among the main parent's own follow-ups: CR-Y01 having an F1 already does
+  // not make the first CR-Y01Y02 one F2.
+  const combined = combinedParentId(parentEpicId, alsoFrom);
+  const key = alsoFrom.length > 0
+    ? nextManualFollowUpKey(taken.filter((id) => id.startsWith(`${combined}-`)).map((id) => id.slice(combined.length + 1)))
+    : nextManualFollowUpKey(followUpsOf(workspaceRoot, doc, parentEpicId).map((f) => f.key ?? ''));
   const target = parentTarget(own, pipelines, recipes);
 
   return {
     parentEpicId,
     parentTitle: typeof state.title === 'string' ? state.title : '',
     key,
-    epicId: followUpChildId(combinedParentId(parentEpicId, alsoFrom), key, taken),
+    epicId: followUpChildId(combined, key, taken),
     tags: normalizeTags(state.tags),
     ...(target ? { target } : {}),
   };

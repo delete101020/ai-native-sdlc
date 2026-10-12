@@ -200,6 +200,20 @@ describe('followUpDefaults', () => {
     });
   });
 
+  it('counts F<n> within the combination when it also follows other epics', () => {
+    const root = tmpRoot();
+    parent(root, OWN);
+    const child = (id: string) => {
+      fs.mkdirSync(path.join(root, 'docs', 'epics', id), { recursive: true });
+      fs.writeFileSync(path.join(root, 'docs', 'epics', id, 'inputs.json'), JSON.stringify({ from_epic: 'CR-Y01', follow_up_key: id.split('-').pop() }));
+    };
+    child('CR-Y01-F1');
+    expect(followUpDefaults(root, DOC, 'CR-Y01').epicId).toBe('CR-Y01-F2');
+    expect(followUpDefaults(root, DOC, 'CR-Y01', ['CR-Y02'])).toMatchObject({ key: 'F1', epicId: 'CR-Y01Y02-F1' });
+    child('CR-Y01Y02-F1');
+    expect(followUpDefaults(root, DOC, 'CR-Y01', ['CR-Y02'])).toMatchObject({ key: 'F2', epicId: 'CR-Y01Y02-F2' });
+  });
+
   it('uses the recipe the parent recorded, over the first with the same steps', () => {
     const root = tmpRoot();
     parent(root, OWN.replace('derived_from: cr-squad\n', 'derived_from: cr-squad\nrecipe: cr-internal\n'));

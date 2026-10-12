@@ -170,10 +170,10 @@ export function StartEpicModal({
         while (i < segs.length - 1 && segs[i] === head[i]) { i++; }
         return segs.slice(i).join('-');
       }).join('');
-      const base = `${combined}-${followUp.key.toUpperCase()}`;
-      let id = base;
-      for (let n = 2; existingEpicIds.includes(id); n++) { id = `${base}-${n}`; }
-      return id;
+      // `F<n>` counts within the combination, not the parent's own follow-ups.
+      let n = 1;
+      while (existingEpicIds.some((id) => id.toUpperCase() === `${combined}-F${n}`.toUpperCase())) { n++; }
+      return `${combined}-F${n}`;
     };
     const was = derive(alsoFrom);
     setAlsoFrom(next);

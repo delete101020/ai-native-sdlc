@@ -4567,7 +4567,7 @@ export class WorkspaceWebview {
     let followUpKey = '';
     if (parentEpicId) {
       try {
-        followUpKey = followUpDefaults(root, readYaml(root), parentEpicId).key;
+        followUpKey = followUpDefaults(root, readYaml(root), parentEpicId, alsoFrom).key;
       } catch (err) {
         void vscode.window.showWarningMessage(`AIDLC: ${err instanceof Error ? err.message : String(err)}`);
         return;
