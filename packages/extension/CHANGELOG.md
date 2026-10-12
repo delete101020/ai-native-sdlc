@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.0.40
+
+A long epic description no longer takes over its card.
+
+### Changed
+
+- An epic card's description is clamped to three lines with **Show more** /
+  **Show less**. Expanding shows the whole text with its line breaks kept,
+  instead of one run-on paragraph that pushed the card's controls out of view.
+
 ## 4.0.39
 
 A step's upstream inputs are visible before you try to finish it, and an
