@@ -1,5 +1,23 @@
 # Changelog
 
+## 4.0.38
+
+Picking the other epics a follow-up follows is easier, and the follow-up gets
+an id that names all of them.
+
+### Changed
+
+- **Also follows** is now a search box: type any part of an epic id and pick
+  from the matches, or press Enter for the first one.
+- A follow-up of several epics is named after all of them: opening one from
+  `CR-Y01` that also follows `CR-Y02` suggests `CR-Y01Y02-F1`. The `F<n>`
+  counts within that combination, so it is `F1` even when `CR-Y01` already has
+  follow-ups of its own. `aidlc epic follow-up --also` names it the same way.
+
+### Fixed
+
+- The **Also follows** list no longer opens blank on dark themes.
+
 ## 4.0.37
 
 A follow-up epic can now follow two epics at once, and its agents read the
