@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.0.39
+
+A step's upstream inputs are visible before you try to finish it, and an
+upstream file that only exists on some runs no longer blocks the step.
+
+### Added
+
+- The epic step panel has a **Requires** row listing every path the step
+  needs from upstream: present, **missing** (Mark step done will refuse), or
+  **optional, absent**. Before, a missing input only showed up when Mark step
+  done failed.
+- `requires` entries can be written `{ path, optional: true }`, like
+  `produces`. An absent optional entry blocks neither starting the step nor
+  marking it done — for reading an upstream file that is itself an optional
+  `produces`.
+
+### Changed
+
+- The workflow editor's step card lists each required path instead of a
+  `⤴ N req` count.
+
+### Fixed
+
+- Editing a step in its config dialog no longer turns its optional `produces`
+  entries into required ones.
+- The "optional · not produced" label on a step's artifact now appears; the
+  flag never reached the panel.
+
 ## 4.0.38
 
 Picking the other epics a follow-up follows is easier, and the follow-up gets
