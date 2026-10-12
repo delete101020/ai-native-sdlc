@@ -179,6 +179,21 @@ export function followUpChildId(parentEpicId: string, key: string, taken: Iterab
   throw new EpicScaffoldError(`Could not derive a free epic id from "${base}".`);
 }
 
+/**
+ * The parent part of a follow-up id that follows more than one epic: each
+ * other parent's id is appended without the leading `-` segments it shares
+ * with the main parent — `CR-Y01` + `CR-Y02` → `CR-Y01Y02`.
+ */
+export function combinedParentId(parentEpicId: string, alsoFrom: string[] = []): string {
+  const head = parentEpicId.split('-');
+  return parentEpicId + alsoFrom.map((id) => {
+    const segs = id.split('-');
+    let i = 0;
+    while (i < segs.length - 1 && segs[i] === head[i]) { i++; }
+    return segs.slice(i).join('-');
+  }).join('');
+}
+
 export interface OpenManifestFollowUpArgs {
   workspaceRoot: string;
   /** Raw workspace doc (for `state.root`). Pass null to default `docs/epics`. */
@@ -366,6 +381,8 @@ export function followUpDefaults(
   workspaceRoot: string,
   doc: { state?: unknown; pipelines?: unknown; recipes?: unknown } | null,
   parentEpicId: string,
+  /** Other parents (`also_from`) — they shape the derived id. */
+  alsoFrom: string[] = [],
 ): FollowUpDefaults {
   const root = epicsRoot(workspaceRoot, doc);
   const dir = path.join(root, parentEpicId);
@@ -404,7 +421,7 @@ export function followUpDefaults(
     parentEpicId,
     parentTitle: typeof state.title === 'string' ? state.title : '',
     key,
-    epicId: followUpChildId(parentEpicId, key, taken),
+    epicId: followUpChildId(combinedParentId(parentEpicId, alsoFrom), key, taken),
     tags: normalizeTags(state.tags),
     ...(target ? { target } : {}),
   };

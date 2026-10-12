@@ -15,6 +15,7 @@ import {
   parseFollowUps,
   FollowUpsParseError,
   followUpChildId,
+  combinedParentId,
   followUpsOf,
   openManifestFollowUp,
   openFollowUpEpic,
@@ -79,6 +80,15 @@ describe('followUpChildId', () => {
     expect(followUpChildId('SNP-STOS-001', 'E-A')).toBe('SNP-STOS-001-E-A');
     expect(followUpChildId('SNP-STOS-001', 'w2')).toBe('SNP-STOS-001-W2');
     expect(followUpChildId('P', 'E-A', ['P-E-A'])).toBe('P-E-A-2');
+  });
+});
+
+describe('combinedParentId', () => {
+  it('appends each other parent without the segments it shares with the main one', () => {
+    expect(combinedParentId('CR-Y01')).toBe('CR-Y01');
+    expect(combinedParentId('CR-Y01', ['CR-Y02'])).toBe('CR-Y01Y02');
+    expect(combinedParentId('CR-Y01', ['CR-Y02', 'CR-Y03'])).toBe('CR-Y01Y02Y03');
+    expect(combinedParentId('CR-Y01', ['INC-7'])).toBe('CR-Y01INC-7');
   });
 });
 

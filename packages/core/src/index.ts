@@ -159,6 +159,7 @@ export {
   readEpicFollowUps,
   followUpsOf,
   followUpChildId,
+  combinedParentId,
   openManifestFollowUp,
   withFollowUpProvenance,
   nextManualFollowUpKey,

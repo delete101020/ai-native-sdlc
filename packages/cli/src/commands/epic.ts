@@ -321,7 +321,7 @@ export function registerEpic(program: Command): void {
 
       let defaults;
       try {
-        defaults = followUpDefaults(root, doc, parentEpic);
+        defaults = followUpDefaults(root, doc, parentEpic, opts.also.map((id) => id.trim()));
       } catch (err) {
         console.error(chalk.red(err instanceof Error ? err.message : String(err)));
         process.exit(1);

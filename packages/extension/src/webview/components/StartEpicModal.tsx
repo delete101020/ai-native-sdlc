@@ -156,6 +156,29 @@ export function StartEpicModal({
   // Other epics this follow-up also follows (`also_from`): one epic that changes
   // what two earlier ones built, without a change request on each.
   const [alsoFrom, setAlsoFrom] = useState<string[]>([]);
+  // The id follows the parents picked — `CR-Y01` + `CR-Y02` → `CR-Y01Y02-F1` —
+  // until the person types one of their own. Mirrors core's combinedParentId +
+  // followUpChildId (the webview cannot import core).
+  const updateAlsoFrom = (next: string[]) => {
+    if (!followUp) { return; }
+    const derive = (others: string[]) => {
+      if (others.length === 0) { return followUp.epicId; }
+      const head = followUp.parentEpicId.split('-');
+      const combined = followUp.parentEpicId + others.map((id) => {
+        const segs = id.split('-');
+        let i = 0;
+        while (i < segs.length - 1 && segs[i] === head[i]) { i++; }
+        return segs.slice(i).join('-');
+      }).join('');
+      const base = `${combined}-${followUp.key.toUpperCase()}`;
+      let id = base;
+      for (let n = 2; existingEpicIds.includes(id); n++) { id = `${base}-${n}`; }
+      return id;
+    };
+    const was = derive(alsoFrom);
+    setAlsoFrom(next);
+    setEpicId((cur) => (cur.trim() === was ? derive(next) : cur));
+  };
   const [inputs, setInputs] = useState<Record<string, string>>({});
   // Capability inputs are all optional (blank = skip) and every one of them is a
   // path or URL only the user can supply, so the common case is to fill none.
@@ -673,7 +696,7 @@ export function StartEpicModal({
                   {id}
                   <button
                     type="button"
-                    onClick={() => setAlsoFrom((cur) => cur.filter((x) => x !== id))}
+                    onClick={() => updateAlsoFrom(alsoFrom.filter((x) => x !== id))}
                     title={`Remove ${id}`}
                     className="rounded-full text-primary/70 hover:text-primary"
                   >
@@ -683,8 +706,10 @@ export function StartEpicModal({
               ))}
               <select
                 value=""
-                onChange={(e) => { const id = e.target.value; if (id) { setAlsoFrom((cur) => [...cur, id]); } }}
-                className="rounded-md border border-border bg-input/50 px-2 py-1 font-mono text-[11px] text-foreground focus:border-primary focus:outline-none"
+                onChange={(e) => { const id = e.target.value; if (id) { updateAlsoFrom([...alsoFrom, id]); } }}
+                // Opaque bg: the native option list cannot draw a translucent one
+                // and falls back to white under the theme's light text.
+                className="rounded-md border border-border bg-card px-2 py-1 font-mono text-[11px] text-foreground focus:border-primary focus:outline-none"
               >
                 <option value="">+ Add epic…</option>
                 {existingEpicIds
