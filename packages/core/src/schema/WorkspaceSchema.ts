@@ -210,8 +210,14 @@ const PipelineStepObjectSchema = z
      * agent's `models` as one more choice on the card; a pick there wins.
      */
     model: z.string().min(1).optional(),
-    /** Artifact paths required from upstream. Gate-checked before work AND on Mark step done. */
-    requires: z.array(z.string().min(1)).default([]),
+    /**
+     * Artifact paths required from upstream. Gate-checked before work AND on
+     * Mark step done — except entries marked `{ path, optional: true }`, for
+     * an upstream file that is legitimately absent on some runs (an upstream
+     * `produces` entry that is itself optional). Those are listed with the
+     * step but never block it.
+     */
+    requires: z.array(ProducesEntrySchema).default([]),
     /**
      * Agent ids of upstream steps this step depends on. When non-empty the
      * step stays `pending` until every listed step transitions to `approved`,
@@ -383,7 +389,10 @@ export interface NormalizedStep {
    */
   produces_optional: string[];
   produces_contains: string[];
+  /** Every `requires` path, required and optional alike, in declared order. */
   requires: string[];
+  /** The subset of {@link requires} declared `optional: true`, unresolved. */
+  requires_optional: string[];
   /** Agent ids this step waits for before opening — see schema for semantics. */
   depends_on: string[];
   auto_review: boolean;
@@ -413,24 +422,15 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
       produces_optional: [],
       produces_contains: [],
       requires: [],
+      requires_optional: [],
       depends_on: [],
       auto_review: false,
       human_review: false,
     };
   }
   const obj = step as Record<string, unknown>;
-  const requires = Array.isArray(obj.requires) ? (obj.requires as string[]) : [];
-  const produces: string[] = [];
-  const produces_optional: string[] = [];
-  for (const entry of Array.isArray(obj.produces) ? (obj.produces as unknown[]) : []) {
-    if (typeof entry === 'string') {
-      produces.push(entry);
-    } else if (entry && typeof entry === 'object' && typeof (entry as { path?: unknown }).path === 'string') {
-      const e = entry as { path: string; optional?: unknown };
-      produces.push(e.path);
-      if (e.optional === true) { produces_optional.push(e.path); }
-    }
-  }
+  const [requires, requires_optional] = splitArtifactEntries(obj.requires);
+  const [produces, produces_optional] = splitArtifactEntries(obj.produces);
   const produces_contains = Array.isArray(obj.produces_contains) ? (obj.produces_contains as string[]) : [];
   const depends_on = Array.isArray(obj.depends_on) ? (obj.depends_on as string[]) : [];
   // Coerce legacy singular `skill: <id>` into the new array form so old
@@ -467,6 +467,7 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
     produces_optional,
     produces_contains,
     requires,
+    requires_optional,
     depends_on,
     auto_review: obj.auto_review === true,
     auto_review_runner: typeof obj.auto_review_runner === 'string' ? obj.auto_review_runner : undefined,
@@ -514,6 +515,27 @@ export function resolveStepSkills(
 export function producesEntries(norm: Pick<NormalizedStep, 'produces' | 'produces_optional'>): ProducesEntry[] {
   const optional = new Set(norm.produces_optional);
   return norm.produces.map((p) => (optional.has(p) ? { path: p, optional: true } : p));
+}
+
+/** {@link producesEntries} for `requires`. */
+export function requiresEntries(norm: Pick<NormalizedStep, 'requires' | 'requires_optional'>): ProducesEntry[] {
+  return producesEntries({ produces: norm.requires, produces_optional: norm.requires_optional });
+}
+
+/** `requires` / `produces` entries → [every path, the `optional: true` subset]. */
+function splitArtifactEntries(raw: unknown): [string[], string[]] {
+  const all: string[] = [];
+  const optional: string[] = [];
+  for (const entry of Array.isArray(raw) ? raw : []) {
+    if (typeof entry === 'string') {
+      all.push(entry);
+    } else if (entry && typeof entry === 'object' && typeof (entry as { path?: unknown }).path === 'string') {
+      const e = entry as { path: string; optional?: unknown };
+      all.push(e.path);
+      if (e.optional === true) { optional.push(e.path); }
+    }
+  }
+  return [all, optional];
 }
 
 /**

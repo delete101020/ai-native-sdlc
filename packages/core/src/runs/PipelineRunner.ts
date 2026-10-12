@@ -127,6 +127,11 @@ export function startRun(args: {
   };
 }
 
+/** `requires` minus its `optional: true` entries — the paths that gate. */
+function requiredPaths(norm: { requires: string[]; requires_optional: string[] }): string[] {
+  return norm.requires.filter((p) => !norm.requires_optional.includes(p));
+}
+
 /**
  * Soft gate-check for a step's `requires`. Returns `{ ok: true }` when all
  * required upstream artifacts exist on disk, `{ ok: false, missing: [...] }`
@@ -151,7 +156,7 @@ export function canStartStep(args: {
   }
   const norm = normalizeStep(stepConfig);
   const missing: string[] = [];
-  for (const rel of norm.requires.map((p) => resolvePath(p, state.context))) {
+  for (const rel of requiredPaths(norm).map((p) => resolvePath(p, state.context))) {
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
     if (!fs.existsSync(abs)) { missing.push(rel); }
   }
@@ -211,7 +216,7 @@ export function markStepDone(args: {
   const norm = normalizeStep(stepConfig);
 
   // Hard gate-check on requires (separate from the soft check at start time).
-  const resolvedRequires = norm.requires.map((p) => resolvePath(p, state.context));
+  const resolvedRequires = requiredPaths(norm).map((p) => resolvePath(p, state.context));
   const missingRequires: string[] = [];
   for (const rel of resolvedRequires) {
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);

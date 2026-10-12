@@ -804,11 +804,17 @@ function FlowNode({
             {!step.enabled && (
               <Badge title="enabled: false — runner skips this step">disabled</Badge>
             )}
-            {requires > 0 && (
-              <Badge title={`${requires} upstream artifact path(s) the step is gated on`}>
-                ⤴ {requires} req
-              </Badge>
-            )}
+            {step.requires.map((p: string) => {
+              const optional = step.requires_optional?.includes(p);
+              return (
+                <Badge
+                  key={`req:${p}`}
+                  title={`requires ${p}${optional ? ' (optional — never blocks the step)' : ' — the step is gated on it'}`}
+                >
+                  ⤴ {p.split(/[/\\]/).pop()}{optional ? '?' : ''}
+                </Badge>
+              );
+            })}
             {produces > 0 && (
               <Badge title={`${produces} artifact path(s) this step writes`}>
                 ⤵ {produces} out

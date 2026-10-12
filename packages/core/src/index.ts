@@ -11,6 +11,7 @@ export {
   WorkspaceValidationError,
   normalizeStep,
   producesEntries,
+  requiresEntries,
   stepAgentId,
   stepDagId,
   stepSkillAlternatives,

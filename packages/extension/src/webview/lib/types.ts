@@ -515,6 +515,8 @@ export interface PipelineStepSummary {
   /** Content markers asserted against the produced files (E1). */
   produces_contains?: string[];
   requires: string[];
+  /** Subset of `requires` declared `{ path, optional: true }`. */
+  requires_optional?: string[];
   /** Agent ids this step waits for. Non-empty turns the workflow into a DAG. */
   depends_on?: string[];
   human_review: boolean;
@@ -748,6 +750,9 @@ export interface EpicStepDetailFull {
    *  first of these; the rest had no way out to the panel before. Optional so
    *  a host bundle that predates the field renders the headline one alone. */
   artifacts?: StepArtifact[];
+  /** The step's `requires` (upstream inputs), checked on disk host-side.
+   *  `optional` ones never block *Mark step done*. */
+  requires?: StepArtifact[];
   status: 'pending' | 'in_progress' | 'done' | 'failed';
   runStatus: StepStatus | null;
   isCurrentRunStep: boolean;

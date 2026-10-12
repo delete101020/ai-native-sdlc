@@ -31,6 +31,7 @@ import {
   type RecipeConfig,
   normalizeStep,
   producesEntries,
+  requiresEntries,
   stepDagId,
   collectWorkspaceRefIssues,
 } from '../schema/WorkspaceSchema';
@@ -135,7 +136,7 @@ export function assemblePipeline(
       name: norm.name ?? id,
       enabled: norm.enabled,
       produces: producesEntries(norm),
-      requires: norm.requires,
+      requires: requiresEntries(norm),
       depends_on,
       auto_review,
       human_review: gate.human_review ?? norm.human_review,

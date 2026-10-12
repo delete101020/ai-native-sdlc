@@ -27,6 +27,7 @@ import {
   type PipelineStepConfig,
   normalizeStep,
   producesEntries,
+  requiresEntries,
   stepDagId,
   collectWorkspaceRefIssues,
 } from '../schema/WorkspaceSchema';
@@ -199,7 +200,7 @@ export function applyAdaptation(
       name: norm.name ?? a.phase,
       enabled: norm.enabled,
       produces: producesEntries(norm),
-      requires: norm.requires,
+      requires: requiresEntries(norm),
       depends_on: anchor ? [anchor] : (usesDag && steps.length > 0 ? [stepDagId(steps[steps.length - 1])] : []),
       auto_review: norm.auto_review,
       human_review: norm.human_review,

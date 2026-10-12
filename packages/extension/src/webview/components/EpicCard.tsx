@@ -1409,6 +1409,66 @@ function StepDetail({
         <DetailLabel icon={<Outdent className="h-3 w-3" />} text="Output" />
         <DetailValue empty={!m.outputs}>{m.outputs || '—'}</DetailValue>
 
+        {/* Upstream inputs the step is gated on — a missing one shows here
+            rather than first surfacing as a refused *Mark step done*. */}
+        {focused.requires && focused.requires.length > 0 && (
+          <>
+            <DetailLabel icon={<CornerDownRight className="h-3 w-3" />} text="Requires" />
+            <div className="flex w-fit flex-wrap gap-1.5">
+              {focused.requires.map((a) => (
+                <div key={a.path} className="relative w-fit">
+                  <button
+                    type="button"
+                    disabled={!a.exists}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (a.isDirectory) {
+                        postMessage({ type: 'revealArtifactPath', epicDir: epic.epicDir, path: a.path });
+                      } else {
+                        setExtraMenuPath((p) => (p === a.path ? null : a.path));
+                      }
+                    }}
+                    title={a.exists
+                      ? `${a.isDirectory ? 'Reveal' : 'Open'} ${a.path}`
+                      : a.optional
+                        ? `${a.path} — optional, absent (does not block Mark step done)`
+                        : `${a.path} — missing: Mark step done will refuse until it exists`}
+                    className={cn(
+                      'inline-flex w-fit items-center gap-1 rounded border px-2 py-0.5 font-mono text-[11px] transition-colors',
+                      a.exists
+                        ? 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground'
+                        : a.optional
+                          ? 'border-border bg-muted/50 italic text-muted-foreground opacity-70'
+                          : 'border-destructive/40 bg-destructive/10 text-destructive',
+                    )}
+                  >
+                    {a.exists
+                      ? <Check className="h-3 w-3 opacity-70" />
+                      : a.optional
+                        ? <FileText className="h-3 w-3 opacity-70" />
+                        : <AlertTriangle className="h-3 w-3" />}
+                    <span>{a.label}</span>
+                    {!a.exists && (
+                      <span className="text-[9.5px] font-sans not-italic uppercase tracking-wider opacity-80">
+                        · {a.optional ? 'optional, absent' : 'missing'}
+                      </span>
+                    )}
+                  </button>
+                  {extraMenuPath === a.path && (
+                    <ArtifactMenu
+                      epicDir={epic.epicDir}
+                      name={a.label}
+                      path={a.path}
+                      inEpicFolder={epic.existingArtifacts.includes(a.label)}
+                      onClose={() => setExtraMenuPath(null)}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         <DetailLabel icon={<FileText className="h-3 w-3" />} text="Artifact" />
         {artifactName ? (
           artifactExists ? (

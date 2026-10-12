@@ -152,6 +152,9 @@ export interface EpicSummary {
      * unreachable from the panel — the payload only ever carried the first.
      */
     artifacts: StepArtifact[];
+    /** The step's `requires`, resolved and checked on disk; `optional` marks
+     *  an entry whose absence does not block *Mark step done*. */
+    requires?: StepArtifact[];
     status: EpicStatus;
     startedAt: string | null;
     finishedAt: string | null;
@@ -1025,6 +1028,9 @@ function readEpicSummary(
   const stepProducesByIdx = new Map<number, string[]>();
   /** Resolved paths of the `{ path, optional: true }` entries, per step. */
   const stepOptionalByIdx = new Map<number, Set<string>>();
+  /** Each step's `requires`, resolved, so the panel shows a missing upstream
+   *  before *Mark step done* refuses on it. */
+  const stepRequiresByIdx = new Map<number, Array<{ path: string; optional: boolean }>>();
   // Same context the runner resolves `produces` with, so the panel and
   // `markStepDone` are looking at the same file.
   const artifactContext: Record<string, string> = runState?.context ?? { epic: epicId };
@@ -1038,6 +1044,10 @@ function readEpicSummary(
       const alt = stepSkillAlternatives(norm);
       if (alt) { stepAltByIdx.set(i, alt); }
       if (norm.model) { stepModelByIdx.set(i, norm.model); }
+      stepRequiresByIdx.set(i, norm.requires.map((p) => ({
+        path: resolvePath(p, artifactContext),
+        optional: norm.requires_optional.includes(p),
+      })));
       // What the card says the step does: its own `description`, else the
       // description of the one skill it runs. Several skills leave it to the
       // agent's description — picking one of them would be a guess — unless
@@ -1286,6 +1296,10 @@ function readEpicSummary(
             ...(artifactOptional ? { artifactOptional } : {}),
           }),
       artifacts,
+      requires: (stepRequiresByIdx.get(i) ?? []).map((r) => {
+        const a = describeArtifact(workspaceRoot, r.path);
+        return r.optional ? { ...a, optional: true } : a;
+      }),
       status: displayStatus,
       startedAt: typeof s.startedAt === 'string' ? s.startedAt : null,
       finishedAt: typeof s.finishedAt === 'string' ? s.finishedAt : null,

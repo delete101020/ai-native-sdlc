@@ -175,6 +175,7 @@ import {
   stepDagId,
   normalizeStep,
   producesEntries,
+  requiresEntries,
   discoverAssets,
   RunStateStore,
   describeGateEffect,
@@ -415,6 +416,7 @@ interface PipelineStepSummary {
   enabled: boolean;
   produces: string[];
   requires: string[];
+  requires_optional?: string[];
   depends_on?: string[];
   human_review: boolean;
   auto_review: boolean;
@@ -873,6 +875,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
             produces: norm.produces,
             produces_contains: norm.produces_contains,
             requires: norm.requires,
+            requires_optional: norm.requires_optional,
             depends_on: norm.depends_on,
             human_review: norm.human_review,
             auto_review: norm.auto_review,
@@ -1205,7 +1208,9 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
       artifactPath: s.artifactPath,
       artifactExists: s.artifactExists,
       artifactStale: s.artifactStale,
+      artifactOptional: s.artifactOptional,
       artifacts: s.artifacts,
+      requires: s.requires,
       status: s.status,
       runStatus: s.runStatus,
       isCurrentRunStep: s.isCurrentRunStep,
@@ -3710,8 +3715,10 @@ export class WorkspaceWebview {
         ...prevObj,
         agent: draft.agent,
         enabled: draft.enabled,
-        requires: draft.requires,
-        produces: draft.produces,
+        // Keep `{ path, optional: true }` on the paths that stay — the modal
+        // edits bare paths only.
+        requires: requiresEntries({ requires: draft.requires, requires_optional: norm.requires_optional }),
+        produces: producesEntries({ produces: draft.produces, produces_optional: norm.produces_optional }),
         human_review: draft.human_review,
         auto_review: draft.auto_review,
       };
@@ -5728,7 +5735,7 @@ export class WorkspaceWebview {
       Array<{
         name?: string;
         description?: string;
-        requires: string[];
+        requires: ProducesEntry[];
         produces: ProducesEntry[];
         produces_contains: string[];
         auto_review_timeout_ms?: number;
@@ -5741,7 +5748,7 @@ export class WorkspaceWebview {
         arr.push({
           name: norm.name,
           description: norm.description,
-          requires: norm.requires,
+          requires: requiresEntries(norm),
           // Entry form, so a `{ path, optional: true }` survives the re-save.
           produces: producesEntries(norm),
           produces_contains: norm.produces_contains,
