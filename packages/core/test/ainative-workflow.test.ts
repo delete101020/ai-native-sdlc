@@ -10,6 +10,7 @@
  */
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { describe, it, expect } from 'vitest';
 
@@ -18,8 +19,9 @@ import {
   getBuiltinWorkflow,
   loadBuiltinPreset,
   getBuiltinArtifactTemplates,
+  writeBuiltinAutoReviewValidators,
 } from '../src/presets/builtinWorkflows';
-import { assemblePipeline, validateWorkspace } from '../src';
+import { assemblePipeline, validateWorkspace, normalizeStep, hasEmptyCiChecks } from '../src';
 import { CANONICAL_PHASES, CANONICAL_PHASE_IDS, getCanonicalPhase } from '../src/presets/commandModel';
 
 const CORE_ROOT = path.join(__dirname, '..');
@@ -151,6 +153,30 @@ describe('AI-Native SDLC — workflow registration', () => {
     // run to the end without stopping for anyone.
     expect(lite.gates!.implement.human_review).toBe(false);
     expect(lite.gates!.review.human_review).toBe(false);
+  });
+
+  it('native-autopilot gates the plan by hand and the build by validators', () => {
+    const auto = (workflow.recipes ?? []).find((r) => r.id === 'native-autopilot')!;
+    expect(auto.steps).toEqual(['intent', 'build-plan', 'implement', 'verify', 'review']);
+    expect(auto).toMatchObject({ autopilot: true, max_send_backs: 3 });
+    const g = auto.gates!;
+    expect(g.intent).toMatchObject({ human_review: true, timeout_minutes: 20 });
+    expect(g['build-plan']).toMatchObject({ human_review: true, timeout_minutes: 20 });
+    expect(g.implement).toMatchObject({
+      human_review: false, auto_review: true, auto_review_runner: '.aidlc/validators/ci.mjs',
+      batches: true, timeout_minutes: 30,
+    });
+    // A CI reject is about implement's own output: it stays there.
+    expect(g.implement.on_reject).toBeUndefined();
+    for (const id of ['verify', 'review']) {
+      expect(g[id]).toMatchObject({
+        auto_review: true, auto_review_runner: '.aidlc/validators/verdict.mjs',
+        on_reject: { send_back_to: 'implement' }, timeout_minutes: 20,
+      });
+    }
+    // D6: a person still approves the finished branch, once.
+    expect(g.verify.human_review).toBe(false);
+    expect(g.review.human_review).toBe(true);
   });
 
   it('keys every gate override to a step its recipe actually runs', () => {
@@ -312,6 +338,22 @@ describe('approval-gate hook', () => {
     const r = spawnSync(PYTHON![0], [...PYTHON!.slice(1), HOOK], { input: 'not json', encoding: 'utf8' });
     expect(r.status).toBe(0);
   });
+
+  it('fails closed on input it cannot parse when the run is unattended', () => {
+    const env = { ...process.env, AIDLC_AUTOPILOT: '1' };
+    const bad = spawnSync(PYTHON![0], [...PYTHON!.slice(1), HOOK], { input: 'not json', encoding: 'utf8', env });
+    expect(bad.status).toBe(2);
+    expect(bad.stderr).toMatch(/unattended autopilot run/);
+    const odd = spawnSync(PYTHON![0], [...PYTHON!.slice(1), HOOK], {
+      input: JSON.stringify({ tool_name: 'Bash', tool_input: 'ls' }), encoding: 'utf8', env,
+    });
+    expect(odd.status).toBe(2);
+    // Ordinary work is still allowed — only the hook's own failures flip.
+    const fine = spawnSync(PYTHON![0], [...PYTHON!.slice(1), HOOK], {
+      input: JSON.stringify(bash('git add src/index.ts')), encoding: 'utf8', env,
+    });
+    expect(fine.status).toBe(0);
+  });
 });
 
 describe('AI-Native SDLC — every shipped recipe assembles', () => {
@@ -343,6 +385,25 @@ describe('AI-Native SDLC — every shipped recipe assembles', () => {
     expect(dep('build-plan')).toEqual([]);          // spec + intent gone → DAG root
     expect(dep('implement')).toEqual(['build-plan']);
     expect(dep('review')).toEqual(['implement']);   // walked up through the dropped verify
+  });
+
+  it('assembles native-autopilot into an unattended pipeline', () => {
+    const row = config.recipes.find((r) => r.id === 'native-autopilot')!;
+    expect(row).toMatchObject({ autopilot: true, max_send_backs: 3 });
+    const p = assemblePipeline(config, { recipeId: 'native-autopilot', pipelineId: 'epic-auto' });
+    expect(p).toMatchObject({ autopilot: true, max_send_backs: 3 });
+    const step = (name: string) => normalizeStep(p.steps.find((s) => (s as { name: string }).name === name)!);
+    expect(step('implement')).toMatchObject({ batches: { max: 10, pause: false }, timeout_minutes: 30, human_review: false });
+    expect(step('review')).toMatchObject({ human_review: true, auto_review: true, on_reject: { send_back_to: 'implement' } });
+  });
+
+  it('scaffolds the CI validator it names, with CHECKS empty until the project fills it', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-native-validators-'));
+    writeBuiltinAutoReviewValidators(CORE_ROOT, root, workflow);
+    expect(fs.existsSync(path.join(root, '.aidlc/validators/verdict.mjs'))).toBe(true);
+    expect(fs.existsSync(path.join(root, '.aidlc/validators/ci.mjs'))).toBe(true);
+    expect(hasEmptyCiChecks(root, '.aidlc/validators/ci.mjs')).toBe(true);
+    expect(hasEmptyCiChecks(root, '.aidlc/validators/verdict.mjs')).toBe(false);
   });
 
   it('leaves a single-step recipe with no dependencies', () => {

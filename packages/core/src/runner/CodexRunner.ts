@@ -30,6 +30,7 @@ import { codexMcpRegistrar } from './mcp';
 import { createJsonSink } from './ndjson';
 import { resolveProviderModel } from '../presets/models';
 import { resolveCommand } from '../util/resolveCommand';
+import { processGroupSpawnOptions, stopOnAbort } from './processTree';
 
 export interface CodexRunnerOptions {
   /** Override the codex binary. Default: `codex` on PATH. */
@@ -81,6 +82,7 @@ export class CodexRunner implements AidlcRunner {
       '--sandbox', this.opts.sandbox ?? 'workspace-write',
       ...(model ? ['--model', model] : []),
       ...(this.opts.extraArgs ?? []),
+      ...(ctx.extraArgs ?? []),
       buildPrompt(ctx),
     ];
 
@@ -89,7 +91,9 @@ export class CodexRunner implements AidlcRunner {
       cwd: ctx.workspaceRoot,
       env: { ...process.env, ...ctx.env },
       stdio: ['ignore', 'pipe', 'pipe'],
+      ...processGroupSpawnOptions(),
     });
+    const detach = stopOnAbort(proc, ctx.signal);
 
     let streamed = '';
     let lastMessage = '';
@@ -144,10 +148,12 @@ export class CodexRunner implements AidlcRunner {
 
     return new Promise<RunnerResult>((resolve) => {
       proc.on('error', (err) => {
+        detach();
         ctx.onError(`Failed to spawn ${bin}: ${err.message}\n`);
         resolve({ success: false, output: '', usage });
       });
       proc.on('close', (code) => {
+        detach();
         sink.flush();
         resolve({
           success: code === 0,

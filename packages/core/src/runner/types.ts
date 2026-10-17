@@ -47,6 +47,19 @@ export interface RunnerContext {
    * (MULTI_PROVIDER_ALIGNMENT.md P0/D8).
    */
   modelAliases?: Record<string, string>;
+  /**
+   * The workspace's `providers.<runner>.args`: extra flags for this runner's
+   * CLI, already checked for ones that switch permissions off. Builtin
+   * runners add them before the prompt; a custom runner may do as it likes.
+   */
+  extraArgs?: string[];
+  /**
+   * Aborted when the step has to stop now — a timeout (`timeout_minutes`) or
+   * a second Ctrl+C / "Stop now". Builtin runners stop the whole process tree
+   * they spawned ({@link stopProcessTree}). A custom runner that ignores it is
+   * abandoned, still running, a few seconds later.
+   */
+  signal?: AbortSignal;
 }
 
 /** @deprecated Renamed to `AgentCliWrapper`. Kept so existing custom runners compile. */

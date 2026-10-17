@@ -240,6 +240,46 @@ const PipelineStepObjectSchema = z
      * (infinite loop, network stall). Defaults to 120_000 when omitted.
      */
     auto_review_timeout_ms: z.number().int().positive().optional(),
+    /**
+     * Where an `auto_review` reject sends the work. Without it the step is
+     * rejected in place and the run stops — right for a check on the step's
+     * own output, wrong for verify/review, where running the check again on
+     * the same code gives the same answer and it is `implement` that has to
+     * change. The target reopens with the reason as its feedback, the steps
+     * after it reset, and the autopilot loop carries on from there.
+     *
+     * The target is a step name (or agent id) before this one, without
+     * `human_review` — work a human gate approved goes back through a human.
+     * A validator can name the same target in its verdict (`sendBackTo`), or
+     * name this step / `null` to stop here instead. Bounded by the
+     * pipeline's `max_send_backs`.
+     */
+    on_reject: z.object({ send_back_to: z.string().min(1) }).optional(),
+    /**
+     * Minutes the step's agent may run under `aidlc run exec` / Run to
+     * completion before it is stopped (the whole process tree: SIGTERM, then
+     * SIGKILL). A timed-out step fails the run — it is not sent back and does
+     * not count toward `max_send_backs` — and stays `awaiting_work`. Unset
+     * means no limit.
+     */
+    timeout_minutes: z.number().positive().optional(),
+    /**
+     * Run the step as a series of agent sessions ("batches") instead of one.
+     * Each session does a slice of the work and ends its first `produces`
+     * file with `Status: continue` or `Status: done`; on `continue` the exec
+     * loop starts a fresh session on the same revision. A missing or
+     * unreadable `Status:` line fails the step. `timeout_minutes` applies to
+     * each batch.
+     */
+    batches: z.boolean().optional(),
+    /**
+     * Batches one `aidlc run exec` may run on this step before it stops for a
+     * person ({@link DEFAULT_MAX_BATCHES} when unset). Running exec again
+     * allows as many more.
+     */
+    max_batches: z.number().int().positive().optional(),
+    /** Stop the loop after every `continue` batch, for a person to look before the next. */
+    pause_between_batches: z.boolean().optional(),
     /** When true, the runner pauses for human approval before advancing. */
     human_review: z.boolean().default(false),
     /**
@@ -313,7 +353,33 @@ const PipelineSchema = z.object({
   steps: z.array(PipelineStepSchema).min(1),
   on_failure: z.enum(['stop', 'continue']).default('stop'),
   budget: PipelineBudgetSchema.optional(),
+  /**
+   * How many times the autopilot loop may send work back (`on_reject`)
+   * before it stops for a human. Counted from the last time a human acted on
+   * the run — approve, reject, rerun, request update — so a run that was
+   * steered by hand does not start out at the ceiling. Defaults to
+   * {@link DEFAULT_MAX_SEND_BACKS}; 0 stops at the first reject.
+   */
+  max_send_backs: z.number().int().min(0).optional(),
+  /**
+   * The run is meant to go unattended. `aidlc run exec` / Run to completion
+   * then refuses to start unless it is safe to leave alone — on a branch
+   * other than main, a clean working tree, the approval-gate hook registered
+   * for Claude steps — and the hook blocks on its own errors instead of
+   * allowing. See `runs/autopilotPreflight.ts`.
+   */
+  autopilot: z.boolean().optional(),
+}).superRefine((p, ctx) => {
+  for (const issue of sendBackIssues(p.steps)) {
+    ctx.addIssue({ code: 'custom', path: ['steps', issue.stepIdx, 'on_reject', 'send_back_to'], message: issue.message });
+  }
 });
+
+/** {@link PipelineSchema} `max_send_backs` when a pipeline leaves it out. */
+export const DEFAULT_MAX_SEND_BACKS = 3;
+
+/** Batches one exec loop runs on a `batches: true` step before it stops. */
+export const DEFAULT_MAX_BATCHES = 10;
 
 // ── Recipes ────────────────────────────────────────────────────────
 
@@ -336,6 +402,14 @@ const RecipeGateSchema = z.object({
   human_review: z.boolean().optional(),
   auto_review: z.boolean().optional(),
   auto_review_runner: z.string().min(1).optional(),
+  /** Where this step's auto-review reject sends the work — see the step's `on_reject`. */
+  on_reject: z.object({ send_back_to: z.string().min(1) }).optional(),
+  /** Run-time limit for this step — see the step's `timeout_minutes`. */
+  timeout_minutes: z.number().positive().optional(),
+  /** Batched sessions for this step — see the step's `batches`. */
+  batches: z.boolean().optional(),
+  max_batches: z.number().int().positive().optional(),
+  pause_between_batches: z.boolean().optional(),
 });
 
 const RecipeSchema = z.object({
@@ -362,6 +436,10 @@ const RecipeSchema = z.object({
    * present override; the rest inherit.
    */
   gates: z.record(z.string(), RecipeGateSchema).optional(),
+  /** Sets the assembled pipeline's `autopilot` — see the pipeline's. */
+  autopilot: z.boolean().optional(),
+  /** Sets the assembled pipeline's `max_send_backs`, over the source pipeline's. */
+  max_send_backs: z.number().int().min(0).optional(),
 });
 
 export type PipelineStepConfig = z.infer<typeof PipelineStepSchema>;
@@ -398,6 +476,12 @@ export interface NormalizedStep {
   auto_review: boolean;
   auto_review_runner?: string;
   auto_review_timeout_ms?: number;
+  /** Where an auto-review reject sends the work — see the schema. */
+  on_reject?: { send_back_to: string };
+  /** Run-time limit under the exec loop — see the schema. */
+  timeout_minutes?: number;
+  /** Run as a series of sessions — see the schema. */
+  batches?: { max: number; pause: boolean };
   human_review: boolean;
   /** Git behavior for branch-artifact steps (GH-74 Part 3). */
   git?: { branch: boolean; push: boolean; open_pr: boolean };
@@ -475,6 +559,20 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
       typeof obj.auto_review_timeout_ms === 'number' && obj.auto_review_timeout_ms > 0
         ? obj.auto_review_timeout_ms
         : undefined,
+    ...(isOnReject(obj.on_reject) ? { on_reject: { send_back_to: obj.on_reject.send_back_to } } : {}),
+    ...(typeof obj.timeout_minutes === 'number' && obj.timeout_minutes > 0
+      ? { timeout_minutes: obj.timeout_minutes }
+      : {}),
+    ...(obj.batches === true
+      ? {
+          batches: {
+            max: typeof obj.max_batches === 'number' && obj.max_batches >= 1
+              ? Math.floor(obj.max_batches)
+              : DEFAULT_MAX_BATCHES,
+            pause: obj.pause_between_batches === true,
+          },
+        }
+      : {}),
     human_review: obj.human_review === true,
     ...(git && { git }),
   };
@@ -561,6 +659,69 @@ export function stepAgentId(step: unknown): string {
 export function stepDagId(step: PipelineStepConfig): string {
   const norm = normalizeStep(step);
   return norm.name ?? norm.agent;
+}
+
+/** {@link findStepIndex} result for an agent id that owns several steps. */
+export const AMBIGUOUS_STEP_INDEX = -2;
+
+/**
+ * Resolve a step reference to an index into `steps`. Accepts a 0-based
+ * integer ("2"), a step name ("spec"), or an agent id ("reviewer") — tried in
+ * that order, because one persona routinely owns several steps and the name
+ * is the more specific handle. An agent id that matches more than one step
+ * returns {@link AMBIGUOUS_STEP_INDEX} rather than the first hit; -1 when
+ * nothing matches.
+ *
+ * Shared by `aidlc run --step/--to`, `on_reject.send_back_to` and a
+ * validator's `sendBackTo`, so a step is addressed the same way everywhere.
+ */
+export function findStepIndex(steps: ReadonlyArray<{ name?: string; agent: string }>, ref: string): number {
+  const asInt = parseInt(ref, 10);
+  if (!isNaN(asInt) && String(asInt) === ref) {
+    return asInt >= 0 && asInt < steps.length ? asInt : -1;
+  }
+  const byName = steps.findIndex((s) => s.name === ref);
+  if (byName >= 0) { return byName; }
+  const byAgent = steps.map((s, i) => (s.agent === ref ? i : -1)).filter((i) => i >= 0);
+  if (byAgent.length > 1) { return AMBIGUOUS_STEP_INDEX; }
+  return byAgent.length === 1 ? byAgent[0] : -1;
+}
+
+function isOnReject(v: unknown): v is { send_back_to: string } {
+  return !!v && typeof v === 'object'
+    && typeof (v as { send_back_to?: unknown }).send_back_to === 'string'
+    && (v as { send_back_to: string }).send_back_to.length > 0;
+}
+
+/**
+ * What is wrong with the `on_reject` targets of a pipeline's steps. Checked
+ * when workspace.yaml loads and when a recipe assembles a pipeline, so a bad
+ * target is a config error rather than a run that stops on its first reject.
+ */
+export function sendBackIssues(steps: readonly PipelineStepConfig[]): Array<{ stepIdx: number; message: string }> {
+  const norms = steps.map((s) => normalizeStep(s));
+  const issues: Array<{ stepIdx: number; message: string }> = [];
+  norms.forEach((n, i) => {
+    const target = n.on_reject?.send_back_to;
+    if (!target) { return; }
+    const id = n.name ?? n.agent;
+    const add = (message: string): void => { issues.push({ stepIdx: i, message: `Step "${id}": ${message}` }); };
+    if (!n.auto_review) {
+      add('`on_reject` routes an auto-review reject, and this step has `auto_review` off.');
+      return;
+    }
+    const t = findStepIndex(norms, target);
+    if (t === AMBIGUOUS_STEP_INDEX) {
+      add(`\`on_reject.send_back_to\` "${target}" is an agent with more than one step; name the step.`);
+    } else if (t < 0) {
+      add(`\`on_reject.send_back_to\` "${target}" is not a step of this pipeline.`);
+    } else if (t >= i) {
+      add(`\`on_reject.send_back_to\` "${target}" must be a step before this one.`);
+    } else if (norms[t].human_review) {
+      add(`\`on_reject.send_back_to\` "${target}" has \`human_review: true\`. Work a human approved goes back through a human — turn that gate off or drop \`on_reject\`.`);
+    }
+  });
+  return issues;
 }
 
 // ── Cross-reference validation ─────────────────────────────────────
@@ -826,7 +987,65 @@ const ProviderSchema = z.object({
   model_aliases: z.record(z.string(), z.string()).default({}),
   /** Model id → rate. The key `*` applies to every model of this provider. */
   rates: z.record(z.string(), ProviderRateSchema).default({}),
+  /**
+   * Extra command-line arguments for this runner's CLI, added to every step it
+   * runs — chiefly what a headless agent may do without asking:
+   *
+   * ```yaml
+   * providers:
+   *   default:
+   *     args: [--permission-mode, acceptEdits, --allowedTools, "Bash(npm test:*)"]
+   * ```
+   *
+   * Committed with the workspace, so the whole team runs with the same
+   * permissions instead of each clone's own `.claude/settings.json`. Flags
+   * that switch permission checks off altogether are refused — see
+   * {@link unsafeRunnerArg}.
+   */
+  args: z.array(z.string()).default([]),
+}).superRefine((p, ctx) => {
+  const bad = unsafeRunnerArg(p.args);
+  if (bad) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['args'],
+      message: `\`${bad}\` switches the agent's permission checks off, and \`args\` is committed for everyone ` +
+        'who runs this workspace — unattended runs included. Allow the tools it needs instead ' +
+        '(`--allowedTools` for Claude), or run it in a sandbox of your own with `runner: custom`.',
+    });
+  }
 });
+
+/**
+ * The first argument that turns a runner's permission checks off: Claude's
+ * `--dangerously-skip-permissions` and `--permission-mode bypassPermissions`,
+ * Codex's `--dangerously-bypass-approvals-and-sandbox` and
+ * `--sandbox danger-full-access`, Copilot's `--allow-all` / `--yolo`. Null when
+ * there is none.
+ */
+export function unsafeRunnerArg(args: readonly string[]): string | null {
+  const flags = new Set([
+    '--dangerously-skip-permissions',
+    '--allow-dangerously-skip-permissions',
+    '--dangerously-bypass-approvals-and-sandbox',
+    '--yolo',
+    '--allow-all',
+    '--allow-all-paths',
+  ]);
+  const values: Record<string, string> = {
+    '--permission-mode': 'bypassPermissions',
+    '--sandbox': 'danger-full-access',
+    '-s': 'danger-full-access',
+  };
+  for (let i = 0; i < args.length; i++) {
+    const [flag, inline] = args[i].split(/=(.*)/s, 2) as [string, string | undefined];
+    if (flags.has(flag)) { return args[i]; }
+    const unsafe = values[flag];
+    const value = inline ?? args[i + 1];
+    if (unsafe && value === unsafe) { return `${flag} ${unsafe}`; }
+  }
+  return null;
+}
 
 // ── Top-level workspace ────────────────────────────────────────────
 

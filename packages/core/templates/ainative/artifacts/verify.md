@@ -10,9 +10,10 @@
 
 ## 1. Verdict
 
-> *One line. Any `fail` or `untested` row below makes the overall verdict a fail.*
+> *One line, exactly `Verdict: pass` or `Verdict: fail` — a validator reads it.
+> Any `fail` or `untested` row below makes the overall verdict a fail.*
 
-**Overall:** pass / fail
+Verdict: pass / fail
 
 ## 2. Acceptance criteria
 

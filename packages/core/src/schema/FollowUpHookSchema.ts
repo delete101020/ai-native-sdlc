@@ -57,6 +57,9 @@ export function stepProducesFollowUps(step: unknown): boolean {
  * `on_*` key, an empty command, a hook on a step that does not produce the
  * manifest, or a placeholder the hook is never given.
  */
+/** Step keys that start with `on_` without being a command hook. */
+const STEP_KEYS_NOT_HOOKS = ['on_reject'];
+
 export function collectFollowUpHookIssues(raw: unknown): FollowUpHookIssue[] {
   const issues: FollowUpHookIssue[] = [];
   const pipelines = (raw as { pipelines?: unknown } | null)?.pipelines;
@@ -76,7 +79,7 @@ export function collectFollowUpHookIssues(raw: unknown): FollowUpHookIssue[] {
       const at = `pipelines.${pid}.steps.${label}`;
 
       for (const key of Object.keys(step)) {
-        if (!key.startsWith('on_')) { continue; }
+        if (!key.startsWith('on_') || STEP_KEYS_NOT_HOOKS.includes(key)) { continue; }
         if (!isHookKey(key)) {
           issues.push({
             path: `${at}.${key}`,

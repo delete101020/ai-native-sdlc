@@ -34,8 +34,30 @@ With no run state, default all three to true. Honour these flags throughout.
 7. Write `docs/epics/$0/artifacts/implement.md`.
 8. Push and open the PR per Step 0, linking the epic and the spec.
 
+## Batches
+
+When the run tells you this step **runs in batches**, you are one session of
+several, and the next session remembers nothing but what is on disk:
+
+- Do **one** batch — the one the run names, as the plan groups them. You may split
+  a batch smaller when it does not fit in your context; never do two in one
+  session, and never regroup the plan's batches otherwise.
+- Read the **Progress** table in `implement.md` first, if there is one. Rows marked
+  done are done: do not redo them.
+- Sent back for another revision? The first batch is the fixes the feedback asks
+  for. Keep the earlier revision's Progress rows and add the fix batch below them.
+- Before you stop, commit, then update `implement.md`: the Progress row for this
+  batch (steps, commits, tests run), and the rest of the report so far.
+- End `implement.md` with a line of its own: `Status: continue` when any of the
+  plan is left, `Status: done` when all of it is built and every proof executed.
+  Without that line the run stops with an error.
+
+Not batched, you build the whole plan in this session and end with `Status: done`.
+
 ## implement.md Contents
 
+- **Progress** — one row per batch: the plan steps it covered, its commits, the
+  tests it ran.
 - **Branch / PR** — branch name, PR link.
 - **What was built** — per plan step: what changed, in which files.
 - **Proofs executed** — the command and its real output, per `$0-ACnn`.
@@ -54,9 +76,11 @@ With no run state, default all three to true. Honour these flags throughout.
 - **Stay inside the plan.** Scope found mid-flight becomes a plan amendment or a new
   intent; it never lands silently in the diff.
 - **Small, ordered commits.** The reviewer reads the sequence, not just the endpoint.
+- **Sent back for another revision?** Continue on the same branch and PR. Add new
+  commits; never amend, rebase or force-push what is already there.
 - If a plan step turns out to be wrong, stop and amend `plan.md` before continuing.
 
 ## Output
 
-Write `docs/epics/$0/artifacts/implement.md`, with the branch pushed and the PR open
-unless Step 0 says otherwise.
+Write `docs/epics/$0/artifacts/implement.md`, ending in its `Status:` line, with the
+branch pushed and the PR open unless Step 0 says otherwise.

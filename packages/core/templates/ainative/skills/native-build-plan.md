@@ -42,6 +42,15 @@ A table, not prose. Real paths.
 Numbered steps in dependency order, each one independently reviewable. Say what is
 true after each step that was not true before it.
 
+Then group the steps into **batches**: runs of consecutive steps that one fresh
+agent session can finish, with tests passing, in about half an hour. A run with
+`batches: true` on `implement` gives each batch its own session, so reviewing the
+plan is also reviewing where those sessions start and stop. Keep a batch to one
+area of the code, and end it where the tests pass. A small plan is one batch.
+
+    **Batch 1** — steps 1–2: <what is true when it ends>
+    **Batch 2** — steps 3–5: <what is true when it ends>
+
 ### Risks
 
 | Risk | Likelihood | What we do about it |

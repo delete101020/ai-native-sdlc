@@ -80,6 +80,7 @@ export interface StepRecord {
   /**
    * LLM cost (USD) of the most recent runner execution for this step, when the
    * runner reported it. Summed across steps by the `run exec` budget guard.
+   * For a `batches: true` step it is the revision's sessions added up, so far.
    */
   costUsd?: number;
   /**
@@ -162,6 +163,13 @@ export type StepHistoryEntry =
        * step's idx for an in-place rerun; lower idx for a cascade.
        */
       sentBackToIdx: number;
+      /**
+       * Set when the run sent the work back on its own, after an auto-review
+       * reject: whether the target came from the validator's verdict
+       * (`sendBackTo`) or from the step's `on_reject.send_back_to`. Absent on
+       * a human's reject.
+       */
+      source?: 'verdict' | 'config';
       /** {@link StepRecord.skill} of the revision that was rejected. */
       skill?: string;
       /** {@link StepRecord.chosenModel} of the revision that was rejected. */
@@ -222,6 +230,35 @@ export type StepHistoryEntry =
     }
   | {
       /**
+       * The exec loop stopped this step's agent before it finished: a
+       * `timeout_minutes` ran out, or someone asked for it to stop now. The
+       * step stays `awaiting_work` on the same revision, so without this
+       * entry the timeline would not say the revision was ever started.
+       */
+      kind: 'interrupted';
+      at: string;
+      revision: number;
+      why: 'timeout' | 'stopped';
+      /** The limit that ran out, for a timeout. */
+      minutes?: number;
+    }
+  | {
+      /**
+       * One session of a `batches: true` step ended on `Status: continue`.
+       * The step stays `awaiting_work` on the same revision and the next
+       * session picks up from its report; the session that ends on
+       * `Status: done` is the step's ordinary completion and gets no entry.
+       */
+      kind: 'batch';
+      at: string;
+      revision: number;
+      /** 1-based number of this session within the revision. */
+      batch: number;
+      /** What the session cost, when the runner reported or a rate priced it. */
+      costUsd?: number;
+    }
+  | {
+      /**
        * A round of the /annotate-artifact review loop that edited the .md.
        * Sourced from the artifacts folder's `.annotation-history.json` and
        * merged into the owning step's history at read time (never written to
@@ -251,6 +288,14 @@ export interface AutoReviewVerdict {
   at: string;
   /** Identifier of the runner that produced the verdict — usually the resolved script path. */
   runner: string;
+  /**
+   * On a reject, where the validator wants the work to go: a step reference
+   * (index, name or agent id, as for `aidlc run reject --to`), or `null` to
+   * stop here for a human. Only the step's `on_reject.send_back_to` is ever
+   * sent back to automatically; any other target stops the run with the
+   * suggestion in the reason. Absent = the step's `on_reject` decides.
+   */
+  sendBackTo?: string | number | null;
 }
 
 export interface RunState {
@@ -276,6 +321,12 @@ export interface RunState {
   status: RunStatus;
   /** One entry per pipeline step, length === pipeline.steps.length. */
   steps: StepRecord[];
+  /**
+   * Times the run has sent work back on its own (`on_reject`) since a human
+   * last acted on it. Checked against the pipeline's `max_send_backs`; every
+   * human action — approve, reject, rerun, request update, undo — clears it.
+   */
+  sendBacks?: number;
 }
 
 /**

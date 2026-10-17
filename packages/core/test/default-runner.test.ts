@@ -40,6 +40,17 @@ describe('DefaultRunner — stream-json parsing', () => {
     lastArgs = [];
   });
 
+  it('adds the workspace args before the prompt, after an end-of-options marker', async () => {
+    const runner = new DefaultRunner();
+    const p = runner.run(ctx({ extraArgs: ['--allowedTools', 'Read', 'Bash(npm test:*)'] }));
+    const at = lastArgs.indexOf('--allowedTools');
+    expect(at).toBeGreaterThan(-1);
+    // A variadic flag would otherwise take the prompt as one more tool.
+    expect(lastArgs.slice(at)).toEqual(['--allowedTools', 'Read', 'Bash(npm test:*)', '--', 'do the thing']);
+    lastChild.emit('close', 0);
+    await p;
+  });
+
   it('requests stream-json output format', async () => {
     const runner = new DefaultRunner();
     const p = runner.run(ctx());

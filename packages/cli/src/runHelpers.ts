@@ -10,6 +10,8 @@ import {
   mirrorRunStateToEpic,
   commitApprovedArtifacts,
   resolveArtifactCommitConfig,
+  findStepIndex,
+  AMBIGUOUS_STEP_INDEX,
   type RunState,
   type StepRecord,
   type PipelineConfig,
@@ -189,23 +191,10 @@ export function findPipelineForRun(root: string, state: RunState): PipelineConfi
  *
  * Returns -1 when not found (caller decides whether to exit).
  */
-export const AMBIGUOUS_STEP = -2;
+export const AMBIGUOUS_STEP = AMBIGUOUS_STEP_INDEX;
 
 export function resolveStepIdx(state: RunState, step: string): number {
-  // Try as integer first
-  const asInt = parseInt(step, 10);
-  if (!isNaN(asInt) && String(asInt) === step) {
-    return asInt >= 0 && asInt < state.steps.length ? asInt : -1;
-  }
-  // Then as a step name — unique within a pipeline by construction.
-  const byName = state.steps.findIndex(s => s.name === step);
-  if (byName >= 0) { return byName; }
-  // Finally as an agent id, which may well match several steps.
-  const byAgent = state.steps
-    .map((s, i) => (s.agent === step ? i : -1))
-    .filter(i => i >= 0);
-  if (byAgent.length > 1) { return AMBIGUOUS_STEP; }
-  return byAgent.length === 1 ? byAgent[0] : -1;
+  return findStepIndex(state.steps, step);
 }
 
 /** How a step is addressed on the command line: its name, else its agent. */

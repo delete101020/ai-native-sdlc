@@ -56,5 +56,10 @@ Every acceptance criterion gets exactly one row:
 
 ## Output
 
-Write `docs/epics/$0/artifacts/verify.md`, ending with a one-line overall verdict and,
-if it is a fail, the shortest list of things that would turn it into a pass.
+Write `docs/epics/$0/artifacts/verify.md`. State the overall verdict once, on a line
+of its own, exactly `Verdict: pass` or `Verdict: fail`. When it is a fail, list the
+shortest set of things that would turn it into a pass under a
+`## Shortest path to pass` heading.
+
+A validator reads that line. A missing, misspelled or contradictory verdict counts as a
+fail, and the changes you list are what the engineer is handed next.

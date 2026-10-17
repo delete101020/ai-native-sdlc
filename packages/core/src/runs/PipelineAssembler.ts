@@ -34,6 +34,7 @@ import {
   requiresEntries,
   stepDagId,
   collectWorkspaceRefIssues,
+  sendBackIssues,
 } from '../schema/WorkspaceSchema';
 
 export class PipelineAssembleError extends Error {
@@ -146,8 +147,30 @@ export function assemblePipeline(
     if (norm.default_skill) { step.default_skill = norm.default_skill; }
     if (norm.model) { step.model = norm.model; }
     if (auto_review_runner) { step.auto_review_runner = auto_review_runner; }
+    const on_reject = gate.on_reject ?? norm.on_reject;
+    if (on_reject) { step.on_reject = { send_back_to: on_reject.send_back_to }; }
+    const timeout_minutes = gate.timeout_minutes ?? norm.timeout_minutes;
+    if (timeout_minutes !== undefined) { step.timeout_minutes = timeout_minutes; }
+    const batched = gate.batches ?? (norm.batches !== undefined);
+    if (batched) {
+      step.batches = true;
+      const max = gate.max_batches ?? norm.batches?.max;
+      if (max !== undefined) { step.max_batches = max; }
+      if (gate.pause_between_batches ?? norm.batches?.pause) { step.pause_between_batches = true; }
+    }
     return step as PipelineStepConfig;
   });
+
+  // Same check workspace.yaml gets when it loads. Caught here, a bad target is
+  // a refusal to start the epic; caught there, it would be a workspace that no
+  // longer loads because one epic's pipeline is wrong.
+  const sendBackProblems = sendBackIssues(steps);
+  if (sendBackProblems.length > 0) {
+    throw new PipelineAssembleError(
+      `Recipe "${recipe.id}" assembled a pipeline whose \`on_reject\` cannot work:\n` +
+        sendBackProblems.map((i) => `  - ${i.message}`).join('\n'),
+    );
+  }
 
   const assembled: PipelineConfig = {
     id: opts.pipelineId ?? recipe.id,
@@ -155,6 +178,12 @@ export function assemblePipeline(
     recipe: recipe.id,
     steps,
     on_failure: source.on_failure,
+    ...((recipe.max_send_backs ?? source.max_send_backs) !== undefined
+      ? { max_send_backs: recipe.max_send_backs ?? source.max_send_backs }
+      : {}),
+    ...((recipe.autopilot ?? source.autopilot) !== undefined
+      ? { autopilot: recipe.autopilot ?? source.autopilot }
+      : {}),
   };
 
   // Fatal cross-ref check, scoped to the pipeline we just built. We splice it

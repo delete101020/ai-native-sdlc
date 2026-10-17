@@ -27,6 +27,10 @@
 1. 
 2. 
 
+**Batches** — consecutive steps one fresh session can finish, tests passing.
+
+**Batch 1** — steps 1–2: 
+
 ## 4. Risks
 
 | Risk | Likelihood | What we do about it |

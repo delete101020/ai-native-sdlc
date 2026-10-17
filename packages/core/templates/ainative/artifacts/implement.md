@@ -15,7 +15,16 @@
 | Branch |  |
 | PR |  |
 
-## 2. What was built
+## 2. Progress
+
+> *One row per batch. A session in a batched run reads this first; rows marked
+> done are not redone.*
+
+| Batch | Plan steps | Commits | Tests run | State |
+|---|---|---|---|---|
+| 1 |  |  |  | done |
+
+## 3. What was built
 
 > *Per plan step: what changed, in which files.*
 
@@ -23,7 +32,7 @@
 |---|---|---|
 | 1 |  |  |
 
-## 3. Proofs executed
+## 4. Proofs executed
 
 > *The real command and its real output, per acceptance criterion. Never a claim
 > without output.*
@@ -35,11 +44,11 @@ $ <command>
 <output>
 ```
 
-## 4. Deviations from the plan
+## 5. Deviations from the plan
 
 > *Anything done differently, and why. If nothing, say so explicitly.*
 
-## 5. Discovered work
+## 6. Discovered work
 
 > *Found but deliberately not done, and where it went — a plan amendment, a new
 > intent, an issue.*
@@ -48,8 +57,12 @@ $ <command>
 |---|---|
 |  |  |
 
-## 6. Known gaps
+## 7. Known gaps
 
 > *What a reviewer should look at hardest.*
 
 - 
+
+---
+
+Status: done

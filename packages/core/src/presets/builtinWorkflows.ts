@@ -28,6 +28,7 @@ import * as path from 'path';
 import { artifactLanguageSection } from '../loader/artifactLanguage';
 import { strictModeSection } from '../loader/strictMode';
 import { inheritedContextNote } from '../loader/inheritedContext';
+import type { RecipeGateConfig } from '../schema/WorkspaceSchema';
 import { CODING_MODEL, PLANNING_MODEL } from './models';
 import { renderTemplate } from './templateRenderer';
 
@@ -247,7 +248,11 @@ export interface RecipeDef {
    * agrees about where a human has to stand — which is rarely right for
    * every task type. Only the fields present override; the rest inherit.
    */
-  gates?: Record<string, { human_review?: boolean; auto_review?: boolean; auto_review_runner?: string }>;
+  gates?: Record<string, RecipeGateConfig>;
+  /** Sets the assembled pipeline's `autopilot` — see the pipeline's. */
+  autopilot?: boolean;
+  /** Sets the assembled pipeline's `max_send_backs`. */
+  max_send_backs?: number;
 }
 
 export interface BuiltinWorkflow {
@@ -520,6 +525,11 @@ const AINATIVE_PHASES: PhaseDef[] = [
   },
 ];
 
+/** Reads the `Verdict:` line a verify or review step writes; fails closed. */
+const VERDICT_VALIDATOR = '.aidlc/validators/verdict.mjs';
+/** Runs the project's own checks (`CHECKS`) on what implement built. */
+const CI_VALIDATOR = '.aidlc/validators/ci.mjs';
+
 /**
  * Recipes for the AI-Native SDLC workflow, keyed by task type.
  */
@@ -536,7 +546,8 @@ const AINATIVE_RECIPES: RecipeDef[] = [
       'The human gates sit up front, on intent and build-plan, where a wrong direction is ' +
       'cheapest to correct; implement and review then run to the end unattended. ' +
       'Trade-off: review is the only quality gate left, and nobody reads it before the ' +
-      'branch is finished — prefer native-fix when the change has no precedent to follow.',
+      'branch is finished — a hold verdict stops the run, but prefer native-fix when the ' +
+      'change has no precedent to follow.',
     steps: ['intent', 'build-plan', 'implement', 'review'],
     // Spelled out for all four steps, including the two that would inherit
     // `true` anyway: where the humans stand is the point of this recipe, so
@@ -545,7 +556,44 @@ const AINATIVE_RECIPES: RecipeDef[] = [
       intent: { human_review: true },
       'build-plan': { human_review: true },
       implement: { human_review: false },
-      review: { human_review: false },
+      // Nobody reads review.md before the run ends, so something has to: a
+      // `hold` (or no readable verdict) rejects the step instead of letting
+      // the run report `completed`.
+      review: { human_review: false, auto_review: true, auto_review_runner: VERDICT_VALIDATOR },
+    },
+  },
+  {
+    id: 'native-autopilot',
+    description:
+      'Left to run on its own once the plan is approved — no spec. A person approves intent and ' +
+      'build-plan, then implement, verify and review run unattended: CI checks implement, and a ' +
+      'failed verify or a review hold sends the work back to implement on its own, up to three ' +
+      'times. The run stops at review for a person to approve the finished branch. Needs a branch ' +
+      'of its own, the approval-gate hook and real CHECKS in .aidlc/validators/ci.mjs.',
+    steps: ['intent', 'build-plan', 'implement', 'verify', 'review'],
+    autopilot: true,
+    max_send_backs: 3,
+    gates: {
+      intent: { human_review: true, timeout_minutes: 20 },
+      'build-plan': { human_review: true, timeout_minutes: 20 },
+      // A CI reject reruns implement on its own feedback; it is never sent
+      // anywhere else. Each batch is a fresh session with its own 30 minutes.
+      implement: {
+        human_review: false, auto_review: true, auto_review_runner: CI_VALIDATOR,
+        batches: true, timeout_minutes: 30,
+      },
+      verify: {
+        human_review: false, auto_review: true, auto_review_runner: VERDICT_VALIDATOR,
+        on_reject: { send_back_to: 'implement' }, timeout_minutes: 20,
+      },
+      // A person still approves the end of the run (a `ship` stops here), but
+      // only once: a `hold` goes back to implement without waiting for them.
+      // Once the validators have earned trust, `human_review: false` makes a
+      // `ship` complete the run.
+      review: {
+        human_review: true, auto_review: true, auto_review_runner: VERDICT_VALIDATOR,
+        on_reject: { send_back_to: 'implement' }, timeout_minutes: 20,
+      },
     },
   },
   {
@@ -874,6 +922,8 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
         from: workflow.pipelineId,
         steps: r.steps,
         ...(r.gates ? { gates: r.gates } : {}),
+        ...(r.autopilot !== undefined ? { autopilot: r.autopilot } : {}),
+        ...(r.max_send_backs !== undefined ? { max_send_backs: r.max_send_backs } : {}),
       })),
       sidebar: {
         views: [
@@ -1282,6 +1332,9 @@ export default async function ci(_ctx) {
  * MUST export a default function; a shell script can't be imported, which is
  * why the runner is `.mjs`, not `.sh` (issue #27).
  *
+ * Recipe gates can name a runner too (`native-lite` reads review's verdict),
+ * so those are scaffolded alongside the phases' own.
+ *
  * For each distinct project-relative runner path, copies the bundled template
  * (`templates/<dir>/validators/<file>`, falling back to sdlc) when present,
  * else writes a generic passing validator. Never overwrites an existing file,
@@ -1292,10 +1345,13 @@ export function writeBuiltinAutoReviewValidators(
   root: string,
   workflow: BuiltinWorkflow,
 ): void {
+  const runners = [
+    ...workflow.phases.filter((p) => p.autoReview).map((p) => p.autoReviewRunner),
+    ...(workflow.recipes ?? []).flatMap((r) => Object.values(r.gates ?? {}).map((g) => g.auto_review_runner)),
+  ];
   const seen = new Set<string>();
-  for (const phase of workflow.phases) {
-    if (!phase.autoReview || !phase.autoReviewRunner) { continue; }
-    const rel = phase.autoReviewRunner;
+  for (const rel of runners) {
+    if (!rel) { continue; }
     // Only scaffold project-relative runner paths we own; leave absolute or
     // out-of-tree paths to the user.
     if (path.isAbsolute(rel) || rel.startsWith('..')) { continue; }

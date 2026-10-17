@@ -63,6 +63,13 @@ function renderHistory(history: StepHistoryEntry[]): string[] {
         return `  - ✔ approved (rev ${h.revision}${h.skill ? `, ${h.skill}` : ''}${h.model ? `, ${h.model}` : ''})`;
       case 'undo':
         return `  - ↶ mark-done undone (rev ${h.revision}, was ${h.from})`;
+      case 'interrupted':
+        return h.why === 'timeout'
+          ? `  - ⏱ stopped after ${h.minutes ?? '?'} min (timeout_minutes, rev ${h.revision})`
+          : `  - ⏹ stopped mid-step (rev ${h.revision})`;
+      case 'batch':
+        return `  - ↻ batch ${h.batch} done, more to come (rev ${h.revision}` +
+          `${typeof h.costUsd === 'number' ? `, $${h.costUsd.toFixed(4)}` : ''})`;
       default:
         return '  - (unknown event)';
     }

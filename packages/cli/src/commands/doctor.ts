@@ -29,7 +29,13 @@ import {
   resolveProviderModel,
   providerAliases,
   ratesFromConfig,
+  findApprovalGate,
+  hasEmptyCiChecks,
+  emptyCiChecksMessage,
+  assemblePipeline,
+  normalizeStep,
   type HarnessCapabilities,
+  type PipelineConfig,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { readYaml } from '../yamlIO';
@@ -314,6 +320,105 @@ function providerChecks(
   return checks;
 }
 
+/**
+ * What a headless step may do, and what stops it doing the wrong thing.
+ *
+ * Nobody answers a permission prompt under `claude --print`: a tool that is
+ * not allowed up front is denied, so an `implement` with no allow list writes
+ * its report and changes no code. And the approval gate that blocks a
+ * force-push to main lives in `.claude/settings*.json`, which a clone does not
+ * get. Both are fatal for a pipeline marked `autopilot: true` (the loop
+ * refuses to start without the gate) and advice for any other. So is a CI
+ * validator with an empty `CHECKS` on such a pipeline: it passes every build.
+ *
+ * A recipe marked `autopilot: true` only says how an epic *could* run, and
+ * every AI-Native workspace has `native-autopilot`, so what it is missing is
+ * a warning, not a failure — `run exec` still refuses the run itself.
+ */
+function autopilotChecks(root: string, ws: ReturnType<typeof WorkspaceLoader.load>): Check[] {
+  const checks: Check[] = [];
+  const autopilot = ws.config.pipelines.filter((p) => p.autopilot).map((p) => p.id);
+  const needed = autopilot.length > 0;
+  const missing = (label: string, info: string): Check => (needed ? fail(label, info) : warn(label, info));
+  if (needed) {
+    checks.push(ok(`autopilot pipeline${autopilot.length !== 1 ? 's' : ''}`, autopilot.join(', ')));
+  }
+
+  const usesClaude = ws.config.agents.some((a) => a.runner === 'default');
+  if (usesClaude) {
+    const gate = findApprovalGate(root);
+    checks.push(gate.found
+      ? ok('approval gate hook', path.relative(root, gate.settingsFile).split(path.sep).join('/') || gate.settingsFile)
+      : missing('approval gate hook', gate.reason));
+
+    const args = ws.config.providers.default?.args ?? [];
+    const viaArgs = args.some((a) => /^--(allowedTools|allowed-tools|permission-mode)(=|$)/.test(a));
+    const viaSettings = claudeAllowListFiles(root);
+    checks.push(viaArgs
+      ? ok('headless permissions', 'providers.default.args')
+      : viaSettings.length > 0
+      ? ok('headless permissions', `permissions.allow in ${viaSettings.join(', ')}`)
+      : missing('headless permissions',
+          'nothing allows Claude to edit files or run commands without asking, and under --print nobody can be asked — ' +
+          'set providers.default.args (e.g. [--permission-mode, acceptEdits, --allowedTools, "Bash(npm test:*)"])'));
+  }
+
+  // The gate is a Claude Code hook; the other CLIs never run it.
+  for (const id of autopilot) {
+    const pipeline = ws.config.pipelines.find((p) => p.id === id)!;
+    const runners = new Set(pipeline.steps
+      .map((s) => ws.config.agents.find((a) => a.id === (typeof s === 'string' ? s : s.agent))?.runner)
+      .filter((r): r is NonNullable<typeof r> => !!r && r !== 'default'));
+    for (const runner of runners) {
+      checks.push(warn(`"${id}" on ${runner}`,
+        `the approval gate is a Claude Code hook, and ${runner} steps run without it — they rely on ${runner}'s own sandbox`));
+    }
+  }
+
+  const unattended: Array<{ label: string; pipeline: PipelineConfig; fatal: boolean }> = [
+    ...ws.config.pipelines.filter((p) => p.autopilot).map((p) => ({ label: `"${p.id}"`, pipeline: p, fatal: true })),
+  ];
+  for (const r of ws.config.recipes.filter((r) => r.autopilot)) {
+    try {
+      unattended.push({ label: `recipe "${r.id}"`, pipeline: assemblePipeline(ws.config, { recipeId: r.id }), fatal: false });
+    } catch {
+      // A recipe that does not assemble is reported by the workspace checks.
+    }
+  }
+  for (const { label, pipeline, fatal } of unattended) {
+    for (const s of pipeline.steps) {
+      const norm = normalizeStep(s);
+      const runner = norm.auto_review ? norm.auto_review_runner : undefined;
+      if (!runner) { continue; }
+      const step = norm.name ?? norm.agent;
+      checks.push(hasEmptyCiChecks(root, runner)
+        ? (fatal ? fail : warn)(`${label} CI checks`, emptyCiChecksMessage(runner, step))
+        : ok(`${label} auto-review on "${step}"`, runner));
+    }
+  }
+  return checks;
+}
+
+/** Claude settings files (project and user) with a non-empty `permissions.allow`. */
+function claudeAllowListFiles(root: string): string[] {
+  const files = [
+    path.join(root, '.claude', 'settings.json'),
+    path.join(root, '.claude', 'settings.local.json'),
+    path.join(claudeConfigDir(), 'settings.json'),
+  ];
+  return files.filter((f) => {
+    try {
+      const allow = JSON.parse(fs.readFileSync(f, 'utf8'))?.permissions?.allow;
+      return Array.isArray(allow) && allow.length > 0;
+    } catch {
+      return false;
+    }
+  }).map((f) => {
+    const r = path.relative(root, f);
+    return r.startsWith('..') ? f.replace(os.homedir(), '~') : r.split(path.sep).join('/');
+  });
+}
+
 export function registerDoctor(program: Command): void {
   program
     .command('doctor')
@@ -449,6 +554,7 @@ export function registerDoctor(program: Command): void {
       if (ws) {
         emitSection('Harness parity', parityChecks(root, ws));
         emitSection('Providers', providerChecks(ws));
+        emitSection('Unattended runs', autopilotChecks(root, ws));
       }
 
       // ── Run state ────────────────────────────────────────────────────────

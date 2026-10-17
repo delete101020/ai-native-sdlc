@@ -28,7 +28,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
-import { normalizeStep, stepSkillAlternatives } from '../schema/WorkspaceSchema';
+import { normalizeStep, stepSkillAlternatives, findStepIndex, DEFAULT_MAX_SEND_BACKS } from '../schema/WorkspaceSchema';
 import type { RunState, StepRecord, StepStatus, AutoReviewVerdict, StepHistoryEntry, StepDirtyMark } from './RunState';
 import { resolvePath, stepIdentity, RUN_STATE_SCHEMA_VERSION } from './RunState';
 import { isActiveStatus, isRunComplete, isStepOptional } from './runProgress';
@@ -403,6 +403,7 @@ export function undoStepDone(args: {
   const step = state.steps[idx];
   const now = new Date().toISOString();
   const next = clone(state);
+  delete next.sendBacks; // a person acted — see RunState.sendBacks
 
   if (step.status === 'approved') {
     for (const i of followersOf(pipeline, idx)) {
@@ -487,13 +488,28 @@ export function submitAutoReviewVerdict(args: {
   });
 
   if (verdict.decision === 'reject') {
+    const route = autoRejectRoute(next, pipeline, idx, norm, verdict);
+    if ('targetIdx' in route) {
+      const count = next.sendBacks ?? 0;
+      const max = pipeline.max_send_backs ?? DEFAULT_MAX_SEND_BACKS;
+      if (count < max) {
+        sendBack(next, {
+          idx, targetIdx: route.targetIdx, reason: verdict.reason, at: verdict.at, pipeline, source: route.source,
+        });
+        next.sendBacks = count + 1;
+        return next;
+      }
+      route.note = `Sent back ${count} time${count === 1 ? '' : 's'} already (max_send_backs: ${max}) — ` +
+        'stopping for a human instead of going round again.';
+    }
+    const reason = 'note' in route && route.note ? `${verdict.reason}\n\n${route.note}` : verdict.reason;
     nextStep.status = 'rejected';
-    nextStep.rejectReason = verdict.reason;
+    nextStep.rejectReason = reason;
     nextStep.history = pushHistory(nextStep.history, {
       kind: 'reject',
       at: verdict.at,
       revision: nextStep.revision,
-      reason: verdict.reason,
+      reason,
       sentBackToIdx: idx,
       ...(nextStep.skill ? { skill: nextStep.skill } : {}),
       ...(nextStep.chosenModel ? { model: nextStep.chosenModel } : {}),
@@ -511,6 +527,52 @@ export function submitAutoReviewVerdict(args: {
   }
 
   return advance(next, idx, pipeline);
+}
+
+/**
+ * Where an auto-review reject of step `idx` goes: back to an earlier step
+ * (`targetIdx`), or nowhere — the step is rejected in place and the run stops,
+ * with `note` saying why when the reason is not obvious.
+ *
+ * Only the step's `on_reject.send_back_to` is ever a target. A validator may
+ * confirm it through `sendBackTo`, or stop the run (`null`, or this step);
+ * anything else it names is a suggestion for a human, never a route — the
+ * machine sends work back to `implement`, and a fault in the direction
+ * (intent, spec, plan) is a person's to act on.
+ */
+function autoRejectRoute(
+  state: RunState,
+  pipeline: PipelineConfig,
+  idx: number,
+  norm: ReturnType<typeof normalizeStep>,
+  verdict: AutoReviewVerdict,
+): { targetIdx: number; source: 'verdict' | 'config'; note?: string } | { note?: string } {
+  const label = (i: number): string => `"${stepIdentity(state.steps[i])}" (step ${i + 1})`;
+  const configured = norm.on_reject?.send_back_to;
+  const cfgIdx = configured ? findStepIndex(pipeline.steps.map(normalizeStep), configured) : -1;
+  // Checked when workspace.yaml loads; one that slips past still stops here.
+  if (configured && !(cfgIdx >= 0 && cfgIdx < idx)) {
+    return { note: `\`on_reject.send_back_to\` "${configured}" is not a step before this one — fix the pipeline.` };
+  }
+
+  if (verdict.sendBackTo === undefined) {
+    return cfgIdx >= 0 ? { targetIdx: cfgIdx, source: 'config' } : {};
+  }
+  if (verdict.sendBackTo === null) { return {}; }
+  const asked = String(verdict.sendBackTo);
+  const v = findStepIndex(state.steps, asked);
+  if (v === idx) { return {}; }
+  if (v < 0 || v > idx) {
+    return { note: `The validator asked to send this back to "${asked}", which is not a step before this one.` };
+  }
+  if (v !== cfgIdx) {
+    const allowed = cfgIdx >= 0 ? `only ${label(cfgIdx)} is` : 'no step is (see `on_reject.send_back_to`)';
+    return {
+      note: `The validator suggests sending this back to ${label(v)}; ${allowed} sent back automatically. ` +
+        'Send it back by hand if you agree.',
+    };
+  }
+  return { targetIdx: v, source: 'verdict' };
 }
 
 /**
@@ -566,6 +628,7 @@ export function retryAutoReview(args: {
   }
 
   const next = clone(state);
+  delete next.sendBacks; // a person acted — see RunState.sendBacks
   next.steps[idx] = {
     ...step,
     status: 'awaiting_auto_review',
@@ -598,7 +661,9 @@ export function approveStep(args: {
       `Cannot approve step "${step.agent}": status is "${step.status}", expected "awaiting_review"`,
     );
   }
-  return advance(clone(state), idx, pipeline);
+  const next = clone(state);
+  delete next.sendBacks; // a person acted — see RunState.sendBacks
+  return advance(next, idx, pipeline);
 }
 
 /**
@@ -636,94 +701,26 @@ export function rejectStep(args: {
   if (!step) {
     throw new PipelineRunError(`No step at index ${idx}`);
   }
-  if (step.status !== 'awaiting_review') {
+  const now = new Date().toISOString();
+  const isCascade = typeof targetIdx === 'number' && targetIdx >= 0 && targetIdx < idx;
+  // A step its validator rejected can still be sent back by hand: that is how
+  // a person acts on a validator's suggestion the run would not follow on its
+  // own (see autoRejectRoute). An in-place reject of it would change nothing.
+  if (step.status !== 'awaiting_review' && !(isCascade && step.status === 'rejected')) {
     throw new PipelineRunError(
       `Cannot reject step "${step.agent}": status is "${step.status}", expected "awaiting_review"`,
     );
   }
 
-  const now = new Date().toISOString();
-  const isCascade = typeof targetIdx === 'number' && targetIdx >= 0 && targetIdx < idx;
   if (isCascade) {
     const next = clone(state);
-    const blame = `Rejected at step ${idx + 1} (${step.agent})${reason ? `: ${reason}` : ''}`;
-    const rejectedHistory = pushHistory(next.steps[idx].history, {
-      kind: 'reject',
-      at: now,
-      revision: next.steps[idx].revision,
-      reason,
-      sentBackToIdx: targetIdx as number,
-      ...(next.steps[idx].skill ? { skill: next.steps[idx].skill } : {}),
-      ...(next.steps[idx].chosenModel ? { model: next.steps[idx].chosenModel } : {}),
-    });
-
-    // Choose between sequential index-range and DAG transitive-descendants
-    // reset based on whether the pipeline declares any depends_on edges.
-    const usesDag = pipeline
-      ? pipeline.steps.map(normalizeStep).some((s) => s.depends_on.length > 0)
-      : false;
-    const targetIdxN = targetIdx as number;
-    const resetIndices = usesDag && pipeline
-      ? collectDagResetSet(pipeline, state, targetIdxN, idx)
-      : sequentialRange(targetIdxN, idx);
-
-    for (const i of resetIndices) {
-      const s = next.steps[i];
-      if (i === targetIdxN) {
-        // Target step: bump revision + reset to awaiting_work. Record the
-        // cascade-rerun on its own history.
-        const newRev = s.revision + 1;
-        next.steps[i] = {
-          ...s,
-          status: 'awaiting_work',
-          revision: newRev,
-          feedback: blame,
-          rejectReason: undefined,
-          autoReviewVerdict: undefined,
-          artifactsProduced: [],
-          finishedAt: undefined,
-          startedAt: now,
-          history: pushHistory(s.history, {
-            kind: 'rerun',
-            at: now,
-            revision: newRev,
-            feedback: blame,
-          }),
-        };
-      } else if (i === idx) {
-        // The rejected step keeps its full history + the new reject entry,
-        // even though we're about to reset its working fields.
-        next.steps[i] = {
-          ...s,
-          status: 'pending',
-          rejectReason: undefined,
-          autoReviewVerdict: undefined,
-          artifactsProduced: [],
-          startedAt: undefined,
-          finishedAt: undefined,
-          history: rejectedHistory,
-        };
-      } else {
-        // Intermediate step (target < i < idx). Reset to pending, history
-        // preserved as-is — these steps weren't directly involved in this
-        // rejection.
-        next.steps[i] = {
-          ...s,
-          status: 'pending',
-          rejectReason: undefined,
-          autoReviewVerdict: undefined,
-          artifactsProduced: [],
-          startedAt: undefined,
-          finishedAt: undefined,
-        };
-      }
-    }
-    next.currentStepIdx = targetIdx as number;
-    next.status = 'running';
+    sendBack(next, { idx, targetIdx: targetIdx as number, reason, at: now, pipeline });
+    delete next.sendBacks; // a person acted — see RunState.sendBacks
     return next;
   }
 
   const next = clone(state);
+  delete next.sendBacks; // a person acted — see RunState.sendBacks
   next.steps[idx] = {
     ...step,
     status: 'rejected',
@@ -768,6 +765,7 @@ export function rerunStep(args: {
   }
   const now = new Date().toISOString();
   const next = clone(state);
+  delete next.sendBacks; // a person acted — see RunState.sendBacks
   const newRev = step.revision + 1;
   const carriedFeedback = feedback ?? step.feedback;
   next.steps[idx] = {
@@ -891,6 +889,7 @@ export function requestStepUpdate(args: {
 
   const now = new Date().toISOString();
   const next = clone(state);
+  delete next.sendBacks; // a person acted — see RunState.sendBacks
 
   const normalized = pipeline.steps.map(normalizeStep);
   const usesDag = normalized.some((s) => s.depends_on.length > 0);
@@ -1115,6 +1114,7 @@ export function rerunApprovedStep(args: {
   const step = state.steps[idx];
   const now = new Date().toISOString();
   const next = clone(state);
+  delete next.sendBacks; // a person acted — see RunState.sendBacks
   const newRev = step.revision + 1;
   const carriedFeedback = feedback ?? step.feedback;
 
@@ -1311,6 +1311,101 @@ function settleOptionalRejection(next: RunState, idx: number, pipeline: Pipeline
   }
   refocusCursor(next, []);
   if (isRunComplete(next, pipeline)) { next.status = 'completed'; }
+}
+
+/**
+ * Send the work of step `idx` back to the earlier step `targetIdx`, in place
+ * on `next`. The target reopens on a new revision with the reason, prefixed
+ * by who rejected it, as its feedback; the steps after it reset to `pending`
+ * (on a `depends_on` pipeline only its descendants). The rejected step keeps
+ * its history, plus the reject entry recording where the work went.
+ */
+function sendBack(next: RunState, args: {
+  idx: number;
+  targetIdx: number;
+  reason?: string;
+  at: string;
+  pipeline?: PipelineConfig;
+  /** Set when the run, not a person, decided — see the reject history entry. */
+  source?: 'verdict' | 'config';
+}): void {
+  const { idx, targetIdx, reason, at: now, pipeline, source } = args;
+  const before = clone(next);
+  const step = next.steps[idx];
+  const blame = `Rejected at step ${idx + 1} (${step.agent})${reason ? `: ${reason}` : ''}`;
+  const rejectedHistory = pushHistory(step.history, {
+    kind: 'reject',
+    at: now,
+    revision: step.revision,
+    reason,
+    sentBackToIdx: targetIdx,
+    ...(source ? { source } : {}),
+    ...(step.skill ? { skill: step.skill } : {}),
+    ...(step.chosenModel ? { model: step.chosenModel } : {}),
+  });
+
+  // Choose between sequential index-range and DAG transitive-descendants
+  // reset based on whether the pipeline declares any depends_on edges.
+  const usesDag = pipeline
+    ? pipeline.steps.map(normalizeStep).some((s) => s.depends_on.length > 0)
+    : false;
+  const resetIndices = usesDag && pipeline
+    ? collectDagResetSet(pipeline, before, targetIdx, idx)
+    : sequentialRange(targetIdx, idx);
+
+  for (const i of resetIndices) {
+    const s = next.steps[i];
+    if (i === targetIdx) {
+      // Target step: bump revision + reset to awaiting_work. Record the
+      // cascade-rerun on its own history.
+      const newRev = s.revision + 1;
+      next.steps[i] = {
+        ...s,
+        status: 'awaiting_work',
+        revision: newRev,
+        feedback: blame,
+        rejectReason: undefined,
+        autoReviewVerdict: undefined,
+        artifactsProduced: [],
+        finishedAt: undefined,
+        startedAt: now,
+        history: pushHistory(s.history, {
+          kind: 'rerun',
+          at: now,
+          revision: newRev,
+          feedback: blame,
+        }),
+      };
+    } else if (i === idx) {
+      // The rejected step keeps its full history + the new reject entry,
+      // even though we're about to reset its working fields.
+      next.steps[i] = {
+        ...s,
+        status: 'pending',
+        rejectReason: undefined,
+        autoReviewVerdict: undefined,
+        artifactsProduced: [],
+        startedAt: undefined,
+        finishedAt: undefined,
+        history: rejectedHistory,
+      };
+    } else {
+      // Intermediate step (target < i < idx). Reset to pending, history
+      // preserved as-is — these steps weren't directly involved in this
+      // rejection.
+      next.steps[i] = {
+        ...s,
+        status: 'pending',
+        rejectReason: undefined,
+        autoReviewVerdict: undefined,
+        artifactsProduced: [],
+        startedAt: undefined,
+        finishedAt: undefined,
+      };
+    }
+  }
+  next.currentStepIdx = targetIdx;
+  next.status = 'running';
 }
 
 function clone<T>(value: T): T {

@@ -651,6 +651,24 @@ export type StepHistoryEntry =
       byStepIdx: number;
     }
   | {
+      // The exec loop stopped the agent before it finished — its
+      // timeout_minutes ran out, or someone pressed Stop now.
+      kind: 'interrupted';
+      at: string;
+      revision: number;
+      why: 'timeout' | 'stopped';
+      minutes?: number;
+    }
+  | {
+      // One session of a `batches: true` step ended on `Status: continue`;
+      // the step is still being worked on the same revision.
+      kind: 'batch';
+      at: string;
+      revision: number;
+      batch: number;
+      costUsd?: number;
+    }
+  | {
       // A /annotate-artifact round that edited the .md, merged from the
       // artifacts folder's `.annotation-history.json` at read time.
       kind: 'annotate';

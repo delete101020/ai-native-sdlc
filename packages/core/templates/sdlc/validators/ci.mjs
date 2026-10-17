@@ -9,7 +9,9 @@
  * Wire your project's CI into `CHECKS` below: each command runs in the
  * workspace root, and a non-zero exit maps to a `reject` verdict so the step
  * does not advance. With no checks configured it passes with a note, so the
- * pipeline still works out of the box.
+ * pipeline still works out of the box — but an `autopilot: true` run (the
+ * `native-autopilot` recipe) refuses to start while `CHECKS` is empty, and
+ * `aidlc doctor` says so: nobody reads the step, so this is its only gate.
  *
  * To turn auto-review off for this step instead, set `auto_review: false` on
  * the implement step in `.aidlc/workspace.yaml`.

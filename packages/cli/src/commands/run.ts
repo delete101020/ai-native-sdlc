@@ -379,8 +379,12 @@ export function registerRun(program: Command): void {
       'Execute the current step by spawning the claude CLI, then auto-advance.\n' +
       '  Streams output live. Stops at human_review steps unless --auto-approve.\n' +
       '  Exit codes: 0 completed (or stopped at --until), 2 paused on a gate\n' +
-      '  (awaiting review / rejected / budget), 1 error. --require-complete maps\n' +
-      '  any non-completed outcome to 1 for CI gating.',
+      '  (awaiting review / rejected / sent back max_send_backs times / no code\n' +
+      '  change after a send-back or a batch / max_batches / pause_between_batches /\n' +
+      '  budget / stopped), 1 error (a step that ran\n' +
+      '  past its timeout_minutes included). --require-complete maps any\n' +
+      '  non-completed outcome to 1 for CI gating.\n' +
+      '  Ctrl+C once: stop after the running step. Twice: stop it now.',
     )
     .option('--until <step>',     'Stop after this step completes (index or agent id)')
     .option('--auto-approve',     'Also auto-approve human_review steps without pausing')
@@ -488,7 +492,7 @@ function execExitCode(outcome: ExecOutcome, requireComplete: boolean): number {
   if (outcome.kind === 'dry_run') { return 0; } // a preview, never a CI failure
   if (requireComplete) { return 1; }
   if (outcome.kind === 'until') { return 0; }
-  return 2; // awaiting_review | rejected | budget_pause | cancelled
+  return 2; // awaiting_review | rejected | stalled | budget_pause | batch_pause | cancelled
 }
 
 /** Machine-readable result of an exec run, printed under `--json`. */
@@ -526,12 +530,37 @@ async function execLoop(
   // the final summary object.
   const claudeOut = opts.json ? process.stderr : process.stdout;
 
-  return runExecLoop(
-    root,
-    runId,
-    { untilIdx, autoApprove: opts.autoApprove, message: opts.message, dryRun: opts.dryRun, skill: opts.skill },
-    cliExecHooks(runId, claudeOut),
-  );
+  // Ctrl+C is ours while the loop runs: the agent is spawned in a process
+  // group of its own, so the terminal's SIGINT reaches only this process. The
+  // first one lets the running step finish; the second stops it now.
+  let cancelRequested = false;
+  const stopNow = new AbortController();
+  const onSigint = (): void => {
+    if (!cancelRequested) {
+      cancelRequested = true;
+      console.error(chalk.yellow('\n⏹  Stopping after the running step finishes. Press Ctrl+C again to stop it now.'));
+    } else if (!stopNow.signal.aborted) {
+      console.error(chalk.yellow('\n⏹  Stopping the running step now…'));
+      stopNow.abort();
+    } else {
+      process.exit(130);
+    }
+  };
+  process.on('SIGINT', onSigint);
+  try {
+    return await runExecLoop(
+      root,
+      runId,
+      {
+        untilIdx, autoApprove: opts.autoApprove, message: opts.message, dryRun: opts.dryRun, skill: opts.skill,
+        shouldCancel: () => cancelRequested,
+        signal: stopNow.signal,
+      },
+      cliExecHooks(runId, claudeOut),
+    );
+  } finally {
+    process.off('SIGINT', onSigint);
+  }
 }
 
 /**
@@ -650,6 +679,27 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
       info(chalk.red(`\n✘  Step "${e.agent}" was rejected.`));
       info(chalk.dim(`  Rerun: aidlc run rerun ${e.runId} [--feedback "..."]`));
     },
+    onStepStopped: (e) => {
+      info(chalk.yellow(`\n⏹  Stopped "${e.agent}" mid-step (rev ${e.revision}). It is still awaiting work.`));
+      info(chalk.dim('  Anything it half-wrote is still in the working tree — check git status.'));
+      info(chalk.dim(`  Resume: aidlc run exec ${e.runId}`));
+    },
+    onCancelled: () => info(chalk.yellow('\n⏹  Stopped after the step that was running.')),
+    onStalled: (e) => {
+      info(chalk.yellow(`\n⏸  ${e.reason}`));
+      info(chalk.dim(`  What it was asked, and what it did: aidlc run report ${e.runId}`));
+      info(chalk.dim(`  Then make the change and: aidlc run mark-done ${e.runId} — or try again: aidlc run exec ${e.runId}`));
+    },
+    onBatchDone: (e) => {
+      sep();
+      info(chalk.cyan(`\n↻  Batch ${e.batch} of "${e.agent}" done — starting the next in a fresh session.`));
+      if (typeof e.costUsd === 'number') { info(chalk.dim(`   cost: $${e.costUsd.toFixed(4)}`)); }
+    },
+    onBatchPause: (e) => {
+      info(chalk.cyan(`\n⏸  Batch ${e.batch} of "${e.agent}" done; pausing (pause_between_batches).`));
+      if (e.report) { info(chalk.dim(`  Progress: ${e.report}`)); }
+      info(chalk.dim(`  Next batch: aidlc run exec ${e.runId}`));
+    },
     onStepSkipped: (e) => {
       info(chalk.yellow(`\n⤳  Step "${e.agent}" was rejected — carrying on.`) +
         chalk.dim(` ${e.reason}`));
@@ -660,6 +710,10 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
     onAutoReviewResult: (e) => {
       if (e.decision === 'pass') {
         info(chalk.green('✔  Auto-review passed') + chalk.dim(` — ${e.reason}`));
+      } else if (e.sentBackTo) {
+        const to = e.sentBackTo;
+        info(chalk.yellow(`↩  Auto-review rejected — sent back to "${to.agent}" (rev ${to.revision}, ` +
+          `send-back ${to.count} of ${to.max})`) + chalk.dim(` — ${e.reason}`));
       } else {
         info(chalk.red('✘  Auto-review rejected') + chalk.dim(` — ${e.reason}`));
         info(chalk.dim(`  Fix the issue, then: aidlc run rerun ${e.runId} [--feedback "..."]`));

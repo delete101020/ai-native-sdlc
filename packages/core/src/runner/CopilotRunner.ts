@@ -35,6 +35,7 @@ import { readProjectMcpServer, type StdioMcpServer } from './mcp';
 import { createJsonSink } from './ndjson';
 import { resolveProviderModel } from '../presets/models';
 import { resolveCommand } from '../util/resolveCommand';
+import { processGroupSpawnOptions, stopOnAbort } from './processTree';
 
 /** Graph servers the extension may register, in the order they are looked up. */
 const GRAPH_SERVERS = ['ast-graph', 'codegraph'];
@@ -89,6 +90,7 @@ export class CopilotRunner implements AidlcRunner {
       ...(graph ? ['--additional-mcp-config', copilotMcpConfig(graph)] : []),
       ...(model ? ['--model', model] : []),
       ...(this.opts.extraArgs ?? []),
+      ...(ctx.extraArgs ?? []),
     ];
 
     const cmd = resolveCommand(bin);
@@ -96,7 +98,9 @@ export class CopilotRunner implements AidlcRunner {
       cwd: ctx.workspaceRoot,
       env: { ...process.env, ...ctx.env },
       stdio: ['pipe', 'pipe', 'pipe'],
+      ...processGroupSpawnOptions(),
     });
+    const detach = stopOnAbort(proc, ctx.signal);
 
     let streamed = '';
     let lastMessage = '';
@@ -154,10 +158,12 @@ export class CopilotRunner implements AidlcRunner {
 
     return new Promise<RunnerResult>((resolve) => {
       proc.on('error', (err) => {
+        detach();
         ctx.onError(`Failed to spawn ${bin}: ${err.message}\n`);
         resolve({ success: false, output: '' });
       });
       proc.on('close', (code) => {
+        detach();
         sink.flush();
         resolve({
           success: code === 0,

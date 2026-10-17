@@ -57,9 +57,12 @@ export interface AutoReviewerContext {
   };
 }
 
+/** What a validator returns. `sendBackTo` — see {@link AutoReviewVerdict.sendBackTo}. */
+type RawVerdict = { decision: 'pass' | 'reject'; reason: string; sendBackTo?: string | number | null };
+
 export type AutoReviewerFn = (
   ctx: AutoReviewerContext,
-) => AutoReviewVerdict | Promise<AutoReviewVerdict> | { decision: 'pass' | 'reject'; reason: string } | Promise<{ decision: 'pass' | 'reject'; reason: string }>;
+) => AutoReviewVerdict | Promise<AutoReviewVerdict> | RawVerdict | Promise<RawVerdict>;
 
 /**
  * Resolve, import, and invoke a step's auto_review_runner.
@@ -148,7 +151,7 @@ export async function runAutoReview(args: {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const TIMED_OUT = Symbol('auto-review-timeout');
 
-  let raw: { decision: 'pass' | 'reject'; reason: string };
+  let raw: RawVerdict;
   try {
     const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
       timer = setTimeout(() => resolve(TIMED_OUT), timeoutMs);
@@ -183,5 +186,14 @@ export async function runAutoReview(args: {
     };
   }
 
-  return { decision: raw.decision, reason: raw.reason, at, runner };
+  const verdict: AutoReviewVerdict = { decision: raw.decision, reason: raw.reason, at, runner };
+  // Passed on as given when it is a step reference or null; anything else
+  // still reaches the router, which cannot resolve it and stops the run.
+  const sendBackTo = (raw as { sendBackTo?: unknown }).sendBackTo;
+  if (sendBackTo !== undefined) {
+    verdict.sendBackTo = sendBackTo === null || typeof sendBackTo === 'string' || typeof sendBackTo === 'number'
+      ? sendBackTo
+      : JSON.stringify(sendBackTo);
+  }
+  return verdict;
 }

@@ -30,17 +30,24 @@ import { epicsRoot, mirrorRunStateToEpic } from './EpicScaffold';
 import { isActiveStatus, isStepOptional } from './runProgress';
 import { checkBudget, type CostAccounting } from './budget';
 import { snapshotProduces, unchangedProduces } from './producesSnapshot';
+import { revisionFeedback } from './revisionFeedback';
+import { acquireRunLock } from './runLock';
+import { codeFingerprint } from './codeFingerprint';
+import { readBatchStatusFile } from './batchStatus';
+import { autopilotPreflight, AUTOPILOT_ENV } from './autopilotPreflight';
+import { STOP_GRACE_MS } from '../runner/processTree';
 import { estimateCostUsd, ratesFromConfig, providerAliases } from './pricing';
 import { pickAgentModel, resolveProviderModel, stepModelOptions } from '../presets/models';
-import type { RunState } from './RunState';
+import type { RunState, StepRecord } from './RunState';
 import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
-import { normalizeStep, resolveStepSkills, stepSkillAlternatives } from '../schema/WorkspaceSchema';
+import { normalizeStep, resolveStepSkills, stepSkillAlternatives, DEFAULT_MAX_SEND_BACKS } from '../schema/WorkspaceSchema';
+import { resolvePath } from './RunState';
 import { resolveArtifactLanguage } from '../loader/artifactLanguage';
 import { resolveEpicStrictMode } from '../loader/strictMode';
 import { inheritedContextNote } from '../loader/inheritedContext';
 import { composeAgentPrompt, type ComposedPrompt } from '../loader/promptComposer';
 import { findProjectInstructions } from '../loader/projectInstructions';
-import { harnessCapabilities, type AidlcRunner } from '../runner/types';
+import { harnessCapabilities, type AidlcRunner, type RunnerResult } from '../runner/types';
 
 /**
  * Why the loop stopped. Callers map this to an exit code (CLI) or a final
@@ -53,7 +60,9 @@ export type ExecOutcome =
   | { kind: 'dry_run' }
   | { kind: 'awaiting_review' }
   | { kind: 'rejected' }
+  | { kind: 'stalled' }
   | { kind: 'budget_pause' }
+  | { kind: 'batch_pause' }
   | { kind: 'cancelled' }
   | { kind: 'error' };
 
@@ -68,15 +77,21 @@ export interface ExecOptions {
   /** Preview the current step's prompt without spawning claude, then stop. */
   dryRun?: boolean;
   /**
-   * Polled between steps; true stops the loop cleanly with `cancelled`.
-   *
-   * Between steps and not during one, deliberately. The runner owns a spawned
-   * process it can only kill, and a half-written artifact left behind by a
-   * killed agent would satisfy the `produces` check on the next attempt — the
-   * gate cannot tell a finished file from an abandoned one. So a cancel takes
-   * effect at the next step boundary, and the caller says so.
+   * Polled between steps; true stops the loop cleanly with `cancelled`, after
+   * the step that is running has finished. This is the gentle stop: the step
+   * in flight ends with its work done and transitioned, not cut off halfway
+   * through an edit. For a step that has to stop now, see {@link signal}.
    */
   shouldCancel?: () => boolean;
+  /**
+   * Aborting it stops the running step now: the runner kills the agent's
+   * whole process tree, the step stays `awaiting_work` on the same revision
+   * with an `interrupted` history entry, and the loop returns `cancelled`.
+   * Whatever the agent half-wrote stays in the working tree — the `produces`
+   * snapshot keeps it from passing as the next attempt's output, and an
+   * autopilot run will not start again until the tree is clean.
+   */
+  signal?: AbortSignal;
   /**
    * Skill to run on a step whose `skills` are alternatives (`default_skill`
    * set), in place of the one remembered on the step or the default. Applies
@@ -124,8 +139,32 @@ export interface ExecHooks {
   }): void;
   /** Loop paused at a human_review gate. */
   onAwaitingReview?(e: { agent: string; runId: string }): void;
+  /**
+   * The running step was stopped through {@link ExecOptions.signal}. It is
+   * left `awaiting_work`; the loop returns `cancelled` next.
+   */
+  onStepStopped?(e: { stepIdx: number; agent: string; revision: number; runId: string }): void;
+  /**
+   * A session of a `batches: true` step ended on `Status: continue`. The step
+   * stays `awaiting_work`, and the loop starts the next session unless it
+   * stops for {@link onBatchPause} or the batch ceiling.
+   */
+  onBatchDone?(e: {
+    stepIdx: number; agent: string; revision: number; batch: number;
+    costUsd?: number; costEstimated?: boolean; runId: string;
+  }): void;
+  /** `pause_between_batches`: the loop stopped after a batch, for a person to look first. */
+  onBatchPause?(e: { stepIdx: number; agent: string; batch: number; report: string; runId: string }): void;
   /** Loop paused because the current step was rejected. */
   onRejected?(e: { agent: string; runId: string }): void;
+  /**
+   * A step the run sent work back to came back with the code unchanged, so
+   * the loop stopped rather than have it reviewed into the same reject again.
+   * Also a batch that asked for another session without changing any code,
+   * and a step that hit `max_batches` still asking for more. The step is left
+   * `awaiting_work` on the same revision.
+   */
+  onStalled?(e: { stepIdx: number; agent: string; revision: number; reason: string; runId: string }): void;
   /**
    * A rejected step the loop walked past — `optional: true`, or a pipeline
    * with `on_failure: continue` — naming where it went instead.
@@ -135,9 +174,14 @@ export interface ExecHooks {
   }): void;
   /** Auto-review validator is about to run. */
   onAutoReviewStart?(e: { agent: string }): void;
-  /** Auto-review verdict landed. */
+  /**
+   * Auto-review verdict landed. On a reject, `reason` is what the run
+   * recorded — the validator's reason plus why the run did not send the work
+   * back, when it did not — and `sentBackTo` is set when it did.
+   */
   onAutoReviewResult?(e: {
     agent: string; decision: 'pass' | 'reject'; reason: string; runId: string;
+    sentBackTo?: { stepIdx: number; agent: string; revision: number; count: number; max: number };
   }): void;
   /** A human_review step was auto-approved (--auto-approve). */
   onAutoApproved?(e: { agent: string }): void;
@@ -182,6 +226,29 @@ export async function runExecLoop(
   opts: ExecOptions,
   hooks: ExecHooks = {},
 ): Promise<ExecOutcome> {
+  // A preview spawns nothing and writes nothing, so it needs no lock.
+  if (opts.dryRun) { return execLoop(root, runId, opts, hooks); }
+  const lock = acquireRunLock(root, runId);
+  if ('heldBy' in lock) {
+    hooks.onRunFailed?.(
+      `Run "${runId}" is already being executed (pid ${lock.heldBy}). ` +
+      'Stop that one first, or wait for it to finish.',
+    );
+    return { kind: 'error' };
+  }
+  try {
+    return await execLoop(root, runId, opts, hooks);
+  } finally {
+    lock.release();
+  }
+}
+
+async function execLoop(
+  root: string,
+  runId: string,
+  opts: ExecOptions,
+  hooks: ExecHooks,
+): Promise<ExecOutcome> {
   const untilIdx = opts.untilIdx ?? -1;
 
   const initialState = RunStateStore.load(root, runId);
@@ -198,11 +265,31 @@ export async function runExecLoop(
     return { kind: 'error' };
   }
   const budget = initialPipeline.budget;
+  // Batches each step has run in this loop, by `stepIdx:revision`; the
+  // `max_batches` ceiling counts these, so running exec again lifts it.
+  const batchesRun = new Map<string, number>();
+
+  if (initialPipeline.autopilot && !opts.dryRun) {
+    let problems: string[];
+    try {
+      const ws = WorkspaceLoader.load(root);
+      problems = autopilotPreflight({ root, state: initialState, pipeline: initialPipeline, config: ws.config });
+    } catch (err) {
+      problems = [`Could not check the workspace: ${errMsg(err)}`];
+    }
+    if (problems.length > 0) {
+      hooks.onRunFailed?.(
+        `Pipeline "${initialPipeline.id}" is an autopilot pipeline, and it is not safe to leave this run alone yet:\n` +
+        problems.map((p) => `  - ${p}`).join('\n'),
+      );
+      return { kind: 'error' };
+    }
+  }
 
   while (true) {
     // Checked before anything is spawned, so a cancel that arrived while the
     // previous step was running stops here rather than starting one more.
-    if (opts.shouldCancel?.()) {
+    if (opts.shouldCancel?.() || opts.signal?.aborted) {
       hooks.onCancelled?.();
       return { kind: 'cancelled' };
     }
@@ -292,41 +379,48 @@ export async function runExecLoop(
     }
 
     // Execute the current step.
-    const success = await execStep(root, state, runId, opts, hooks);
-    if (!success) { return { kind: 'error' }; }
+    const ran = await execStep(root, state, runId, opts, hooks);
+    if (ran === 'failed') { return { kind: 'error' }; }
+    if (ran === 'stalled') { return { kind: 'stalled' }; }
+    if (ran === 'stopped') { return { kind: 'cancelled' }; }
+
+    // One session of a batched step, with more to come: the same step runs
+    // again from the top of the loop, after the checks a finished step gets.
+    if (ran === 'batch') {
+      const overBudget = checkRunBudget(root, runId, state.currentStepIdx, budget, hooks);
+      if (overBudget) { return overBudget; }
+      const idx = state.currentStepIdx;
+      const cfg = initialPipeline.steps[idx] ? normalizeStep(initialPipeline.steps[idx]).batches : undefined;
+      const key = `${idx}:${step.revision}`;
+      const n = (batchesRun.get(key) ?? 0) + 1;
+      batchesRun.set(key, n);
+      const after = RunStateStore.load(root, runId);
+      const batchNo = after ? batchesOf(after.steps[idx]).length : n;
+      if (cfg && n >= cfg.max) {
+        hooks.onStalled?.({
+          stepIdx: idx, agent: step.agent, revision: step.revision, runId,
+          reason: `"${step.agent}" ran ${n} batch${n === 1 ? '' : 'es'} (\`max_batches: ${cfg.max}\`) and still ` +
+            'says `Status: continue`. Read its progress before letting it carry on: running exec again allows ' +
+            `${cfg.max} more.`,
+        });
+        return { kind: 'stalled' };
+      }
+      if (cfg?.pause) {
+        hooks.onBatchPause?.({
+          stepIdx: idx, agent: step.agent, batch: batchNo, runId,
+          report: batchReport(initialPipeline, after ?? state, idx) ?? '',
+        });
+        return { kind: 'batch_pause' };
+      }
+      continue;
+    }
 
     // Dry-run previews a single step's prompt and never advances.
     if (opts.dryRun) { return { kind: 'dry_run' }; }
 
     // Budget guard — sum per-step cost from the just-saved state.
-    if (budget) {
-      const after = RunStateStore.load(root, runId);
-      const stepCosts = after ? after.steps.map((s) => s.costUsd) : [];
-      // Only steps that actually ran can be blind; a step still queued has no
-      // cost because it has no execution, which is not the same thing.
-      const stepAccounting: Array<CostAccounting | undefined> = after
-        ? after.steps.map((s) => {
-            if (typeof s.costUsd === 'number') { return s.costEstimated ? 'estimated' : 'measured'; }
-            return s.startedAt ? 'blind' : undefined;
-          })
-        : [];
-      const lastStepCost = after?.steps[state.currentStepIdx]?.costUsd;
-      const verdict = checkBudget({ stepCosts, stepAccounting, budget, lastStepCost });
-      if (!verdict.ok) {
-        hooks.onBudget?.({
-          spent: verdict.spent, limit: verdict.limit, ok: false,
-          exceeded: verdict.exceeded, onExceed: budget.on_exceed, runId,
-          measured: verdict.measured, estimated: verdict.estimated, blindSteps: verdict.blindSteps,
-        });
-        return budget.on_exceed === 'fail'
-          ? { kind: 'error' }
-          : { kind: 'budget_pause' };
-      }
-      hooks.onBudget?.({
-        spent: verdict.spent, limit: budget.max_usd, ok: true, runId,
-        measured: verdict.measured, estimated: verdict.estimated, blindSteps: verdict.blindSteps,
-      });
-    }
+    const overBudget = checkRunBudget(root, runId, state.currentStepIdx, budget, hooks);
+    if (overBudget) { return overBudget; }
 
     // --until boundary. `state.currentStepIdx` is the step that just ran.
     if (untilIdx >= 0 && state.currentStepIdx >= untilIdx) {
@@ -334,6 +428,47 @@ export async function runExecLoop(
       return { kind: 'until' };
     }
   }
+}
+
+/**
+ * Check the run's spend after a step (or one batch of it) ran. Returns the
+ * outcome to stop on, or null to carry on.
+ */
+function checkRunBudget(
+  root: string,
+  runId: string,
+  stepIdx: number,
+  budget: PipelineConfig['budget'],
+  hooks: ExecHooks,
+): ExecOutcome | null {
+  if (!budget) { return null; }
+  const after = RunStateStore.load(root, runId);
+  const stepCosts = after ? after.steps.map((s) => s.costUsd) : [];
+  // Only steps that actually ran can be blind; a step still queued has no
+  // cost because it has no execution, which is not the same thing.
+  const stepAccounting: Array<CostAccounting | undefined> = after
+    ? after.steps.map((s) => {
+        if (typeof s.costUsd === 'number') { return s.costEstimated ? 'estimated' : 'measured'; }
+        return s.startedAt ? 'blind' : undefined;
+      })
+    : [];
+  const lastStepCost = after?.steps[stepIdx]?.costUsd;
+  const verdict = checkBudget({ stepCosts, stepAccounting, budget, lastStepCost });
+  if (!verdict.ok) {
+    hooks.onBudget?.({
+      spent: verdict.spent, limit: verdict.limit, ok: false,
+      exceeded: verdict.exceeded, onExceed: budget.on_exceed, runId,
+      measured: verdict.measured, estimated: verdict.estimated, blindSteps: verdict.blindSteps,
+    });
+    return budget.on_exceed === 'fail'
+      ? { kind: 'error' }
+      : { kind: 'budget_pause' };
+  }
+  hooks.onBudget?.({
+    spent: verdict.spent, limit: budget.max_usd, ok: true, runId,
+    measured: verdict.measured, estimated: verdict.estimated, blindSteps: verdict.blindSteps,
+  });
+  return null;
 }
 
 /** Skill text for a step — concatenated when it runs several skills. */
@@ -361,6 +496,9 @@ function buildStepPrompt(
   root: string,
   /** Epic whose depth setting applies. Runs are keyed by epic id. */
   epicId: string,
+  /** The step being run, for the pointer to its history on a rerun. */
+  stepRec: { revision: number },
+  stepIdx: number,
 ): ComposedPrompt {
   const harness = harnessCapabilities(runner);
   return composeAgentPrompt({
@@ -374,17 +512,26 @@ function buildStepPrompt(
     // Per epic, not per workspace: how deep a phase goes is a property of the
     // work item. An epic that never set it reads as strict.
     strictMode: resolveEpicStrictMode(epicsRoot(root, ws.config), epicId),
+    runHistory: stepRec.revision > 1
+      ? { file: path.relative(root, RunStateStore.file(root, epicId)).split(path.sep).join('/'), stepIdx }
+      : null,
   });
 }
 
-/** Execute one `awaiting_work` step: spawn the runner, then mark it done. */
+/**
+ * Execute one `awaiting_work` step: spawn the runner, then mark it done.
+ * `stalled` = the run sent work back to this step and it changed no code;
+ * `stopped` = {@link ExecOptions.signal} cut it short; `batch` = one session
+ * of a `batches: true` step ended on `Status: continue`, and the step is
+ * still `awaiting_work`.
+ */
 async function execStep(
   root: string,
   state: RunState,
   runId: string,
   opts: ExecOptions,
   hooks: ExecHooks,
-): Promise<boolean> {
+): Promise<'done' | 'failed' | 'stalled' | 'stopped' | 'batch'> {
   const stepIdx = state.currentStepIdx;
   const stepRec = state.steps[stepIdx];
   const agentId = stepRec.agent;
@@ -394,19 +541,19 @@ async function execStep(
     ws = WorkspaceLoader.load(root);
   } catch (err) {
     hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to load workspace: ${errMsg(err)}` });
-    return false;
+    return 'failed';
   }
 
   const pipeline = ws.config.pipelines.find((p) => p.id === state.pipelineId);
   if (!pipeline) {
     hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Pipeline "${state.pipelineId}" not found in workspace.yaml.` });
-    return false;
+    return 'failed';
   }
 
   const agent = ws.config.agents.find((a) => a.id === agentId);
   if (!agent) {
     hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Agent "${agentId}" not found in workspace.yaml.` });
-    return false;
+    return 'failed';
   }
 
   // The step's own `skills` narrow the agent's, and a step with alternatives
@@ -430,17 +577,20 @@ async function execStep(
     runner = ws.runners.resolve(agent);
   } catch (err) {
     hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to resolve runner for agent "${agentId}": ${errMsg(err)}` });
-    return false;
+    return 'failed';
   }
   try {
-    prompt = buildStepPrompt(ws, agent, skillIds, runner, root, state.runId);
+    prompt = buildStepPrompt(ws, agent, skillIds, runner, root, state.runId, stepRec, stepIdx);
   } catch (err) {
     hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to load skills for agent "${agentId}": ${errMsg(err)}` });
-    return false;
+    return 'failed';
   }
   const skillText = prompt.text;
 
   const env = ws.envResolver.resolveLayered(ws.config.environment ?? {}, agent.env ?? {});
+  // Read by the approval-gate hook, which blocks on its own errors only when
+  // nobody is watching.
+  if (pipeline.autopilot) { env[AUTOPILOT_ENV] = '1'; }
 
   // claude --print always needs a non-empty prompt: explicit message → context
   // pairs → agent name fallback.
@@ -449,7 +599,24 @@ async function execStep(
   // their inputs step; a headless step only ever sees these pairs.
   const epicRoot = path.relative(root, epicsRoot(root, ws.config)).split(path.sep).join('/');
   const inherited = state.context.from_epic ? `\n\nAbout these inputs: ${inheritedContextNote(epicRoot)}` : '';
-  const userMessage = opts.message ?? (contextStr ? contextStr + inherited : `Execute step: ${agentId}`);
+  const baseMessage = opts.message ?? (contextStr ? contextStr + inherited : `Execute step: ${agentId}`);
+  // A rerun leads with why — the only place a headless agent is guaranteed to
+  // look. Appended to an explicit --message too: it overrides the context, not
+  // the reason the step is running again.
+  const feedback = revisionFeedback(state, stepIdx);
+  // A batched step: which session this is, and where it reports. The plan
+  // says how the work is sliced; the loop only says which slice comes next.
+  const report = norm?.batches ? batchReport(pipeline, state, stepIdx) : null;
+  if (norm?.batches && !report) {
+    hooks.onStepFailed?.({
+      stepIdx, agent: agentId,
+      message: `Step "${agentId}" has \`batches: true\` but no \`produces\` file to write its \`Status:\` line in.`,
+    });
+    return 'failed';
+  }
+  const batchNo = report ? batchesOf(stepRec).length + 1 : 0;
+  const batchNote = report ? batchInstructions(report, batchNo, stepRec.revision) : null;
+  const userMessage = [baseMessage, feedback, batchNote].filter(Boolean).join('\n\n');
 
   if (opts.dryRun) {
     hooks.onDryRunPreview?.({
@@ -459,7 +626,7 @@ async function execStep(
       env,
       inlined: prompt.included,
     });
-    return true;
+    return 'done';
   }
 
   hooks.onStepStart?.({
@@ -479,22 +646,79 @@ async function execStep(
   // Fingerprinted before the runner starts: on a rerun the previous
   // revision's artifact would otherwise pass the `produces` check unchanged.
   const producedBefore = snapshotProduces({ state, pipeline, workspaceRoot: root, stepIdx });
+  // Only where the run itself sent the work back: a person who reran the step
+  // is there to judge whether nothing changing was the right answer.
+  const codeExclude = [
+    path.relative(root, path.join(epicsRoot(root, ws.config), state.runId)),
+    '.aidlc',
+  ];
+  const sentBackHere = isAutoSendBackTarget(state, stepIdx);
+  // A batch that asks for another session has to have changed something, so
+  // a batched step is always fingerprinted.
+  const codeBefore = sentBackHere || report ? codeFingerprint(root, codeExclude) : null;
 
-  const result = await runner.run({
-    skill: skillText,
-    env,
-    args: userMessage ? [userMessage] : [],
-    workspaceRoot: root,
-    model: agentModel,
-    modelAliases: aliases,
-    onOutput: (chunk) => hooks.onOutput?.(chunk),
-    onError: (chunk) => hooks.onErrorOutput?.(chunk),
-    claude: null,
-  });
+  // One controller for both ways a step is cut short: its own time limit, and
+  // the caller's "stop now".
+  const stop = new AbortController();
+  const minutes = norm?.timeout_minutes;
+  let timedOut = false;
+  const timer = minutes
+    ? setTimeout(() => { timedOut = true; stop.abort(); }, minutes * 60_000)
+    : undefined;
+  const onStopNow = (): void => stop.abort();
+  opts.signal?.addEventListener('abort', onStopNow, { once: true });
 
-  if (!result.success) {
+  let result: RunnerResult | null;
+  try {
+    result = await settledOrAbandoned(runner.run({
+      skill: skillText,
+      env,
+      args: userMessage ? [userMessage] : [],
+      workspaceRoot: root,
+      model: agentModel,
+      modelAliases: aliases,
+      extraArgs: ws.config.providers[agent.runner]?.args,
+      signal: stop.signal,
+      onOutput: (chunk) => hooks.onOutput?.(chunk),
+      onError: (chunk) => hooks.onErrorOutput?.(chunk),
+      claude: null,
+    }), stop.signal);
+  } finally {
+    if (timer) { clearTimeout(timer); }
+    opts.signal?.removeEventListener('abort', onStopNow);
+  }
+
+  if (stop.signal.aborted) {
+    recordInterrupted(root, runId, stepIdx, timedOut ? { why: 'timeout', minutes } : { why: 'stopped' });
+    if (timedOut) {
+      hooks.onStepFailed?.({
+        stepIdx, agent: agentId,
+        message: `Step "${agentId}" ran past its ${minutes}-minute limit (\`timeout_minutes\`) and was stopped. ` +
+          `It is still awaiting work on revision ${stepRec.revision}; nothing was sent back. Whatever it ` +
+          'half-wrote is still in the working tree.',
+      });
+      return 'failed';
+    }
+    hooks.onStepStopped?.({ stepIdx, agent: agentId, revision: stepRec.revision, runId });
+    return 'stopped';
+  }
+
+  if (!result || !result.success) {
     hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Step "${agentId}" failed (non-zero exit).` });
-    return false;
+    return 'failed';
+  }
+
+  const codeUnchanged = codeBefore !== null && codeFingerprint(root, codeExclude) === codeBefore;
+  // Of a batched step's sessions, only the first answers the send-back: the
+  // later ones were started because an earlier one changed code.
+  if (sentBackHere && codeUnchanged && batchNo <= 1) {
+    hooks.onStalled?.({
+      stepIdx, agent: agentId, revision: stepRec.revision, runId,
+      reason: `Revision ${stepRec.revision} of "${agentId}" changed no code — the working tree is what it was ` +
+        `before it ran (its report aside). Sent back ${state.sendBacks} time${state.sendBacks === 1 ? '' : 's'}; ` +
+        'stopping rather than have the same code reviewed again.',
+    });
+    return 'stalled';
   }
 
   const stale = unchangedProduces(producedBefore, root);
@@ -504,7 +728,47 @@ async function execStep(
       message: `Step "${agentId}" reported success but left its artifacts unchanged: ${stale.join(', ')}. `
         + 'The agent may have failed to write them. Check its output, then rerun the step.',
     });
-    return false;
+    return 'failed';
+  }
+
+  if (report) {
+    const read = readBatchStatusFile(root, report);
+    if ('error' in read) {
+      hooks.onStepFailed?.({
+        stepIdx, agent: agentId,
+        message: `Step "${agentId}" runs in batches and its report cannot say whether it is done: ${read.error} ` +
+          'Add the line, then run exec again.',
+      });
+      return 'failed';
+    }
+    if (read.status === 'continue') {
+      if (codeUnchanged) {
+        hooks.onStalled?.({
+          stepIdx, agent: agentId, revision: stepRec.revision, runId,
+          reason: `Batch ${batchNo} of "${agentId}" asked for another session but changed no code — the working ` +
+            'tree is what it was before it ran (its report aside). Stopping rather than start the same batch again.',
+        });
+        return 'stalled';
+      }
+      const fresh = RunStateStore.load(root, runId);
+      const rec = fresh?.steps[stepIdx];
+      if (!fresh || !rec) {
+        hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Run "${runId}" disappeared.` });
+        return 'failed';
+      }
+      recordProvenance(rec, { agent, resolvedModel, agentModel, skillIds, alternatives, modelOpts });
+      const cost = addBatchCost(rec, batchNo, result, batchCost(result, ws, agent.runner, resolvedModel ?? agentModel));
+      rec.history = [...(rec.history ?? []), {
+        kind: 'batch', at: new Date().toISOString(), revision: rec.revision, batch: batchNo,
+        ...(cost !== undefined ? { costUsd: cost } : {}),
+      }];
+      persist(root, fresh);
+      hooks.onBatchDone?.({
+        stepIdx, agent: agentId, revision: rec.revision, batch: batchNo,
+        costUsd: cost, costEstimated: rec.costEstimated, runId,
+      });
+      return 'batch';
+    }
   }
 
   // markStepDone validates produces paths, then transitions.
@@ -518,28 +782,8 @@ async function execStep(
     // survives the reload-each-iteration loop.
     // Provenance of the step, recorded whether or not a cost came back.
     const rec = freshState.steps[stepIdx];
-    rec.runner = agent.runner;
-    rec.model = resolvedModel;
-    if (alternatives) { rec.skill = skillIds[0]; }
-    if (modelOpts.models) { rec.chosenModel = agentModel; }
-    rec.usage = result.usage;
-    if (typeof result.costUsd === 'number') {
-      // A cost the CLI reported always wins: it knows about cache hits and the
-      // account's actual plan, and we do not.
-      rec.costUsd = result.costUsd;
-      rec.costEstimated = undefined;
-    } else {
-      const est = estimateCostUsd({
-        table: ratesFromConfig(ws.config.providers),
-        provider: agent.runner,
-        model: resolvedModel ?? agentModel,
-        usage: result.usage,
-      });
-      if (est) {
-        rec.costUsd = est.usd;
-        rec.costEstimated = true;
-      }
-    }
+    recordProvenance(rec, { agent, resolvedModel, agentModel, skillIds, alternatives, modelOpts });
+    addBatchCost(rec, batchNo, result, batchCost(result, ws, agent.runner, resolvedModel ?? agentModel));
     next = markStepDone({ state: freshState, pipeline, workspaceRoot: root });
   } catch (err) {
     if (err instanceof PipelineRunError && err.missing?.length) {
@@ -547,7 +791,7 @@ async function execStep(
     } else {
       hooks.onStepFailed?.({ stepIdx, agent: agentId, message: errMsg(err) });
     }
-    return false;
+    return 'failed';
   }
 
   persist(root, next, freshState);
@@ -557,7 +801,141 @@ async function execStep(
     stepIdx, agent: agentId, status: doneStep.status, costUsd: doneStep.costUsd,
     costEstimated: doneStep.costEstimated, runner: agent.runner, model: resolvedModel,
   });
-  return true;
+  return 'done';
+}
+
+/** The `batch` entries of the step's current revision, oldest first. */
+function batchesOf(rec: StepRecord | undefined): Array<Extract<NonNullable<StepRecord['history']>[number], { kind: 'batch' }>> {
+  if (!rec) { return []; }
+  return (rec.history ?? []).flatMap((h) => (h.kind === 'batch' && h.revision === rec.revision ? [h] : []));
+}
+
+/** Where a batched step writes its `Status:` line: its first required `produces` path. */
+function batchReport(pipeline: PipelineConfig, state: RunState, stepIdx: number): string | null {
+  const cfg = pipeline.steps[stepIdx];
+  if (!cfg) { return null; }
+  const norm = normalizeStep(cfg);
+  const first = norm.produces.find((p) => !norm.produces_optional.includes(p));
+  return first ? resolvePath(first, state.context) : null;
+}
+
+/** What a batched step's session is told about the session it is. */
+function batchInstructions(report: string, batchNo: number, revision: number): string {
+  const lines = [
+    `This step runs in batches: this is batch ${batchNo} of revision ${revision}, in a fresh session.`,
+    batchNo === 1 && revision > 1
+      ? `Make this batch the fixes the feedback above asks for. Keep the progress table ${report} already has ` +
+        'from the earlier revision, so you know what is done, and add the fixes to it.'
+      : batchNo === 1
+        ? 'Start with the first batch in the plan.'
+        : `${report} records what earlier batches did. Read it first, then do the next batch in the plan.`,
+    `Do that one batch only, then update ${report}: its progress table, and as its last line ` +
+      '`Status: continue` if any of the step\'s work is left, or `Status: done` when all of it is finished. ' +
+      'A batch may be split smaller if it does not fit; never do two in one session.',
+  ];
+  return lines.join(' ');
+}
+
+/** Which runner, model and skill produced the step's current revision. */
+function recordProvenance(rec: StepRecord, p: {
+  agent: AgentConfig;
+  resolvedModel: string | undefined;
+  agentModel: string | undefined;
+  skillIds: readonly string[];
+  alternatives: unknown;
+  modelOpts: { models?: unknown };
+}): void {
+  rec.runner = p.agent.runner;
+  rec.model = p.resolvedModel;
+  if (p.alternatives) { rec.skill = p.skillIds[0]; }
+  if (p.modelOpts.models) { rec.chosenModel = p.agentModel; }
+}
+
+/** What one runner execution cost, or nothing when it is not known. */
+function batchCost(
+  result: RunnerResult,
+  ws: ReturnType<typeof WorkspaceLoader.load>,
+  provider: string,
+  model: string | undefined,
+): { usd: number; estimated: boolean } | undefined {
+  // A cost the CLI reported always wins: it knows about cache hits and the
+  // account's actual plan, and we do not.
+  if (typeof result.costUsd === 'number') { return { usd: result.costUsd, estimated: false }; }
+  const est = estimateCostUsd({
+    table: ratesFromConfig(ws.config.providers),
+    provider,
+    model,
+    usage: result.usage,
+  });
+  return est ? { usd: est.usd, estimated: true } : undefined;
+}
+
+/**
+ * Put one execution's cost and usage on the step. The first session of a
+ * revision replaces what the last revision recorded; a later batch adds to
+ * the sessions before it, so a batched step's figures are the whole
+ * revision's. Returns this execution's cost.
+ */
+function addBatchCost(
+  rec: StepRecord,
+  batchNo: number,
+  result: RunnerResult,
+  cost: { usd: number; estimated: boolean } | undefined,
+): number | undefined {
+  const carry = batchNo > 1;
+  rec.usage = carry ? addUsage(rec.usage, result.usage) : result.usage;
+  if (!cost) { return undefined; }
+  if (carry && typeof rec.costUsd === 'number') {
+    rec.costUsd += cost.usd;
+    rec.costEstimated = rec.costEstimated || cost.estimated || undefined;
+  } else {
+    rec.costUsd = cost.usd;
+    rec.costEstimated = cost.estimated || undefined;
+  }
+  return cost.usd;
+}
+
+function addUsage(a: StepRecord['usage'], b: StepRecord['usage']): StepRecord['usage'] {
+  if (!a) { return b; }
+  if (!b) { return a; }
+  const sum = (x?: number, y?: number): number | undefined =>
+    x === undefined && y === undefined ? undefined : (x ?? 0) + (y ?? 0);
+  return { inputTokens: sum(a.inputTokens, b.inputTokens), outputTokens: sum(a.outputTokens, b.outputTokens) };
+}
+
+/**
+ * The runner's result, or null once `signal` has aborted and the runner has
+ * had the grace period plus a little to wind down. A builtin runner kills its
+ * process tree and resolves well inside that; a custom runner that ignores
+ * the signal is left running rather than allowed to hold the loop forever.
+ */
+async function settledOrAbandoned(run: Promise<RunnerResult>, signal: AbortSignal): Promise<RunnerResult | null> {
+  let timer: NodeJS.Timeout | undefined;
+  const abandoned = new Promise<null>((resolve) => {
+    const giveUp = (): void => { timer = setTimeout(() => resolve(null), STOP_GRACE_MS + 5_000); };
+    if (signal.aborted) { giveUp(); } else { signal.addEventListener('abort', giveUp, { once: true }); }
+  });
+  try {
+    return await Promise.race([run, abandoned]);
+  } finally {
+    if (timer) { clearTimeout(timer); }
+  }
+}
+
+/** Note on the step that its agent was stopped before it finished. */
+function recordInterrupted(
+  root: string,
+  runId: string,
+  stepIdx: number,
+  what: { why: 'timeout'; minutes?: number } | { why: 'stopped' },
+): void {
+  const fresh = RunStateStore.load(root, runId);
+  const rec = fresh?.steps[stepIdx];
+  if (!fresh || !rec) { return; }
+  rec.history = [...(rec.history ?? []), {
+    kind: 'interrupted', at: new Date().toISOString(), revision: rec.revision, ...what,
+  }];
+  RunStateStore.save(root, fresh);
 }
 
 /** Run the auto-review validator for the current step and submit its verdict. */
@@ -594,17 +972,51 @@ async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks):
   }
 
   persist(root, next, state);
+  const idx = state.currentStepIdx;
+  const sentBack = verdict.decision === 'reject' && next.currentStepIdx !== idx
+    && next.steps[idx].status === 'pending';
   hooks.onAutoReviewResult?.({
-    agent: step.agent, decision: verdict.decision, reason: verdict.reason, runId,
+    agent: step.agent,
+    decision: verdict.decision,
+    reason: next.steps[idx].rejectReason ?? verdict.reason,
+    runId,
+    ...(sentBack ? {
+      sentBackTo: {
+        stepIdx: next.currentStepIdx,
+        agent: next.steps[next.currentStepIdx].agent,
+        revision: next.steps[next.currentStepIdx].revision,
+        count: next.sendBacks ?? 0,
+        max: pipeline.max_send_backs ?? DEFAULT_MAX_SEND_BACKS,
+      },
+    } : {}),
   });
   return true;
+}
+
+/**
+ * True when `stepIdx` is where the run last sent work back on its own, and no
+ * person has acted on the run since (which clears {@link RunState.sendBacks}).
+ */
+function isAutoSendBackTarget(state: RunState, stepIdx: number): boolean {
+  if (!state.sendBacks) { return false; }
+  let latest: { at: string; to: number } | null = null;
+  for (const s of state.steps) {
+    for (const h of s.history ?? []) {
+      if (h.kind === 'reject' && h.source && (!latest || h.at >= latest.at)) {
+        latest = { at: h.at, to: h.sentBackToIdx };
+      }
+    }
+  }
+  return latest?.to === stepIdx;
 }
 
 /** Auto-approve a human_review step (--auto-approve). */
 async function autoApproveStep(root: string, state: RunState, hooks: ExecHooks): Promise<void> {
   const ws = WorkspaceLoader.load(root);
   const pipeline = ws.config.pipelines.find((p) => p.id === state.pipelineId)!;
-  const next = approveStep({ state, pipeline });
+  // --auto-approve is the loop approving, not a person: the send-back count
+  // that approveStep clears for a human carries on.
+  const next = { ...approveStep({ state, pipeline }), sendBacks: state.sendBacks };
   persist(root, next, state);
   hooks.onAutoApproved?.({ agent: state.steps[state.currentStepIdx].agent });
 }

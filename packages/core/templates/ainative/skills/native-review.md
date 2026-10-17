@@ -77,6 +77,10 @@ broken rule, and stage 6 is where it gets fixed.
 
 ## Output
 
-Write `docs/epics/$0/artifacts/review.md`, ending with a one-line verdict —
-**ship** or **hold** — and, when it is a hold, the shortest list of changes that
-would turn it into a ship.
+Write `docs/epics/$0/artifacts/review.md`. State the verdict once, on a line of
+its own, exactly `Verdict: ship` or `Verdict: hold`. When it is a hold, list the
+shortest set of changes that would turn it into a ship under a
+`## Shortest path to ship` heading.
+
+A validator reads that line. A missing, misspelled or contradictory verdict counts as a
+hold, and the changes you list are what the engineer is handed next.

@@ -17,6 +17,12 @@ export {
   stepSkillAlternatives,
   resolveStepSkills,
   collectWorkspaceRefIssues,
+  findStepIndex,
+  sendBackIssues,
+  AMBIGUOUS_STEP_INDEX,
+  DEFAULT_MAX_SEND_BACKS,
+  DEFAULT_MAX_BATCHES,
+  unsafeRunnerArg,
 } from './schema/WorkspaceSchema';
 export type {
   WorkspaceConfig,
@@ -387,6 +393,11 @@ export type {
 
 export { RunnerRegistry } from './runner/RunnerRegistry';
 export { DefaultRunner, claudeModelArg } from './runner/DefaultRunner';
+export { processGroupSpawnOptions, stopOnAbort, stopProcessTree, STOP_GRACE_MS } from './runner/processTree';
+export {
+  autopilotPreflight, findApprovalGate, hasEmptyCiChecks, emptyCiChecksMessage, APPROVAL_GATE_SCRIPT, AUTOPILOT_ENV,
+} from './runs/autopilotPreflight';
+export type { ApprovalGate } from './runs/autopilotPreflight';
 export type { DefaultRunnerOptions } from './runner/DefaultRunner';
 export { CodexRunner } from './runner/CodexRunner';
 export type { CodexRunnerOptions } from './runner/CodexRunner';

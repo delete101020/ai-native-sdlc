@@ -92,6 +92,12 @@ export async function execRunToCompletion(
   log(`\n─── ${new Date().toLocaleTimeString()}  ${runId}  (${label}) ───`);
 
   let outcome: ExecOutcome = { kind: 'error' };
+  // Why the loop gave up, for the notification — the log has it too, but an
+  // autopilot preflight refusal is the user's to fix and should not need it.
+  let failure: string | undefined;
+  // Cancelling the progress notification is the gentle stop (after the running
+  // step); "Stop now" on the follow-up message kills the step.
+  const stopNow = new AbortController();
   try {
     outcome = await vscode.window.withProgress(
       {
@@ -101,10 +107,27 @@ export async function execRunToCompletion(
       },
       async (progress, token) => {
         progress.report({ message: 'starting…' });
+        token.onCancellationRequested(() => {
+          log('⏹ stopping after the running step finishes');
+          void vscode.window.showWarningMessage(
+            `${runId} will stop after the running step finishes.`,
+            'Stop now',
+          ).then((pick) => {
+            if (pick && !stopNow.signal.aborted) {
+              log('⏹ stopping the running step now');
+              stopNow.abort();
+            }
+          });
+        });
         return runExecLoop(
           root,
           runId,
-          { autoApprove: opts.autoApprove, untilIdx: opts.untilIdx ?? -1, shouldCancel: () => token.isCancellationRequested },
+          {
+            autoApprove: opts.autoApprove,
+            untilIdx: opts.untilIdx ?? -1,
+            shouldCancel: () => token.isCancellationRequested,
+            signal: stopNow.signal,
+          },
           {
             onOutput: (chunk) => channel!.append(chunk),
             onErrorOutput: (chunk) => channel!.append(chunk),
@@ -141,12 +164,29 @@ export async function execRunToCompletion(
               log(`🤖 auto-review · ${e.agent}`);
             },
             onAutoReviewResult: (e) => {
-              log(`🤖 auto-review · ${e.agent} → ${e.decision}${e.reason ? ` — ${e.reason}` : ''}`);
+              const back = e.sentBackTo
+                ? `, sent back to ${e.sentBackTo.agent} (rev ${e.sentBackTo.revision}, ${e.sentBackTo.count} of ${e.sentBackTo.max})`
+                : '';
+              log(`🤖 auto-review · ${e.agent} → ${e.decision}${back}${e.reason ? ` — ${e.reason}` : ''}`);
               onChange();
             },
             onAutoApproved: (e) => { log(`👤 auto-approved · ${e.agent}`); onChange(); },
             onAwaitingReview: (e) => { log(`⏸ paused for your review · ${e.agent}`); },
             onRejected: (e) => { log(`⏸ step rejected · ${e.agent}`); },
+            onStalled: (e) => { log(`⏸ ${e.reason}`); onChange(); },
+            onBatchDone: (e) => {
+              const cost = typeof e.costUsd === 'number' ? ` · $${e.costUsd.toFixed(4)}` : '';
+              log(`↻ step ${e.stepIdx + 1} · ${e.agent} — batch ${e.batch} done, next batch in a fresh session${cost}`);
+              onChange();
+            },
+            onBatchPause: (e) => {
+              log(`⏸ batch ${e.batch} of ${e.agent} done — pausing between batches${e.report ? ` (progress: ${e.report})` : ''}`);
+              onChange();
+            },
+            onStepStopped: (e) => {
+              log(`⏹ stopped ${e.agent} mid-step (rev ${e.revision}) — still awaiting work; check git status for what it left`);
+              onChange();
+            },
             onStepSkipped: (e) => {
               log(`⤳ step rejected but optional · ${e.agent} — moving to step ${e.nextStepIdx + 1}`);
               onChange();
@@ -157,7 +197,7 @@ export async function execRunToCompletion(
             onCancelled: () => { log('⏹ cancelled at a step boundary'); },
             onUntilStop: (e) => { log(`⏹ stopped after step ${e.untilIdx + 1} (--until)`); },
             onRunCompleted: () => { log('✅ run completed'); },
-            onRunFailed: (reason) => { log(`✖ ${reason}`); },
+            onRunFailed: (reason) => { failure = reason; log(`✖ ${reason}`); },
           },
         );
       },
@@ -170,11 +210,11 @@ export async function execRunToCompletion(
     onChange();
   }
 
-  reportOutcome(runId, outcome);
+  reportOutcome(runId, outcome, failure);
 }
 
 /** Turn the stop reason into the one notification the user gets. */
-function reportOutcome(runId: string, outcome: ExecOutcome): void {
+function reportOutcome(runId: string, outcome: ExecOutcome, failure?: string): void {
   const show = (msg: string, kind: 'info' | 'warn' | 'error' = 'info') => {
     const fn = kind === 'error'
       ? vscode.window.showErrorMessage
@@ -196,13 +236,21 @@ function reportOutcome(runId: string, outcome: ExecOutcome): void {
     case 'rejected':
       show(`${runId} stopped: a step was rejected. Rerun it with feedback.`, 'warn');
       return;
+    case 'stalled':
+      show(`${runId} stopped: a step needs you to look before it goes round again. The log says why.`, 'warn');
+      return;
     case 'budget_pause':
       show(`${runId} paused on its budget ceiling. Raise \`budget\` in the pipeline to continue.`, 'warn');
       return;
+    case 'batch_pause':
+      show(`${runId} paused between batches. Read the progress, then run it to completion again for the next batch.`, 'warn');
+      return;
     case 'cancelled':
-      show(`${runId} stopped after the step that was running finished.`, 'warn');
+      show(`${runId} stopped. Run it to completion again to carry on.`, 'warn');
       return;
     default:
-      show(`${runId} stopped on an error — see the AIDLC Autopilot log.`, 'error');
+      show(failure
+        ? `${runId}: ${failure.replace(/\s*\n\s*/g, ' ')}`
+        : `${runId} stopped on an error — see the AIDLC Autopilot log.`, 'error');
   }
 }

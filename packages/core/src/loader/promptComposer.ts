@@ -53,6 +53,13 @@ export interface ComposeInput {
    * `resolveEpicStrictMode`.
    */
   strictMode?: boolean;
+  /**
+   * Where this step's history lives, set from the second revision on. The user
+   * message already leads with the latest rejection; this points at the ones
+   * before it — the line the slash-command path's structural contract has
+   * always carried. Null on a first run, so its prompt is unchanged.
+   */
+  runHistory?: { file: string; stepIdx: number } | null;
 }
 
 export interface ComposedPrompt {
@@ -71,10 +78,13 @@ export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
   // `strictModeSection` returns null for strict, which is the prompt as it has
   // always been — so a strict epic adds nothing and takes the fast path below.
   const depth = strictModeSection(input.strictMode === false ? false : true);
+  const history = input.runHistory
+    ? `## Prior revisions\n\nEarlier rejections and feedback for this step: \`${input.runHistory.file}\` → \`steps[${input.runHistory.stepIdx}].history\`. Do not bring back what they rejected.`
+    : null;
 
   // Nothing to add ⇒ hand the skills through untouched. A workspace whose
   // agents have no persona file must see the exact prompt it saw before.
-  if (!inlinePersona && !inlineInstructions && !language && !depth) {
+  if (!inlinePersona && !inlineInstructions && !language && !depth && !history) {
     return {
       text: skills,
       included: { persona: false, instructions: false, language: false, depth: false },
@@ -109,6 +119,11 @@ export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
   // behaviour than above the persona.
   if (depth) {
     parts.push(depth);
+  }
+
+  // Last before the skills: it is about this run of the phase, not the phase.
+  if (history) {
+    parts.push(history);
   }
 
   // The skill layer keeps its path-based persona directive only when nothing

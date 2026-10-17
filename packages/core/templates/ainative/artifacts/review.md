@@ -10,9 +10,10 @@
 
 ## 1. Verdict
 
-> *One line. Any `blocker` row below makes the verdict a hold.*
+> *One line, exactly `Verdict: ship` or `Verdict: hold` — a validator reads it.
+> Any `blocker` row below makes the verdict a hold.*
 
-**Overall:** ship / hold
+Verdict: ship / hold
 
 ## 2. Scope reviewed
 

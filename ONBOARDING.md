@@ -84,7 +84,10 @@ that file:
 | `git add` of a credential-shaped path (`.env`, `*.pem`, `id_rsa`, …) | Secrets never enter a commit |
 | Hand-editing `docs/epics/*/state.json` | The runner is the only writer of run state |
 
-It fails open: input it cannot evaluate is allowed. Check it with:
+It fails open: input it cannot evaluate is allowed — except under an
+`autopilot: true` pipeline, where nobody is watching and the same input is
+blocked. Such a pipeline will not start at all until the hook is registered
+(`aidlc doctor` shows it under **Unattended runs**). Check it with:
 
 ```sh
 echo '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}' \
@@ -136,6 +139,7 @@ above skipped:
 | `native-quick` | `intent → build-plan → implement → verify` | Small, well-understood change |
 | `native-lite` | `intent → build-plan → implement → review` | Small change with a precedent; humans gate only `intent` and `build-plan` |
 | `native-fix` | `intent → build-plan → implement → verify → review` | Bug fix, refactor, tech debt |
+| `native-autopilot` | `intent → build-plan → implement → verify → review` | Like `native-fix`, but runs on its own once you approve the plan — see [PIPELINE_CONFIG.md](PIPELINE_CONFIG.md#the-native-autopilot-recipe) |
 | `native-full` | `intent → spec → build-plan → implement → verify → review` | Real features — the default |
 | `native-hotfix` | `build-plan → implement → review` | Production is burning and the cause is known |
 | `native-audit` | `review` | Judge an existing diff against policy |

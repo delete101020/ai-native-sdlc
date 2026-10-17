@@ -15,6 +15,7 @@ import { buildClaudeSpawnEnv } from './claudeEnv';
 import { claudeMcpRegistrar } from './mcp';
 import { createJsonSink } from './ndjson';
 import { resolveCommand } from '../util/resolveCommand';
+import { processGroupSpawnOptions, stopOnAbort } from './processTree';
 
 export interface DefaultRunnerOptions {
   /**
@@ -71,6 +72,10 @@ export class DefaultRunner implements AidlcRunner {
       '--append-system-prompt', ctx.skill,
       ...(model ? ['--model', model] : []),
       ...(this.opts.extraArgs ?? []),
+      ...(ctx.extraArgs ?? []),
+      // `--allowedTools` and friends take any number of values, and would take
+      // the prompt as one more; `--` ends the options.
+      '--',
       userMessage,
     ];
 
@@ -82,7 +87,9 @@ export class DefaultRunner implements AidlcRunner {
       // ctx.env (workspace-configured) is layered last so explicit keys win.
       env: buildClaudeSpawnEnv(ctx.env),
       stdio: ['ignore', 'pipe', 'pipe'],
+      ...processGroupSpawnOptions(),
     });
+    const detach = stopOnAbort(proc, ctx.signal);
 
     let finalText = '';
     let costUsd: number | undefined;
@@ -113,10 +120,12 @@ export class DefaultRunner implements AidlcRunner {
 
     return new Promise<RunnerResult>((resolve) => {
       proc.on('error', (err) => {
+        detach();
         ctx.onError(`Failed to spawn ${bin}: ${err.message}\n`);
         resolve({ success: false, output: finalText, costUsd });
       });
       proc.on('close', (code) => {
+        detach();
         sink.flush(); // dispatch any trailing partial line
         resolve({ success: code === 0, output: finalText, costUsd });
       });

@@ -36,6 +36,7 @@ import {
   Loader2,
   Workflow,
   Undo2,
+  Square,
   Tag as TagIcon,
   Star,
   Cpu,
@@ -2081,6 +2082,10 @@ function HistoryIcon({ kind }: { kind: StepHistoryEntry['kind'] }) {
       return <Undo2 className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />;
     case 'dirty':
       return <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-warning" />;
+    case 'interrupted':
+      return <Square className="mt-0.5 h-3 w-3 shrink-0 text-warning" />;
+    case 'batch':
+      return <RefreshCw className="mt-0.5 h-3 w-3 shrink-0 text-info" />;
     case 'annotate':
       return <Highlighter className="mt-0.5 h-3 w-3 shrink-0 text-primary" />;
   }
@@ -2133,6 +2138,24 @@ function HistoryLabel({ entry }: { entry: StepHistoryEntry }) {
           </span>
         </span>
       );
+    case 'interrupted':
+      return (
+        <span className="font-semibold text-warning">
+          Stopped mid-step
+          <span className="ml-1 font-normal text-muted-foreground">
+            {entry.why === 'timeout' ? `ran past ${entry.minutes ?? '?'} min (timeout_minutes)` : 'stopped by hand'}
+          </span>
+        </span>
+      );
+    case 'batch':
+      return (
+        <span className="font-semibold text-info">
+          Batch {entry.batch} done
+          <span className="ml-1 font-normal text-muted-foreground">
+            more to come{typeof entry.costUsd === 'number' ? ` · $${entry.costUsd.toFixed(4)}` : ''}
+          </span>
+        </span>
+      );
     case 'annotate':
       return (
         <span className="font-semibold text-primary">
@@ -2162,6 +2185,8 @@ function HistoryBody({ entry }: { entry: StepHistoryEntry }) {
     case 'approve':
     case 'undo':
     case 'dirty':
+    case 'interrupted':
+    case 'batch':
       return null;
     case 'annotate':
       return (

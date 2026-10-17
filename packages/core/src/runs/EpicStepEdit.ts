@@ -53,7 +53,7 @@
  */
 
 import type { PipelineConfig, PipelineStepConfig } from '../schema/WorkspaceSchema';
-import { normalizeStep, stepDagId } from '../schema/WorkspaceSchema';
+import { normalizeStep, stepDagId, sendBackIssues } from '../schema/WorkspaceSchema';
 import type { RunState, StepRecord, StepHistoryEntry, StepStatus } from './RunState';
 import { stepIdentity, RUN_STATE_SCHEMA_VERSION } from './RunState';
 import { reconcileRunSteps, describeDrift } from './reconcileRun';
@@ -486,6 +486,16 @@ export interface CommitEpicStepEditArgs {
 export function commitEpicStepEdit(args: CommitEpicStepEditArgs): void {
   const { workspaceRoot, doc, plan } = args;
 
+  // workspace.yaml refuses to load a pipeline whose `on_reject` points
+  // nowhere, so writing one would take every epic down with this one.
+  const sendBack = sendBackIssues(plan.pipeline.steps);
+  if (sendBack.length > 0) {
+    throw new EpicStepEditError(
+      `This edit would leave \`on_reject\` pointing at a step it cannot send work to:\n` +
+      sendBack.map((i) => `  - ${i.message}`).join('\n'),
+    );
+  }
+
   args.writeWorkspace(plan.pipeline);
   try {
     RunStateStore.save(workspaceRoot, plan.runState);
@@ -593,6 +603,8 @@ export function planSetEpicStepGates(args: {
     delete next.auto_review;
     delete next.auto_review_runner;
     delete next.auto_review_timeout_ms;
+    // Routes an auto-review reject; with no auto-review there is none to route.
+    delete next.on_reject;
   }
 
   const nextRaw = [...raw];
