@@ -215,7 +215,8 @@ gates you keep. **Report a Signal** opens an incident epic (`maintain`).
 aidlc epic start EPIC-1 --brief "fix the login redirect loop"
 aidlc run exec <runId>                         # runs steps, stops at each human gate
 aidlc run approve <runId>
-aidlc run reject <runId> --reason "…"           # in place only — see below
+aidlc run reject <runId> --reason "…"           # stay on this step, then `run rerun`
+aidlc run reject <runId> --reason "…" --to <step>  # = Send back to step N
 aidlc run rerun <runId> [--feedback "…"]        # retry a rejected step
 aidlc run request-update <runId> <step>         # reopen an approved step, reset what follows
 aidlc run redo <runId> <step>                   # = Rerun with Claude: keep later steps, mark dirty
@@ -223,8 +224,9 @@ aidlc status                                    # all runs; add a runId for deta
 ```
 
 `run exec` exits `0` completed, `2` paused on a gate (awaiting review, rejected,
-over budget), `1` error. `aidlc run reject` has no "send back to step N" yet;
-from a terminal, reject in place and `request-update` the upstream step.
+over budget), `1` error. `--to` and the other `<step>` arguments take a 0-based
+index, a step name or an agent id; `--to` must name a step before the one
+being rejected.
 
 ## 9. `maintain` — closing the loop
 

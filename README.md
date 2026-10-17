@@ -280,7 +280,7 @@ aidlc globals uninstall [ids...]   # remove AIDLC-marked global files (run befor
 aidlc run start <pipeline> [--id …] [--context epic=ABC-123]
 aidlc run mark-done <runId>      # validate produces, advance or await review
 aidlc run approve  <runId> [--comment …]
-aidlc run reject   <runId> --reason …
+aidlc run reject   <runId> --reason … [--to <step>]   # --to: send the work back to an earlier step
 aidlc run rerun    <runId> [--feedback …]
 aidlc run request-update <runId> <step> [--feedback …]   # reopen an approved step for changes
 aidlc run delete   <runId> [--force]

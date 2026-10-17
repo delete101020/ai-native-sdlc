@@ -434,7 +434,7 @@ These wrap `@aidlc/core`'s `PipelineRunner` and write atomically through
 aidlc run start <pipelineId> [--id <runId>] [--context k=v ...] [--context-file <path>]
 aidlc run mark-done <runId>             # validates produces paths, advances or awaits review
 aidlc run approve   <runId> [--comment "…"]
-aidlc run reject    <runId> --reason "…"
+aidlc run reject    <runId> --reason "…" [--to <step>]  # --to: send the work back to an earlier step
 aidlc run rerun     <runId> [--feedback "…"]
 aidlc run request-update <runId> <step> [--feedback "…"]  # reopen an already-approved step for changes
 aidlc run delete    <runId> [--force]

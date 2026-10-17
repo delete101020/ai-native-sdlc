@@ -181,25 +181,53 @@ export function registerRun(program: Command): void {
   // ── reject ─────────────────────────────────────────────────────────────────
   cmd
     .command('reject <runId>')
-    .description('Reject the current awaiting_review step')
+    .description(
+      'Reject the current awaiting_review step.\n' +
+      '  Without --to the work stays on this step (then `run rerun`). With --to it goes\n' +
+      '  back to an earlier step: that step reopens with the reason as its feedback and\n' +
+      '  the steps after it reset to pending. Mirrors the extension\'s "Send back to step N".',
+    )
     .requiredOption('--reason <text>', 'Why the step was rejected')
-    .action((runId: string, opts: { reason: string }, actionCmd: Command) => {
+    .option('--to <step>', 'Earlier step to send the work back to (0-based index, step name or agent id)')
+    .action((runId: string, opts: { reason: string; to?: string }, actionCmd: Command) => {
       const root  = resolveWorkspaceRoot(actionCmd);
       const state = requireRun(root, runId);
       // Passed so an `optional` step's rejection settles instead of parking
-      // the run on it.
+      // the run on it, and so a send-back on a DAG resets only descendants.
       const pipeline = requirePipelineForRun(root, state);
+      const idx = state.currentStepIdx;
+
+      // rejectStep quietly treats a target at or after the rejected step as
+      // in place; refuse it here so a typo doesn't drop the send-back.
+      let targetIdx: number | undefined;
+      if (opts.to !== undefined) {
+        targetIdx = requireStepIdx(state, opts.to);
+        if (targetIdx >= idx) {
+          console.error(chalk.red(
+            `--to must name a step before the rejected one (${idx}:${state.steps[idx].agent}), got ${targetIdx}:${state.steps[targetIdx].agent}.`,
+          ));
+          process.exit(1);
+        }
+      }
 
       let next;
       try {
-        next = rejectStep({ state, reason: opts.reason, pipeline });
+        next = rejectStep({ state, reason: opts.reason, targetIdx, pipeline });
       } catch (err) {
         console.error(chalk.red(err instanceof Error ? err.message : String(err)));
         process.exit(1);
       }
 
       saveRunState(root, next, state);
-      const step = state.steps[state.currentStepIdx];
+      const step = state.steps[idx];
+      if (targetIdx !== undefined) {
+        const target = next.steps[targetIdx];
+        console.log(chalk.red('✘') + ` Rejected "${step.agent}" — sent back to "${target.agent}" (rev ${target.revision})`);
+        console.log(chalk.dim(`  Reason: ${opts.reason}`));
+        console.log(chalk.dim(`  When done: aidlc run mark-done ${runId}`));
+        printRunSummary(next);
+        return;
+      }
       console.log(chalk.red('✘') + ` Rejected "${step.agent}"`);
       console.log(chalk.dim(`  Reason: ${opts.reason}`));
       console.log(chalk.dim(`  Rerun:  aidlc run rerun ${runId} [--feedback "..."]`));
