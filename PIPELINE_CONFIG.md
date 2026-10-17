@@ -1,0 +1,195 @@
+# Pipeline configuration reference
+
+How to shape the steps of a pipeline in `.aidlc/workspace.yaml` (or an epic's
+own `docs/epics/<id>/pipeline.yaml`). For getting started, read
+[ONBOARDING.md](ONBOARDING.md) first.
+
+## Gates per recipe — `gates:`
+
+A recipe may override the gates on any step it selects, so two recipes over
+one pipeline can disagree about which steps stop for a person:
+
+```yaml
+recipes:
+  - id: native-lite
+    from: ai-native-full
+    steps: [intent, build-plan, implement, review]
+    gates:
+      intent:     { human_review: true }
+      build-plan: { human_review: true }
+      implement:  { human_review: false }
+      review:     { human_review: false }
+```
+
+A step with no entry keeps the gates its pipeline declares.
+
+Gates can also be changed on a *running* epic, with
+`aidlc epic step set <epic> <step> --no-human-review` or the **Human** /
+**Auto** checkboxes on the step in the sidebar. **Auto** runs the script named
+by `auto_review_runner`, which returns a pass/reject verdict before the step can
+advance — a mechanical gate, not a second opinion from an agent.
+
+## Optional `produces` entries
+
+Output written only sometimes (a diagram rendered when there is something to
+draw) is declared as `{ path, optional: true }`:
+
+```yaml
+steps:
+  - agent: architect
+    name: cr-intake
+    produces:
+      - docs/cr/{epic}/business.md
+      - path: docs/cr/{epic}/diagrams/overview.html
+        optional: true
+```
+
+The step lists it when it exists and marks it **optional · not produced** when
+it does not. Mark-done requires only the plain entries, and an absent optional
+file is left out of what the step recorded, so `produces_contains` and
+`aidlc run verify` never look for it. A recipe that borrows the step keeps the
+flag.
+
+## `produces_contains` — gating on what is *in* the artifact
+
+`produces` says which files must exist. `produces_contains` says what must be
+inside them: every marker has to appear in at least one produced file, or
+mark-done refuses the step.
+
+```yaml
+steps:
+  - agent: architect
+    name: cr-intake
+    produces:
+      - docs/cr/{epic}/kickoff.md
+      - docs/cr/{epic}/comparison.md
+    produces_contains:
+      - '```mermaid'
+      - sequenceDiagram
+      - stateDiagram-v2
+```
+
+Markers are plain substrings — no regex, no per-file targeting — checked
+against the concatenated contents of the produced files.
+
+A skill can insist "draw two Mermaid diagrams" and an agent can still skip it;
+prose in a prompt is not enforcement. Use `produces_contains` whenever a
+required *section* matters more than the file's presence: a diagram, a decision
+table, a `## Risks` heading. Keep markers short and stable — a fence, a heading
+or a keyword, not a sentence from a template.
+
+`aidlc run verify <runId>` re-checks the markers later, so an artifact edited
+down after approval shows up as drift.
+
+## Step `description`
+
+The Epics panel shows a line under each step. Without a `description` it falls
+back to the agent's, which cannot tell apart two steps on the same agent:
+
+```yaml
+steps:
+  - agent: cr-dev
+    name: cr-build-spec
+    skills: [cr-build-spec]
+    description: Write the build spec from the approved business analysis.
+  - agent: cr-dev
+    name: cr-build
+    skills: [cr-build]
+    description: Build against the approved spec.
+```
+
+The panel uses the first that exists:
+
+1. The step's `description`.
+2. The frontmatter `description` of the step's skill, when `skills:` names
+   exactly one (looked up at the declared path, then
+   `.claude/commands/<id>.md`, then `.claude/skills/`).
+3. The agent's description.
+
+It is display text only and never reaches the prompt.
+
+## `default_skill` — one step, interchangeable skills
+
+A step's `skills:` normally means *all of these*. When two skills are
+alternative ways to do the same step, `default_skill` turns the list into *one
+of these*:
+
+```yaml
+steps:
+  - agent: cr-reviewer
+    name: cr-review
+    skills: [cr-review, cr-review-ocr]
+    default_skill: cr-review
+```
+
+- The epic card shows a **Skill** picker, preselected with the default. **Run
+  with Claude**, **Update with feedback** and **Rerun with Claude** launch the
+  picked skill's command (`/<skill-id> <epic>`), so each alternative needs its
+  own command file.
+- The pick is remembered on the step; **Run to completion** and
+  `aidlc run exec` use it, and `aidlc run exec --skill <id>` overrides it.
+- Each approve / reject records which skill produced the revision, so two
+  skills can be compared in `aidlc run report`.
+- `default_skill` must be one of the step's `skills`, and both alternatives
+  must satisfy the same `produces` and `produces_contains`.
+
+## An epic owns its pipeline
+
+Starting an epic assembles a pipeline from the recipe and stores it beside the
+epic:
+
+    docs/epics/EPIC-001/
+      pipeline.yaml     ← the epic's own pipeline
+      state.json        ← names it ("pipeline": "EPIC-001")
+      artifacts/
+
+`.aidlc/workspace.yaml` keeps only team-wide agents, skills, recipes and base
+pipelines, so concurrent epics never append to the same place. The epic's
+pipeline is spliced into `pipelines:` when the workspace is read, so the CLI,
+the sidebar and the runner still find it. Commit `pipeline.yaml` with the epic.
+
+Workspaces that predate this keep epic pipelines inline until moved:
+
+```bash
+aidlc epic pipeline extract --dry-run   # list what would move
+aidlc epic pipeline extract             # move it, in its own commit
+```
+
+Only a pipeline an epic both names in `state.json` *and* owns by name
+(`EPIC-001`, `EPIC-001-native-lite`) is moved. `aidlc doctor` lists what is
+left.
+
+## Epic ids — `epic_id_prefix`
+
+Unset, new epics are suggested as `EPIC-001`, `EPIC-002`, …, which collides
+as soon as two people work in one repo. Set two letters per checkout:
+
+```yaml
+epic_id_prefix: NG
+```
+
+The suggestion becomes `EPIC-260908-NG-001`: the local date the epic was
+opened (`yymmdd`), the prefix, then a counter that restarts each day. Date
+first means sorting `docs/epics/` by name gives the team one timeline. Set it
+from the sidebar's **Epic ID prefix** box or by hand; from a terminal,
+`aidlc epic next-id` prints the next suggestion.
+
+## Epic depth — `strict_mode`
+
+A recipe decides *which steps* run; `strict_mode` decides *how far each one
+goes*. It is set per epic (`"strict_mode": false` in its `state.json`):
+
+```bash
+aidlc epic start EPIC-003 --recipe native-lite --no-strict
+aidlc epic strict EPIC-003            # show it
+aidlc epic strict EPIC-003 off        # change it on a running epic
+```
+
+In the extension it is **Keep it proportional** in the Start epic modal and the
+**Full depth / Proportional** chip on the epic card. It applies from the next
+phase run; nothing already written changes.
+
+Under `strict_mode: false` a phase covers what the change needs and stops. It
+still keeps every template heading — the auto-reviewer and the traceability
+validator match on them — and gives a heading that does not apply one honest
+line instead of invented content. Absent means `true`.

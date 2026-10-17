@@ -78,7 +78,8 @@ six sample epics) into the open folder.
   `docs/epics/<id>/pipeline.yaml`, its depth (`strict_mode`) in its own `state.json`, and its step list
   and gates stay editable while it runs.
 - **Review gates** — `human_review` pauses for you; `auto_review` runs a validator headlessly.
-  **Reject** sends your feedback back to the step that produced the artifact and resets what came after.
+  **Reject** either keeps the work on this step (then **Rerun**) or sends it back to an earlier step with
+  your reason as that step's feedback, resetting the steps in between — see [ONBOARDING.md §7](https://github.com/delete101020/ai-native-sdlc/blob/main/ONBOARDING.md#7-working-a-step--and-sending-work-back).
 - **Run to completion** — one button, the same engine as `aidlc run exec`. Cancelling takes effect at
   the next step boundary, so a half-written artifact never passes a gate.
 - **Incident loop** — **Report a Signal** turns a production signal into an incident epic;

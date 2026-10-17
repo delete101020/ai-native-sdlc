@@ -294,7 +294,7 @@ aidlc run report   <runId> [--format md|json] [--output <file>]
 `produces_contains` (every listed marker appears in at least one of them —
 the only way to require a *section* of an artifact, such as a Mermaid
 diagram, rather than just the file). `run verify` re-checks both later.
-See [ONBOARDING.md](ONBOARDING.md#produces_contains--the-gate-on-what-is-in-the-artifact).
+See [PIPELINE_CONFIG.md](PIPELINE_CONFIG.md#produces_contains--gating-on-what-is-in-the-artifact).
 
 `run exec` runs `auto_review` validators headlessly and exit-codes for CI:
 `0` completed, `2` paused on a gate, `1` error (`--require-complete` ⇒ any

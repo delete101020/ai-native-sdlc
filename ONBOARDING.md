@@ -5,8 +5,8 @@ hueanmy, extended with the AI-Native SDLC Playbook. It ships as the extension
 `delete101020.aidlc-native` (VS Code Marketplace and Open VSX) and the CLI
 `@delete101020/aidlc` (npm).
 
-Read it end to end the first time. Steps 1–4 are setup and take about ten
-minutes; step 5 onward is how the workflow actually runs day to day.
+Sections 1–5 are setup and take about ten minutes. Section 6 onward is how the
+workflow runs day to day — read **section 7** before you work your first step.
 
 ---
 
@@ -15,75 +15,53 @@ minutes; step 5 onward is how the workflow actually runs day to day.
 | Need | Check | If missing |
 |---|---|---|
 | Node.js 18+ | `node --version` | Install via [nvm](https://github.com/nvm-sh/nvm). Needed by the CLI. |
-| Claude CLI, logged in | `claude --version` | See [Claude Code](https://claude.com/claude-code). The default runner spawns this binary; without it, runs cannot execute. |
+| Claude CLI, logged in | `claude --version` | See [Claude Code](https://claude.com/claude-code). The default runner spawns this binary. |
 
 VS Code 1.85.0+, or any editor that installs from Open VSX (Antigravity, Cursor,
-VSCodium, Windsurf). A workspace **folder** — single-file mode is not supported.
+VSCodium, Windsurf), opened on a workspace **folder**.
 
-## 2. Install the extension
-
-Search for **AIDLC Native** in the Extensions view and install it, or:
+## 2. Install the extension and the CLI
 
 ```sh
-code --install-extension delete101020.aidlc-native
-```
-
-Every command and setting is under `aidlcNative.*` (palette category **AIDLC
-Native**), so it can stay installed next to the upstream `hueanmy.aidlc`.
-Coming from a build before 4.0.0? Your `aidlc.*` settings are copied to
-`aidlcNative.*` on first activation — reload when it asks. Keybindings are
-yours to update: replace `aidlc.` with `aidlcNative.` in `keybindings.json`.
-
-## 3. Install the CLI
-
-```sh
+code --install-extension delete101020.aidlc-native   # or search "AIDLC Native" in Extensions
 npm install -g @delete101020/aidlc
 aidlc --version
 ```
 
-The package is scoped because the upstream owns `aidlc` on npm, but the command
-is still `aidlc`. If `npm` reports that `aidlc` already exists, the upstream CLI
-is installed globally — `npm uninstall -g aidlc` and retry. Updates:
-`npm update -g @delete101020/aidlc`; the extension updates itself.
+- Commands and settings live under `aidlcNative.*`, so it can sit next to the
+  upstream `hueanmy.aidlc`. Settings from a pre-4.0 `aidlc.*` install are copied
+  on first activation; keybindings you update by hand.
+- The npm package is scoped but the command is still `aidlc`. If `npm` says
+  `aidlc` already exists, the upstream CLI is installed: `npm uninstall -g aidlc`
+  and retry.
 
-## 4. Building from source (optional)
+## 3. Building from source (optional)
 
-Only needed to run changes that are not released yet. You also need pnpm
-(`npx --yes corepack pnpm --version` — corepack ships with Node) and the `code`
-command (`Cmd+Shift+P` → **Shell Command: Install 'code' command in PATH**).
+Only to run unreleased changes. Needs pnpm (`npx --yes corepack pnpm --version`)
+and the `code` command on PATH.
 
 ```sh
 git clone git@github.com:delete101020/ai-native-sdlc.git
 cd ai-native-sdlc
-pnpm install
-pnpm -r compile
+pnpm install && pnpm -r compile
 
-pnpm package:extension                                        # → packages/extension/aidlc-native-<version>.vsix
+pnpm package:extension
 code --install-extension packages/extension/aidlc-native-<version>.vsix --force
 
 cd packages/cli && pnpm bundle && npm link
-aidlc --version
 ```
 
-- `--force` lets you re-install over the same version number. The `.vsix` has
-  the same id as the published extension, so it replaces it until the next
-  Marketplace update. Reload the window afterwards.
-- `pnpm bundle` is required — the package's `bin` points at `dist/bundle.js`,
-  which esbuild produces along with the templates, tools and vendored assets.
-- `npm link` points at your **checkout**: after `git pull`, `pnpm -r compile &&
-  pnpm --filter @delete101020/aidlc bundle` updates the CLI. It is installed under
-  the Node version active when you ran it; switch versions with nvm and re-run
-  `npm link`. If `aidlc --version` shows a different number, check `which aidlc`
-  — another global install is shadowing the link.
+`--force` re-installs over the same version; reload the window afterwards.
+`npm link` points at your checkout, so after `git pull` re-run
+`pnpm -r compile && pnpm --filter @delete101020/aidlc bundle`. From inside this
+repo, `/install-local` in Claude Code does all of the above.
 
-## 5. Turn on the approval gate
+## 4. Turn on the approval gate
 
-**This step is easy to miss and nothing will remind you.** The hook script is
-committed at `.claude/hooks/aidlc-approval-gate.py`, but its registration lives
-in `.claude/settings.json`, which is **gitignored** — so a fresh clone has the
-gate's code and none of its effect. Each clone opts in deliberately.
-
-Create `.claude/settings.json` in the repo you want gated:
+**Easy to miss, and nothing reminds you.** The hook script is committed at
+`.claude/hooks/aidlc-approval-gate.py`, but it is registered in
+`.claude/settings.json`, which is **gitignored**. Each clone opts in by creating
+that file:
 
 ```json
 {
@@ -100,52 +78,38 @@ Create `.claude/settings.json` in the repo you want gated:
 }
 ```
 
-What it blocks, and why:
-
 | Blocked | Why |
 |---|---|
 | `git push --force` to `main` / `master` | Protected branches are fast-forward only |
 | `git add` of a credential-shaped path (`.env`, `*.pem`, `id_rsa`, …) | Secrets never enter a commit |
-| Hand-editing `docs/epics/*/state.json` | The runner is the single writer; state advances through "Mark step done" |
+| Hand-editing `docs/epics/*/state.json` | The runner is the only writer of run state |
 
-It **fails open** — malformed input, an unknown tool, or a rule it cannot
-evaluate allows the action. A gate that fails closed on its own bugs blocks real
-work and gets uninstalled within a day.
-
-Sanity-check it directly:
+It fails open: input it cannot evaluate is allowed. Check it with:
 
 ```sh
 echo '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}' \
-  | python3 .claude/hooks/aidlc-approval-gate.py; echo "exit=$?"   # exit=2, reason on stderr
+  | python3 .claude/hooks/aidlc-approval-gate.py; echo "exit=$?"   # exit=2
 ```
+
+## 5. Set up a project
+
+In the project you want to run the playbook on:
+
+```sh
+aidlc init                               # scaffolds .aidlc/workspace.yaml
+aidlc preset apply ai-native             # agents, skills, the ai-native-full pipeline, native-* recipes
+aidlc globals install ai-native-pipeline # REQUIRED — installs the skills the preset points at
+aidlc doctor                             # workspace, Claude binary, skill paths, run state
+```
+
+Skip `globals install` and every step fails at spawn time with a missing skill.
 
 ---
 
-## 6. Set up a project to use the workflow
+## 6. The workflow
 
-In the project you want to run the playbook on (not necessarily this repo):
-
-```sh
-aidlc init                      # scaffolds .aidlc/workspace.yaml
-aidlc preset apply ai-native    # 6 agents, 7 skills, 1 pipeline
-aidlc globals install ai-native-pipeline
-aidlc validate
-```
-
-`aidlc globals install` is **not optional**. The preset writes skill paths of
-the form `~/.claude/skills/aidlc-native-*.md`, and those files only exist once
-the globals are installed. Skip it and every step fails at spawn time with a
-missing skill.
-
-Finish with `aidlc doctor` — it checks the workspace, the Claude binary and
-auth, every declared skill path, and the run-state files in one pass. All seven
-native skills should come back green; if they do not, `aidlc globals status`
-tells you whether the workflow is installed at all.
-
-## 7. The workflow itself
-
-Seven phases, run in order. Each writes one artifact and stops for a human
-unless noted:
+Seven phases. Each writes one artifact into `docs/epics/<EPIC-ID>/artifacts/`
+and stops for a human unless noted:
 
 | # | Phase | Persona | Artifact | Gate |
 |---|---|---|---|---|
@@ -157,346 +121,114 @@ unless noted:
 | 6 | `review` | Reviewer | `review.md` — the diff against policy | human |
 | 7 | `maintain` | Operator | `incident.md` — a production signal, diagnosed | **none** |
 
-Two design points worth internalising before you use it:
+- **Verify and review run in fresh context**, so the agent judging the work is
+  not the session that wrote it. Don't have the engineer verify its own build.
+- **`maintain` has no human gate** because a production signal does not wait.
+  The gate moves to the `intent.md` of the epic `maintain` opens.
 
-- **Verify and review run in fresh context.** They are separate phases with
-  separate personas precisely so the agent judging the work is not the session
-  that wrote it. Do not "save a step" by having the engineer verify its own
-  build — that is the entire point of the split.
-- **`maintain` has no human gate.** A production signal does not wait for
-  office hours. The gate has not been removed, it has moved: to stage 1 of the
-  epic that `maintain` opens, where the generated `intent.md` is reviewed
-  before anything is built.
-
-Nine recipes pick how much of that you run. Read the table as a ladder: each
-row adds a gate the row above skipped.
+A **recipe** picks which phases an epic runs. Each row adds a gate the row
+above skipped:
 
 | Recipe | Steps | When |
 |---|---|---|
-| `native-spike` | `intent` | Capture the problem only — no spec, no code |
-| `native-align` | `intent → spec` | Agree the scope with a PO before engineering starts |
+| `native-spike` | `intent` | Capture the problem only |
+| `native-align` | `intent → spec` | Agree scope with a PO before engineering |
 | `native-quick` | `intent → build-plan → implement → verify` | Small, well-understood change |
-| `native-lite` | `intent → build-plan → implement → review` | Small change with a precedent to follow — the human gates sit on `intent` and `build-plan` only |
-| `native-fix` | `intent → build-plan → implement → verify → review` | Bug fix, refactor, tech debt — no new behaviour to specify, but still gated |
-| `native-full` | `intent → spec → build-plan → implement → verify → review` | The default for real features |
-| `native-hotfix` | `build-plan → implement → review` | Production is burning and the cause is known — see the warning below |
-| `native-audit` | `review` | Judge a diff that already exists against policy |
+| `native-lite` | `intent → build-plan → implement → review` | Small change with a precedent; humans gate only `intent` and `build-plan` |
+| `native-fix` | `intent → build-plan → implement → verify → review` | Bug fix, refactor, tech debt |
+| `native-full` | `intent → spec → build-plan → implement → verify → review` | Real features — the default |
+| `native-hotfix` | `build-plan → implement → review` | Production is burning and the cause is known |
+| `native-audit` | `review` | Judge an existing diff against policy |
 | `native-incident` | `maintain` | A production signal arrived |
 
-**Choosing between them** comes down to which of `spec`, `verify` and `review`
-the work actually needs:
+`spec` earns its place when the *behaviour* is up for debate. `verify` asks
+"does this meet the spec", `review` asks "does this obey our policy" — they are
+not interchangeable. ⚠️ Reach for `native-hotfix` reluctantly: no `intent`, no
+independent `verify`, during an incident. Prefer `native-fix`.
 
-- `spec` earns its place when the *behaviour* is up for debate. A refactor has
-  no new behaviour, so `native-fix` drops it; a feature does, so `native-full`
-  keeps it.
-- `verify` and `review` are the two gates, and they are not interchangeable —
-  `verify` asks "does this meet the spec", `review` asks "does this obey our
-  policy". Dropping both is what makes `native-quick` quick.
+For a small epic, start it with **Keep it proportional** (`--no-strict`) so the
+phases don't fill out full-size templates. Recipe gates, `strict_mode`,
+`epic_id_prefix` and the rest of the step options are in
+[PIPELINE_CONFIG.md](PIPELINE_CONFIG.md).
 
-**Where the human stands is part of the recipe too.** A recipe may override
-the gates on any step it selects, so two recipes over one pipeline can
-disagree about which steps stop for a person:
+## 7. Working a step — and sending work back
 
-```yaml
-recipes:
-  - id: native-lite
-    from: ai-native-full
-    steps: [intent, build-plan, implement, review]
-    gates:
-      intent:     { human_review: true }
-      build-plan: { human_review: true }
-      implement:  { human_review: false }
-      review:     { human_review: false }
+Every step moves through the same states:
+
+```
+          Run with Claude
+pending ──▶ awaiting_work ──Mark step done──▶ awaiting_review ──Approve──▶ approved ──▶ next step
+                 ▲                                  │
+                 │                                  ├─Reject, stay on this step──▶ rejected ──Rerun──┐
+                 │                                  │                                                │
+                 │                                  └─Reject, send back to step N ──▶ step N reopens │
+                 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-A step with no entry keeps the gates its pipeline declares. `native-lite`
-spends its attention where a wrong direction is cheapest to correct — on the
-intent and the plan — and lets the branch run to the end from there. That is
-only safe when the change has a precedent in the codebase to follow; without
-one, use `native-fix`.
+**Mark step done ≠ the step passed.** It only says the work is finished and its
+`produces` files exist. The verdict is **Approve** or **Reject**, given after
+you read the artifact. On a step with `human_review: false`, Mark step done
+approves on its own and there is no Reject button.
 
-Gates can also be turned on and off per step on a *running* epic, with
-`aidlc epic step set <epic> <step> --no-human-review` or the **Human** / **Auto**
-checkboxes on the pipeline step in the sidebar. **Auto** means the step runs an
-auto-reviewer — a script named by `auto_review_runner` that returns a
-pass/reject verdict — before the step can advance; it is a mechanical gate, not
-a second opinion from an agent.
+### Which button
 
-⚠️ **`native-hotfix` is the one recipe to reach for reluctantly.** Without
-`intent` the engineer starts with nothing but the epic description as context,
-and without `verify` nobody independently checks the fix — during an incident,
-which is when haste makes mistakes likeliest. It exists because the clock
-sometimes genuinely forbids the longer path. Prefer `native-fix`, which costs
-one extra phase and keeps both gates.
+| Situation | Use | What happens |
+|---|---|---|
+| The artifact is good | **Approve** | Step approved, the next step opens |
+| The step itself did a poor job (e.g. a sloppy review of good code) | **Reject → Stay on this step**, then **Rerun** | Step goes to `rejected`; Rerun bumps its revision and reopens it with the feedback you enter (the reject reason is shown for reference) |
+| The step found a problem in an **earlier** step's work (e.g. review finds a bug in `implement`) | **Reject → Send back to step N** | Step N reopens with a new revision and your reason as its feedback; everything between N and this step resets to `pending` and runs again |
+| You clicked Mark step done too early | **Undo mark done** | Back to `awaiting_work`; also works on an auto-approved step as long as nothing after it has been worked |
+| A step was approved, and later turns out wrong | **Request update** on that step | It reopens; every step after it resets to `pending` |
+| A step's prompt or skill changed and you want its output regenerated, keeping later work | **Rerun with Claude** on the approved step | It reopens alone; later approved steps stay approved but are marked `dirty` until re-approved |
 
-Artifacts land in `docs/epics/<EPIC-ID>/artifacts/` (configurable via
-`state.root` in `workspace.yaml`), alongside the epic's `state.json` — which you
-never edit by hand; see step 5.
+### The common mistake
 
-### Optional `produces` entries — listed when there, never blocking
+When review finds a bug, **don't** approve the review and then go back to
+`implement` to Request update or Rerun. That works, but:
 
-Some output is written only sometimes: a diagram rendered when there is
-something to draw. Declare it as `{ path, optional: true }`:
+- the history says the review **passed**;
+- the finding never reaches `implement` unless you retype it;
+- with **Rerun with Claude**, the review stays approved (only `dirty`) against
+  code that has since changed.
 
-```yaml
-steps:
-  - agent: architect
-    name: cr-intake
-    produces:
-      - docs/cr/{epic}/business.md
-      - path: docs/cr/{epic}/diagrams/overview.html
-        optional: true
-```
+**Reject the review and send it back to `implement`.** The reject reason is
+copied into `implement`'s feedback as `Rejected at step N (review): <reason>`,
+so **Update with feedback** hands it straight to the agent; `verify` and
+`review` reset and judge the new code; and the history records where the work
+went back to and why. On a pipeline with `depends_on`, only the steps that
+depend on the target are reset.
 
-The step's artifact list shows it when it exists and marks it
-**optional · not produced** when it does not. `mark-done` requires only the
-plain entries. An absent optional file is left out of what the step recorded
-as produced, so `produces_contains` and `aidlc run verify` never look for it.
-A recipe that borrows the step keeps the flag.
+For a closer look before deciding, open a step's `.md` with **Feedback**: it
+renders the Markdown (Mermaid included) in annotron for point-and-click
+comments and applies them back into the file.
 
-### Step `description` — when one agent runs several steps
+## 8. Driving it
 
-The Epics panel shows a line under each step saying what it does. By default
-that is the agent's description, which cannot tell apart two steps on the same
-agent. Give each step its own:
+**Extension.** Click the **AIDLC** icon in the activity bar. Start an epic,
+pick a recipe, then work each step from its card as in section 7.
+**Run to completion** executes the remaining steps back to back, pausing at the
+gates you keep. **Report a Signal** opens an incident epic (`maintain`).
 
-```yaml
-steps:
-  - agent: cr-dev
-    name: cr-build-spec
-    skills: [cr-build-spec]
-    description: Write the build spec from the approved business analysis.
-  - agent: cr-dev
-    name: cr-build
-    skills: [cr-build]
-    description: Build against the approved spec.
-```
-
-The panel uses the first of these that exists:
-
-1. The step's `description`.
-2. The frontmatter `description` of the step's skill, when `skills:` names
-   exactly one. The skill file is looked up at the path `workspace.yaml`
-   declares for it, then `.claude/commands/<id>.md`, then `.claude/skills/`.
-3. The agent's description.
-
-It works the same in `workspace.yaml` and in an epic's own `pipeline.yaml`.
-You can also set it in the step's config modal in the Builder. It is display
-text only and never reaches the prompt.
-
-### `default_skill` — one step, interchangeable skills
-
-A step's `skills:` normally means *all of these*: every listed skill is loaded
-for the step. When two skills are alternative ways to do the same step — two
-review skills that differ only in the tool they drive — loading both makes the
-model run both procedures, or blend them. `default_skill` turns the list into
-*one of these*:
-
-```yaml
-steps:
-  - agent: cr-reviewer
-    name: cr-review
-    skills: [cr-review, cr-review-ocr]
-    default_skill: cr-review
-```
-
-- The epic card shows a **Skill** picker on the step, preselected with the
-  default. *Run with Claude* (and *Update with feedback*, *Rerun with Claude*)
-  launches the picked skill's command, `/<skill-id> <epic>` — so each
-  alternative needs its own command file.
-- The pick is remembered on the step, and the unattended runner (*Run to
-  completion*, `aidlc run exec`) uses it, else the default. `aidlc run exec
-  --skill <id>` overrides it for every step that offers that skill.
-- Each approve / reject in the step's history records which skill produced the
-  output being judged, so two skills can be compared on the same step.
-- `default_skill` must be one of the step's `skills`. Both alternatives write
-  the same `produces` and must satisfy the same `produces_contains`.
-
-The Builder sets it both in the workflow modal (creating or editing a
-workflow) and in a step's config modal: pick two or more skills, then choose
-*one of them — default …* under the list.
-
-### `produces_contains` — the gate on what is *in* the artifact
-
-A step's `produces` says which files must exist before it can advance.
-`produces_contains` says what must be *inside* them: every marker listed has
-to appear in at least one produced file, or `mark-done` refuses the step.
-
-```yaml
-steps:
-  - agent: architect
-    name: cr-intake
-    produces:
-      - docs/cr/{epic}/kickoff.md
-      - docs/cr/{epic}/comparison.md
-    produces_contains:
-      - '```mermaid'
-      - sequenceDiagram
-      - stateDiagram-v2
-```
-
-The markers are plain substrings — no regex, no per-file targeting — checked
-against the concatenated contents of the step's produced files.
-
-**Why it exists.** A skill can say "you must draw two Mermaid diagrams" as
-loudly as it likes and an agent can still skip it, because prose in a prompt
-is not enforcement. `produces` does not help: the file is there, it is simply
-missing a section. `produces_contains` is the only mechanism that gates on
-content rather than existence, which makes it the right tool whenever a
-required *section* of an artifact matters more than the artifact's presence —
-a diagram, a decision table, a `## Risks` heading, a filled-in template slot.
-
-Keep the markers short and stable. A whole sentence from a template will
-drift; a fence (` ```mermaid `), a heading, or a keyword will not.
-
-`aidlc run verify <runId>` re-checks these markers against the files on disk
-later on, so an artifact edited down after approval shows up as drift.
-
-### An epic owns its pipeline
-
-Starting an epic assembles a pipeline from the recipe and keeps it, because
-`state.json` names it and every later step edit rewrites it. That definition
-lives with the epic, not in the shared file:
-
-    docs/epics/EPIC-001/
-      pipeline.yaml     ← the epic's own pipeline
-      state.json        ← names it ("pipeline": "EPIC-001")
-      artifacts/
-
-`.aidlc/workspace.yaml` therefore stays what it is meant to be: team-wide
-agents, skills, recipes and the base pipelines everyone draws from. The reason
-is merge behaviour. One shared list means every concurrent epic appends at the
-same place — a conflict per epic, forever — and the file grows by a near-copy
-of the base pipeline each time. One file per epic has one owner and no shared
-append point.
-
-Nothing else changes. The pipeline is spliced into `pipelines:` when the
-workspace is read and routed back out when it is written, so the CLI, the
-sidebar and the runner all still find it exactly where they always looked.
-Commit `pipeline.yaml` with the epic — `artifact_commit` already puts it on the
-epic's branch next to `state.json`.
-
-**Workspaces that predate this** keep their epic pipelines inline until you
-move them:
-
-```bash
-aidlc epic pipeline extract --dry-run   # list what would move
-aidlc epic pipeline extract             # move it, in its own commit
-```
-
-It moves only a pipeline an epic both names in its `state.json` *and* owns by
-name (`EPIC-001`, or `EPIC-001-native-lite`). A shared, hand-authored pipeline
-that an epic happens to run stays in `workspace.yaml`, where the other epics
-running it can still see it. `aidlc doctor` lists what is left.
-
-### Who an epic belongs to, and when — `epic_id_prefix`
-
-Left unset, a new epic is suggested as `EPIC-001`, `EPIC-002`, … numbered
-across the whole folder. That is fine alone and wrong in a team: two people
-are both offered `EPIC-003`, and the second to scaffold walks into *Epic dir
-already exists*.
-
-Two letters in `.aidlc/workspace.yaml` — set them per checkout, not per repo —
-give each person their own lane:
-
-```yaml
-epic_id_prefix: NG
-```
-
-The suggestion becomes `EPIC-260908-NG-001`: **date first**, then the prefix,
-then a counter that restarts each day within that prefix.
-
-- The date is `yymmdd`, read from the machine’s **local** calendar, and it is
-  the day the epic was opened, frozen from then on. `createdAt` in the epic’s
-  `state.json` still carries the precise ISO-UTC timestamp.
-- Date first is deliberate: `docs/epics/` is shared, so sorting it by name
-  gives the whole team one timeline. Putting the person first would group the
-  listing by author and scatter time inside each group.
-- Exactly two letters, validated. The id is not only a directory name — it is
-  the argument of every slash command the epic runs and the branch
-  `artifact_commit` writes to.
-
-Set it from the sidebar’s **Epic ID prefix** box, or by hand. Either front
-door then suggests the right id; you can still type anything you like over the
-suggestion, and epics already on disk keep the ids they were created with.
-From a terminal:
-
-```bash
-aidlc epic next-id                      # EPIC-260908-NG-001
-aidlc epic start "$(aidlc epic next-id)" --recipe native-quick --no-strict
-```
-
-### How deep an epic goes — `strict_mode`
-
-A recipe decides *which steps* an epic runs. `strict_mode` decides *how far
-each one goes*, and it is set per epic because depth is a property of the work
-item, not of the team:
-
-```bash
-aidlc epic start EPIC-003 --recipe native-lite --no-strict
-aidlc epic strict EPIC-003            # show it
-aidlc epic strict EPIC-003 off        # change it on an epic already running
-```
-
-In the extension it is the **Keep it proportional** checkbox under Workflow in
-the Start epic modal, and the **Full depth / Proportional** chip on the epic
-card. Either way it lands as `"strict_mode": false` in the epic's `state.json`,
-and it takes effect on the next phase run — nothing already written changes.
-
-The templates are built for the largest thing an epic can be: a spec with
-non-functional requirements, risks, alternatives considered, a migration and
-rollback plan. That is right for an epic that earns it, and wrong for an epic
-the size of one migration task, where the same template produces pages nobody
-asked for, every phase after it has more to read, and two hours of work takes a
-day to get through the pipeline.
-
-Under `strict_mode: false` a phase covers what the change actually needs and
-stops. It keeps every heading the template has — the auto-reviewer and the
-traceability validator match on those exact strings, so a section dropped for
-brevity is a gate failed — and gives a heading that does not apply one honest
-line instead of invented content. It is a budget on breadth, never on
-correctness: the phase still reads the code it is changing, and still leaves
-the next phase what it needs.
-
-Absent means `true`, so every epic started before this keeps the depth it had.
-
-## 8. Driving it from the extension
-
-Click the **AIDLC** icon in the activity bar. From the sidebar you can start an
-epic, watch each step's status, open the artifact a step produced, and approve
-or reject a step at its gate. Rejecting asks for a reason, which is fed back to
-the agent on re-run; "Request update" reopens an already-approved step and
-resets everything downstream of it.
-
-For reviewing an artifact properly rather than skimming it in the editor, use
-the **Feedback** action on a step's `.md`: it renders the Markdown (Mermaid
-diagrams included) and opens it in annotron for point-and-click comments, then
-applies your feedback back into the `.md` with an attributed revision history.
-
-**What the extension does not cover:** there is no command for stage 6. The
-`AIDLC: …` command palette entries predate the playbook, and adding buttons for
-`maintain` was deliberately left undone — the CLI-first rule below explains why.
-Stage 6 is terminal-only. Everything else in the playbook is drivable from
-either surface.
-
-## 9. Driving it from the CLI
+**CLI.**
 
 ```sh
-aidlc run start ai-native-full --context epic=ABC-123
-aidlc run exec <runId>              # spawns claude, streams output, stops at each gate
-aidlc run approve <runId>           # or: reject / rerun / request-update
-aidlc status                        # all runs; add a runId for detail
-aidlc watch                         # live table
+aidlc epic start EPIC-1 --brief "fix the login redirect loop"
+aidlc run exec <runId>                         # runs steps, stops at each human gate
+aidlc run approve <runId>
+aidlc run reject <runId> --reason "…"           # in place only — see below
+aidlc run rerun <runId> [--feedback "…"]        # retry a rejected step
+aidlc run request-update <runId> <step>         # reopen an approved step, reset what follows
+aidlc run redo <runId> <step>                   # = Rerun with Claude: keep later steps, mark dirty
+aidlc status                                    # all runs; add a runId for detail
 ```
 
-`run exec` stops at every `human_review` step unless you pass `--auto-approve`.
-Its exit codes are meant for scripting: `0` completed, `2` paused on a gate
-(awaiting review, rejected, or over budget), `1` error.
+`run exec` exits `0` completed, `2` paused on a gate (awaiting review, rejected,
+over budget), `1` error. `aidlc run reject` has no "send back to step N" yet;
+from a terminal, reject in place and `request-update` the upstream step.
 
-## 10. Stage 6 — closing the loop back to stage 1
+## 9. `maintain` — closing the loop
 
-A signal is a small JSON file (`source`, `observedAt`, `symptom`, `scope`,
-`evidence`):
+A signal is a small JSON file:
 
 ```sh
 cat > signal.json <<'EOF'
@@ -509,31 +241,16 @@ cat > signal.json <<'EOF'
 }
 EOF
 
-aidlc maintain --signal signal.json
-# → opens INC-CHECKOUT-RETURNS-500 and runs the diagnosis
-```
-
-Then turn the diagnosis into the next epic, with its `intent.md` already
-written from the signal:
-
-```sh
+aidlc maintain --signal signal.json            # opens INC-… and runs the diagnosis
 aidlc maintain follow-up INC-CHECKOUT-RETURNS-500 \
   --problem "Returning customers cannot check out" \
   --who-hurts "Repeat buyers completing a purchase" \
-  --done "Checkout succeeds for a customer with prior orders" \
-  --question "Is this specific to the EU payment provider?"
+  --done "Checkout succeeds for a customer with prior orders"
 ```
 
-That epic enters at stage 1 with a human gate on the intent — which is where
-the gate that `maintain` skipped reappears. `--signal -` reads stdin, so a
-webhook forwarder or a cron job can pipe straight in; that is what "CLI first"
-buys you.
-
-**Why CLI first is a rule, not a preference:** every new phase must be runnable
-from a terminal, a cron job, or a webhook forwarder before it gets a button.
-`@aidlc/core` is the API; the extension and the CLI are both callers of it.
-Stage 6 exists to be triggered by machines at 3am, on hosts where VS Code is
-never opened.
+The follow-up epic starts at `intent` with a human gate. `--signal -` reads
+stdin, so a webhook forwarder or cron job can pipe straight in — every phase
+must be runnable headless before it gets a button.
 
 ---
 
@@ -541,17 +258,17 @@ never opened.
 
 | Symptom | Cause |
 |---|---|
-| `aidlc: command not found` after switching Node versions | Global npm packages are per-Node-version. Re-run `npm install -g @delete101020/aidlc` (or `npm link` in `packages/cli` for a source build). |
-| `aidlc --version` prints an old number | An older global install shadows the link. Check `which aidlc`. |
-| Changes to the extension do nothing | You reloaded but did not rebuild: `pnpm package:extension` then re-install with `--force`. |
-| `doctor` says the native skills are missing | `aidlc globals install ai-native-pipeline` has not been run on this machine — check `aidlc globals status`. |
-| A step fails immediately with a missing skill | `aidlc globals install ai-native-pipeline` was skipped. |
-| Force-push or `.env` staging silently succeeds | `.claude/settings.json` does not exist — the gate was never registered. See step 5. |
+| `aidlc: command not found` after switching Node versions | Global packages are per Node version. Reinstall, or re-run `npm link` in `packages/cli`. |
+| `aidlc --version` prints an old number | Another global install shadows it — check `which aidlc`. |
+| Extension changes do nothing | Rebuild (`pnpm package:extension`) and reinstall with `--force`, then reload. |
+| A step fails immediately with a missing skill | `aidlc globals install ai-native-pipeline` was skipped — check `aidlc globals status`. |
+| No **Reject** button after Mark step done | The step has `human_review: false`, so it auto-approved. **Undo mark done**, turn **Human** on for the step, and mark it done again. |
+| Force-push or `.env` staging silently succeeds | `.claude/settings.json` is missing — see section 4. |
 
 ## Where to read more
 
+- [PIPELINE_CONFIG.md](PIPELINE_CONFIG.md) — recipe gates, `produces_contains`, `default_skill`, `strict_mode`, `epic_id_prefix`
 - `README.md` — architecture, full CLI reference, run-state backends
-- `packages/extension/README.md` — the extension's features and command list
-- `AI_NATIVE_SDLC_ALIGNMENT.md` — why the playbook was mapped this way, what was
-  deliberately not built, and the decisions behind each workstream
-- `aidlc guide` — the same getting-started material in the terminal, no LLM, no cost
+- `packages/extension/README.md` — the extension's features and commands
+- `AI_NATIVE_SDLC_ALIGNMENT.md` — why the playbook was mapped this way
+- `aidlc guide` — getting-started material in the terminal
