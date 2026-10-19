@@ -234,7 +234,9 @@ function hookScriptPath(command: string, root: string): string | null {
   const token = expanded.split(/\s+/).find((t) => t.includes(APPROVAL_GATE_SCRIPT));
   if (!token) { return null; }
   const p = token.startsWith('~/') ? path.join(os.homedir(), token.slice(2)) : token;
-  return path.isAbsolute(p) ? p : path.resolve(root, p);
+  // resolve() also normalises separators: on Windows `$CLAUDE_PROJECT_DIR/gate/x.py`
+  // expands to a mixed `C:\repo/gate/x.py`.
+  return path.resolve(root, p);
 }
 
 /** True when the command is the script itself, not `python3 <script>`. */

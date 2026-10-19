@@ -166,10 +166,13 @@ describe('autopilot preflight', () => {
   it('does not count a gate whose script is missing or not executable', () => {
     const r = repo();
     installGate(r.root, 'settings.json', false);
-    expect(findApprovalGate(r.root, { userConfigDir: r.userDir })).toEqual({
-      found: false,
-      reason: '.claude/hooks/aidlc-approval-gate.py is registered in .claude/settings.json but is not executable (chmod +x it).',
-    });
+    // Windows has no execute bit, so the check is skipped there.
+    if (process.platform !== 'win32') {
+      expect(findApprovalGate(r.root, { userConfigDir: r.userDir })).toEqual({
+        found: false,
+        reason: '.claude/hooks/aidlc-approval-gate.py is registered in .claude/settings.json but is not executable (chmod +x it).',
+      });
+    }
     fs.rmSync(path.join(r.root, '.claude', 'hooks'), { recursive: true });
     expect(findApprovalGate(r.root, { userConfigDir: r.userDir })).toMatchObject({ found: false, reason: expect.stringMatching(/does not exist/) });
   });
