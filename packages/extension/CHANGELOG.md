@@ -1,5 +1,41 @@
 # Changelog
 
+## 4.0.41
+
+Autopilot: once a person has approved intent and build-plan, a run can carry
+on to review unattended. Rejected work can also be sent back to an earlier step
+from the CLI.
+
+### Added
+
+- **Autopilot** (`autopilot: true` on a pipeline, or the `native-autopilot`
+  recipe). It refuses to start on `main` or a detached HEAD, on a tree with
+  uncommitted changes, or without the approval-gate hook; under autopilot the
+  gate fails closed. The reviewer's "Shortest path to …" list becomes the next
+  revision's feedback, and from revision 2 implement adds commits on the same
+  branch.
+- `on_reject.send_back_to` and `max_send_backs` (default 3) send a rejected
+  step back to an earlier one automatically. The run stops when a send-back
+  changes no code. A run lock keeps two execs from driving the same run.
+- `batches: true` runs a long step as a series of fresh sessions, each ending
+  on `Status: continue|done`, with `max_batches`, `pause_between_batches`, a
+  per-batch timeout and a stop when a batch does nothing.
+- Per-step `timeout_minutes`, with a hard stop that kills the agent's process
+  tree, and `providers.<runner>.args` for extra runner arguments.
+- The `verdict.mjs` validator reads `Verdict: pass|fail|ship|hold` from a
+  review or verify report and fails closed when there is none.
+- `aidlc run reject <runId> --to <step>` sends the work back to an earlier
+  step, like **Send back to step N** in the extension.
+
+### Fixed
+
+- The reject dialog and the "Send back to step" picker named each step by its
+  agent only, so two steps on the same agent (e.g. `cr-build-spec` and
+  `cr-build`, both on `cr-dev`) looked identical. Steps now show as
+  `name · agent`, and "Resets 4–4" reads "Resets step 4".
+- Autopilot preflight no longer reports a mixed-slash path for an approval
+  gate registered through `$CLAUDE_PROJECT_DIR` on Windows.
+
 ## 4.0.40
 
 A long epic description no longer takes over its card.
