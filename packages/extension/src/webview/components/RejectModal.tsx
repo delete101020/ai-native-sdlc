@@ -6,11 +6,11 @@ import { postMessage } from '@/lib/bridge';
 interface Props {
   runId: string;
   currentStepIdx: number;
-  stepAgents: string[];
+  steps: Array<{ agent: string; name?: string }>;
   onClose: () => void;
 }
 
-export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Props) {
+export function RejectModal({ runId, currentStepIdx, steps, onClose }: Props) {
   const [reason, setReason] = useState('');
   const [targetIdx, setTargetIdx] = useState(currentStepIdx);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -42,9 +42,20 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
     onClose();
   };
 
-  const currentAgent = stepAgents[currentStepIdx] ?? '';
-  const upstreamOptions = stepAgents
-    .map((agent, i) => ({ idx: i, agent }))
+  // Two steps can share an agent (cr-build-spec and cr-build both run cr-dev),
+  // so the step name is what tells them apart; the agent rides along.
+  const stepLabel = (i: number) => {
+    const s = steps[i];
+    if (!s) return '';
+    return s.name && s.name !== s.agent ? `${s.name} · ${s.agent}` : s.agent;
+  };
+  const resetsHint = (idx: number) =>
+    idx + 1 === currentStepIdx
+      ? `Resets step ${currentStepIdx + 1} to pending`
+      : `Resets ${idx + 2}–${currentStepIdx + 1} to pending`;
+  const currentLabel = stepLabel(currentStepIdx);
+  const upstreamOptions = steps
+    .map((_, i) => ({ idx: i, label: stepLabel(i) }))
     .filter((s) => s.idx < currentStepIdx);
 
   return (
@@ -63,7 +74,7 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
             </h2>
             <p className="mt-0.5 text-[11.5px] text-muted-foreground">
               Step {currentStepIdx + 1} —{' '}
-              <span className="font-mono text-foreground/80">{currentAgent}</span>
+              <span className="font-mono text-foreground/80">{currentLabel}</span>
             </p>
           </div>
           <button
@@ -98,7 +109,7 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
                 checked={targetIdx === currentStepIdx}
                 onSelect={() => setTargetIdx(currentStepIdx)}
                 label={`Stay on step ${currentStepIdx + 1}`}
-                detail={`Rerun in place — ${currentAgent}`}
+                detail={`Rerun in place — ${currentLabel}`}
                 hint="Default"
               />
               {upstreamOptions
@@ -110,8 +121,8 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
                     checked={targetIdx === s.idx}
                     onSelect={() => setTargetIdx(s.idx)}
                     label={`Send back to step ${s.idx + 1}`}
-                    detail={s.agent}
-                    hint={`Resets ${s.idx + 2}–${currentStepIdx + 1} to pending`}
+                    detail={s.label}
+                    hint={resetsHint(s.idx)}
                   />
                 ))}
             </div>

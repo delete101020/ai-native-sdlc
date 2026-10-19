@@ -940,9 +940,14 @@ export async function rejectStepInlineCommand(
  */
 async function pickRejectTarget(state: RunState, fromIdx?: number): Promise<number | undefined> {
   const idx = fromIdx ?? state.currentStepIdx;
+  // Steps can share an agent, so the step name is what tells them apart.
+  const stepLabel = (i: number) => {
+    const s = state.steps[i];
+    return s.name && s.name !== s.agent ? `${s.name} · ${s.agent}` : s.agent;
+  };
   const items: Array<vscode.QuickPickItem & { stepIdx: number }> = [
     {
-      label: `$(refresh) Stay on step ${idx + 1} — ${state.steps[idx].agent}`,
+      label: `$(refresh) Stay on step ${idx + 1} — ${stepLabel(idx)}`,
       description: 'Rerun in place',
       detail: 'Mark current step rejected; user fixes and reruns same step. Default.',
       stepIdx: idx,
@@ -952,9 +957,9 @@ async function pickRejectTarget(state: RunState, fromIdx?: number): Promise<numb
   // the next item the user sees (most common cascade target).
   for (let i = idx - 1; i >= 0; i--) {
     items.push({
-      label: `$(arrow-up) Send back to step ${i + 1} — ${state.steps[i].agent}`,
+      label: `$(arrow-up) Send back to step ${i + 1} — ${stepLabel(i)}`,
       description: 'Cascade reject',
-      detail: `Resets steps ${i + 2}–${idx + 1} to pending; revision++ on step ${i + 1}.`,
+      detail: `${i + 1 === idx ? `Resets step ${idx + 1}` : `Resets steps ${i + 2}–${idx + 1}`} to pending; revision++ on step ${i + 1}.`,
       stepIdx: i,
     });
   }

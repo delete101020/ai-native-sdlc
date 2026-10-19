@@ -2547,7 +2547,7 @@ function RunGate({
         <RejectModal
           runId={epic.runId}
           currentStepIdx={focusedIdx}
-          stepAgents={epic.stepDetails.map((d) => d.agent)}
+          steps={epic.stepDetails.map((d) => ({ agent: d.agent, name: d.stepName }))}
           onClose={() => setRejectOpen(false)}
         />
       )}
