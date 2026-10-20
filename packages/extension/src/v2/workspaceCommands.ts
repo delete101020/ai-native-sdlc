@@ -459,9 +459,17 @@ export function registerV2WorkspaceCommands(
       recordLaunchedSkill(root, id, step, slash);
       recordLaunchedModel(root, id, step);
 
-      const prompt = fb
-        ? `${slash} ${id} — Update artifact per feedback: "${fb.replace(/"/g, '\\"')}"`
-        : `${slash} ${id}`;
+      // The feedback goes to a file the prompt points at, never into the
+      // command line: a long or multi-line text pasted into a shell is cut at
+      // the first newline (or by the shell's own quoting), and the agent got
+      // half a sentence.
+      let prompt = `${slash} ${id}`;
+      if (fb) {
+        const rel = `.aidlc/runs/${id}.feedback.md`;
+        fs.mkdirSync(path.join(root, '.aidlc', 'runs'), { recursive: true });
+        fs.writeFileSync(path.join(root, rel), fb + '\n', 'utf8');
+        prompt += ` — Update the artifact per the feedback in ${rel}. Read that whole file before anything else.`;
+      }
 
       // GH-73 Problem B: Always create fresh terminal; never reuse existing
       // one since it might be at shell prompt, not Claude REPL.
