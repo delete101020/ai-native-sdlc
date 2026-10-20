@@ -11,6 +11,10 @@ export interface PipelineDraft {
   id: string;
   on_failure: 'stop' | 'continue';
   steps: PipelineStepDraft[];
+  /** Meant to run unattended under Run to completion. */
+  autopilot?: boolean;
+  /** Send-backs before the loop stops for a person; unset = 3. */
+  max_send_backs?: number;
 }
 
 export interface PipelineStepDraft {
@@ -58,6 +62,10 @@ export function PipelineModal({
     initial?.on_failure ?? 'stop',
   );
   const [steps, setSteps] = useState<PipelineStepDraft[]>(initial?.steps ?? []);
+  const [autopilot, setAutopilot] = useState(initial?.autopilot === true);
+  const [maxSendBacks, setMaxSendBacks] = useState(
+    initial?.max_send_backs != null ? String(initial.max_send_backs) : '',
+  );
   const idInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -93,13 +101,18 @@ export function PipelineModal({
     ? 'Auto-review steps need a runner path'
     : null;
 
-  const error = idError || stepsError || runnerError;
+  const maxSendBacksError =
+    maxSendBacks.trim() && !/^\d+$/.test(maxSendBacks.trim()) ? 'Max send-backs must be a whole number (0 or more)' : null;
+
+  const error = idError || stepsError || runnerError || maxSendBacksError;
 
   const submit = () => {
     if (error) { return; }
     onSubmit({
       id: trimmedId,
       on_failure: onFailure,
+      autopilot,
+      max_send_backs: maxSendBacks.trim() ? Number(maxSendBacks.trim()) : undefined,
       steps: steps.map((s) => {
         const name = (s.name ?? '').trim();
         return {
@@ -207,6 +220,57 @@ export function PipelineModal({
               label="continue"
               hint="Run remaining agents even if one fails"
             />
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+            Run to completion
+          </label>
+          <button
+            type="button"
+            onClick={() => setAutopilot((v) => !v)}
+            className="flex w-full items-start gap-3 rounded-md border border-border bg-secondary/30 px-3 py-2.5 text-left hover:bg-accent/40"
+          >
+            <div
+              className={cn(
+                'mt-0.5 flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors',
+                autopilot ? 'bg-primary' : 'bg-muted',
+              )}
+            >
+              <div
+                className={cn(
+                  'h-3 w-3 rounded-full bg-background transition-transform',
+                  autopilot ? 'translate-x-3' : 'translate-x-0',
+                )}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[12px] font-medium text-foreground">Autopilot</div>
+              <div className="text-[10.5px] text-muted-foreground">
+                Meant to run unattended. Run to completion first checks it is safe to leave: not on main, a clean
+                working tree, the approval-gate hook registered.
+              </div>
+            </div>
+          </button>
+          <div className="mt-2 flex items-center gap-2">
+            <label htmlFor="pipeline-max-send-backs" className="text-[11px] text-foreground">
+              Max send-backs
+            </label>
+            <input
+              id="pipeline-max-send-backs"
+              type="text"
+              inputMode="numeric"
+              value={maxSendBacks}
+              onChange={(e) => setMaxSendBacks(e.target.value)}
+              placeholder="3"
+              spellCheck={false}
+              className="w-16 rounded-md border border-border bg-input/50 px-2 py-1 font-mono text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none"
+            />
+            <span className="text-[10px] italic text-muted-foreground">
+              times an auto-review reject may reopen an earlier step before the loop stops for you. 0 = stop at the
+              first. Set the target per step: step config → Send rejects back to.
+            </span>
           </div>
         </div>
 

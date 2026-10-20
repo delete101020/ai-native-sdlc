@@ -524,6 +524,12 @@ export interface PipelineStepSummary {
   auto_review_runner?: string;
   /** Max ms the auto_review validator may run before it's aborted (C2). */
   auto_review_timeout_ms?: number;
+  /** `on_reject.send_back_to`: the earlier step an auto-review reject reopens. */
+  send_back_to?: string;
+  /** Runs as a series of sessions, each ending its report on `Status: continue|done`. */
+  batches?: boolean;
+  /** Batches one Run to completion may run before stopping; unset = the default. */
+  max_batches?: number;
 }
 
 export interface PipelineSummary {
@@ -552,6 +558,10 @@ export interface PipelineSummary {
    * for why. Gates and `depends_on` stay editable — they move no step.
    */
   pinnedByEpic?: string;
+  /** Meant to run unattended: Run to completion checks it is safe to leave first. */
+  autopilot?: boolean;
+  /** Send-backs the loop may make before stopping for a person; unset = 3. */
+  max_send_backs?: number;
 }
 
 /**

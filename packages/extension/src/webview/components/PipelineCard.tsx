@@ -55,6 +55,8 @@ export function PipelineCard({
   const initialDraft: PipelineDraft = {
     id: pipeline.id,
     on_failure: pipeline.on_failure,
+    autopilot: pipeline.autopilot === true,
+    max_send_backs: pipeline.max_send_backs,
     steps: pipeline.steps.map((s) => ({
       agent: s.agent,
       name: s.name,
@@ -74,6 +76,14 @@ export function PipelineCard({
       <div className="flex items-center gap-2 border-b border-border pb-2">
         <div className="font-mono text-xs font-bold text-primary">{pipeline.id}</div>
         <span className="text-[10px] text-muted-foreground">{total} steps</span>
+        {pipeline.autopilot && (
+          <Badge
+            color="info"
+            title={`autopilot: true — Run to completion checks it is safe to leave first; max ${pipeline.max_send_backs ?? 3} send-backs`}
+          >
+            autopilot
+          </Badge>
+        )}
         <div className="flex-1" />
         <button
           type="button"
@@ -174,6 +184,7 @@ export function PipelineCard({
               pipelineId={pipeline.id}
               agents={agents}
               siblingNodeIds={pipeline.steps.map((s) => s.name ?? s.agent).filter((_, j) => j !== i)}
+              pipelineSteps={pipeline.steps}
               onAddParallel={() => { setParallelToAgent(step.name ?? step.agent); setPickerOpen(true); }}
               locked={locked}
               isDragging={dragSrc === i}
@@ -391,6 +402,7 @@ function DagFlow({
                   pipelineId={pipeline.id}
                   agents={agents}
                   siblingNodeIds={pipeline.steps.map((s) => s.name ?? s.agent).filter((_, j) => j !== idx)}
+                  pipelineSteps={pipeline.steps}
                   onAddParallel={() => onAddParallel(step.name ?? step.agent)}
                   locked={locked}
                   isDragging={dragSrc === idx}
@@ -489,6 +501,7 @@ function DagNode({
   pipelineId,
   agents,
   siblingNodeIds,
+  pipelineSteps,
   onAddParallel,
   locked,
   isDragging,
@@ -507,6 +520,8 @@ function DagNode({
   agents: AgentSummary[];
   /** Node ids of the other steps — candidates for this step's `depends_on`. */
   siblingNodeIds: string[];
+  /** The whole step list, for the config modal's send-back targets. */
+  pipelineSteps: PipelineStepSummary[];
   onAddParallel: () => void;
   /** Epic id pinning the step list — hides everything that would move a step. */
   locked?: string;
@@ -606,7 +621,7 @@ function DagNode({
             </NodeIcon>
           )}
         </div>
-        {(step.agent || (step.skills && step.skills.length > 0) || step.auto_review || step.human_review) && (
+        {(step.agent || (step.skills && step.skills.length > 0) || step.auto_review || step.human_review || step.batches) && (
           <div className="flex flex-wrap gap-1">
             {step.agent && (
               <Badge title={`Agent (persona) — ${step.agent}`}>
@@ -633,6 +648,19 @@ function DagNode({
                 <Bot className="mr-0.5 inline h-2.5 w-2.5" /> auto
               </Badge>
             )}
+            {step.auto_review && step.send_back_to && (
+              <Badge
+                color="info"
+                title={`on_reject.send_back_to: ${step.send_back_to} — an auto-review reject reopens it and the loop carries on`}
+              >
+                ↩ {stripAidlcPrefix(step.send_back_to)}
+              </Badge>
+            )}
+            {step.batches && (
+              <Badge title={`batches: true — fresh sessions until the report says Status: done${step.max_batches ? ` (max ${step.max_batches})` : ''}`}>
+                ⟳ batches
+              </Badge>
+            )}
             {step.human_review && (
               <Badge
                 color="warning"
@@ -651,6 +679,7 @@ function DagNode({
           step={step}
           agents={agents}
           siblingNodeIds={siblingNodeIds}
+          pipelineSteps={pipelineSteps}
           onSubmit={(config) =>
             postMessage({ type: 'editStepConfig', pipelineId, idx, config })
           }
@@ -668,6 +697,7 @@ function FlowNode({
   pipelineId,
   agents,
   siblingNodeIds,
+  pipelineSteps,
   onAddParallel,
   locked,
   isDragging,
@@ -684,6 +714,8 @@ function FlowNode({
   agents: AgentSummary[];
   /** Node ids of the other steps — candidates for this step's `depends_on`. */
   siblingNodeIds: string[];
+  /** The whole step list, for the config modal's send-back targets. */
+  pipelineSteps: PipelineStepSummary[];
   /** Opens the step picker; result is added in parallel with this step. */
   onAddParallel: () => void;
   /** Epic id pinning the step list — hides everything that would move a step. */
@@ -782,7 +814,7 @@ function FlowNode({
           </div>
         </div>
 
-        {(step.agent || (step.skills && step.skills.length > 0) || requires > 0 || produces > 0 || step.auto_review || step.human_review || !step.enabled) && (
+        {(step.agent || (step.skills && step.skills.length > 0) || requires > 0 || produces > 0 || step.auto_review || step.human_review || step.batches || !step.enabled) && (
           <div className="flex flex-wrap gap-1">
             {step.agent && (
               <Badge title={`Agent (persona) — ${step.agent}`}>
@@ -828,6 +860,19 @@ function FlowNode({
                 <Bot className="mr-0.5 inline h-2.5 w-2.5" /> auto
               </Badge>
             )}
+            {step.auto_review && step.send_back_to && (
+              <Badge
+                color="info"
+                title={`on_reject.send_back_to: ${step.send_back_to} — an auto-review reject reopens it and the loop carries on`}
+              >
+                ↩ {stripAidlcPrefix(step.send_back_to)}
+              </Badge>
+            )}
+            {step.batches && (
+              <Badge title={`batches: true — fresh sessions until the report says Status: done${step.max_batches ? ` (max ${step.max_batches})` : ''}`}>
+                ⟳ batches
+              </Badge>
+            )}
             {step.human_review && (
               <Badge
                 color="warning"
@@ -854,6 +899,7 @@ function FlowNode({
           step={step}
           agents={agents}
           siblingNodeIds={siblingNodeIds}
+          pipelineSteps={pipelineSteps}
           onSubmit={(config) =>
             postMessage({ type: 'editStepConfig', pipelineId, idx, config })
           }

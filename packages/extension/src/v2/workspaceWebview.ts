@@ -282,6 +282,7 @@ import type {
   StepHistoryEntry,
 } from '@aidlc/core';
 import { promptStepConfig, type PipelineStepConfigDraft } from './wizards';
+import { applyLoopSettings, applyStepLoopSettings, newSendBackIssues, rebuildEditedSteps } from './pipelineEdits';
 import {
   listEpics,
   listEpicsCached,
@@ -881,9 +882,17 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
             auto_review: norm.auto_review,
             auto_review_runner: norm.auto_review_runner,
             auto_review_timeout_ms: norm.auto_review_timeout_ms,
+            send_back_to: norm.on_reject?.send_back_to,
+            batches: norm.batches ? true : undefined,
+            // The YAML's own value: `norm` fills in the default when unset.
+            max_batches: typeof (raw as { max_batches?: unknown }).max_batches === 'number'
+              ? (raw as { max_batches: number }).max_batches
+              : undefined,
           };
         })
       : [],
+    ...(p.autopilot === true ? { autopilot: true } : {}),
+    ...(typeof p.max_send_backs === 'number' ? { max_send_backs: p.max_send_backs } : {}),
   }));
 
   // Recipes → summaries, resolving each to its source pipeline's agents so
@@ -3701,6 +3710,8 @@ export class WorkspaceWebview {
       if (!result) { return; }
       draft = result;
     }
+    // Set when the edit would leave an `on_reject` pointing nowhere valid.
+    let refused = null as string | null;
     this.mutateYaml((d) => {
       const p = d.pipelines.find((x) => x.id === pipelineId);
       if (!p || !Array.isArray(p.steps) || idx >= p.steps.length) { return false; }
@@ -3781,8 +3792,19 @@ export class WorkspaceWebview {
           if (desc) { obj.description = desc; } else { delete obj.description; }
         }
       }
+      applyStepLoopSettings(obj, inlineConfig ?? {});
+      const nextSteps = p.steps.map((st, i) => (i === idx ? obj : st));
+      const broken = newSendBackIssues(p.steps, nextSteps);
+      if (broken.length > 0) {
+        refused = broken.join('\n');
+        return false;
+      }
       p.steps[idx] = obj as unknown as PipelineStepConfig;
     });
+    if (refused) {
+      void vscode.window.showWarningMessage(`Step #${idx + 1} of \`${pipelineId}\` not saved: ${refused}`);
+      return;
+    }
 
     this.reportGateEffect(root, pipelineId, idx, norm, draft);
   }
@@ -5554,7 +5576,9 @@ export class WorkspaceWebview {
       // would clobber the entries `ensureWorkspaceAgentsForSteps` added on
       // the stale `doc` it received.
       this.applySyncedAgents(d, sync.added);
-      d.pipelines.push({ id, steps, on_failure: onFailure });
+      const added: Record<string, unknown> = { id, steps, on_failure: onFailure };
+      applyLoopSettings(added, draft);
+      d.pipelines.push(added);
       // Wire each named step as a slash command (+ `.claude/commands/*.md`)
       // so "Run step" doesn't fail with "command not found" on this pipeline.
       this.writeCustomPipelineCommands(root, id, steps as Array<Record<string, unknown>>, d);
@@ -5724,97 +5748,14 @@ export class WorkspaceWebview {
       return;
     }
 
-    // Preserve fields the step modal doesn't edit (requires/produces and the
-    // gate fields with no UI yet: produces_contains, auto_review_timeout_ms)
-    // from the existing pipeline by agent id — first occurrence consumed per
-    // match so duplicate-agent steps still pair up with their original
-    // entries in order. Without this, re-saving a pipeline through the
-    // builder would silently drop hand-authored fields.
-    const oldByAgent = new Map<
-      string,
-      Array<{
-        name?: string;
-        description?: string;
-        requires: ProducesEntry[];
-        produces: ProducesEntry[];
-        produces_contains: string[];
-        auto_review_timeout_ms?: number;
-      }>
-    >();
-    if (Array.isArray(pipeline.steps)) {
-      for (const raw of pipeline.steps as PipelineStepConfig[]) {
-        const norm = normalizeStep(raw);
-        const arr = oldByAgent.get(norm.agent) ?? [];
-        arr.push({
-          name: norm.name,
-          description: norm.description,
-          requires: requiresEntries(norm),
-          // Entry form, so a `{ path, optional: true }` survives the re-save.
-          produces: producesEntries(norm),
-          produces_contains: norm.produces_contains,
-          auto_review_timeout_ms: norm.auto_review_timeout_ms,
-        });
-        oldByAgent.set(norm.agent, arr);
-      }
+    // Fields the modal does not edit stay as they are on the YAML step it
+    // came from — see `rebuildEditedSteps`.
+    const rebuilt = rebuildEditedSteps(Array.isArray(pipeline.steps) ? pipeline.steps : [], stepsRaw);
+    if (!rebuilt.ok) {
+      void vscode.window.showWarningMessage(`Pipeline "${id}" not saved: ${rebuilt.error}`);
+      return;
     }
-
-    const newSteps: unknown[] = [];
-    for (const raw of stepsRaw) {
-      if (!raw || typeof raw !== 'object') { continue; }
-      const r = raw as Record<string, unknown>;
-      const agent = String(r.agent ?? '').trim();
-      const stepName = typeof r.name === 'string' ? r.name.trim() : '';
-      const skillsArr = Array.isArray(r.skills)
-        ? (r.skills as unknown[]).map(String).filter((s) => s.length > 0)
-        : [];
-      const dependsOnArr = Array.isArray(r.depends_on)
-        ? (r.depends_on as unknown[]).map(String).filter((s) => s.length > 0)
-        : [];
-      const human_review = r.human_review === true;
-      const auto_review = r.auto_review === true;
-      const runner = typeof r.auto_review_runner === 'string' ? r.auto_review_runner.trim() : '';
-      if (auto_review && !runner) {
-        void vscode.window.showWarningMessage(
-          `Step "${agent}": auto_review is on but runner path is empty.`,
-        );
-        return;
-      }
-
-      // Several steps can share one agent (a dev agent that specs, then
-      // builds), so pair by step name first and only then by position —
-      // otherwise reordering them in the modal swaps their descriptions.
-      const pool = oldByAgent.get(agent) ?? [];
-      const byName = stepName ? pool.findIndex((c) => c.name === stepName) : -1;
-      const carry = pool.splice(byName >= 0 ? byName : 0, 1)[0];
-      const step: Record<string, unknown> = {
-        agent,
-        enabled: true,
-        requires: carry?.requires ?? [],
-        produces: carry?.produces ?? [],
-        human_review,
-        auto_review,
-      };
-      if (stepName) { step.name = stepName; }
-      if (carry?.description) { step.description = carry.description; }
-      if (skillsArr.length > 0) { step.skills = skillsArr; }
-      if (typeof r.default_skill === 'string' && skillsArr.length > 1 && skillsArr.includes(r.default_skill)) {
-        step.default_skill = r.default_skill;
-      }
-      // Carry DAG edges. The modal doesn't let the user edit deps, but a
-      // save-without-deps would silently flatten the workflow's columns,
-      // so we round-trip whatever the webview sent.
-      if (dependsOnArr.length > 0) { step.depends_on = dependsOnArr; }
-      if (auto_review) { step.auto_review_runner = runner; }
-      // Round-trip gate fields that have no modal UI yet, so editing a
-      // pipeline doesn't discard hand-authored values.
-      if (carry?.produces_contains && carry.produces_contains.length > 0) {
-        step.produces_contains = carry.produces_contains;
-      }
-      if (typeof carry?.auto_review_timeout_ms === 'number') {
-        step.auto_review_timeout_ms = carry.auto_review_timeout_ms;
-      }
-      newSteps.push(step);
-    }
+    const newSteps = rebuilt.steps;
 
     this.mutateYaml((d) => {
       // Commit synced agents/skills in the same write that updates the
@@ -5825,6 +5766,7 @@ export class WorkspaceWebview {
       if (!p) { return false; }
       p.steps = newSteps;
       p.on_failure = onFailure;
+      applyLoopSettings(p as Record<string, unknown>, draft);
       // Provision slash commands for any newly-named steps (idempotent —
       // existing entries + command files are left untouched).
       this.writeCustomPipelineCommands(root, id, newSteps as Array<Record<string, unknown>>, d);

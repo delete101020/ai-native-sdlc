@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { AgentSummary, PipelineStepSummary } from '@/lib/types';
+import { sendBackChoices, sendBackSources } from '@/lib/pipelines';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
 
 export interface StepConfigDraft {
@@ -24,6 +25,11 @@ export interface StepConfigDraft {
   auto_review_runner?: string;
   /** Max ms the auto_review validator may run before it's aborted (C2). */
   auto_review_timeout_ms?: number;
+  /** `on_reject.send_back_to`; empty = an auto-review reject stops at this step. */
+  send_back_to: string;
+  batches: boolean;
+  /** Unset = the runner's default ceiling. */
+  max_batches?: number;
 }
 
 interface Props {
@@ -36,11 +42,14 @@ interface Props {
   /** Node ids of the *other* steps in this pipeline (name ?? agent) — the
    *  candidates this step can depend on. Drives the "Runs after" picker. */
   siblingNodeIds?: string[];
+  /** Every step of the pipeline, this one included — the send-back targets
+   *  are the steps before it. */
+  pipelineSteps?: PipelineStepSummary[];
   onSubmit: (config: StepConfigDraft) => void;
   onClose: () => void;
 }
 
-export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds = [], onSubmit, onClose }: Props) {
+export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds = [], pipelineSteps = [], onSubmit, onClose }: Props) {
   const [description, setDescription] = useState(step.description ?? '');
   const [enabled, setEnabled] = useState(step.enabled);
   const [requires, setRequires] = useState((step.requires ?? []).join('\n'));
@@ -52,6 +61,11 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
   const [timeoutMs, setTimeoutMs] = useState(
     step.auto_review_timeout_ms != null ? String(step.auto_review_timeout_ms) : '',
   );
+  const [sendBackTo, setSendBackTo] = useState(step.send_back_to ?? '');
+  const [batches, setBatches] = useState(step.batches === true);
+  const [maxBatches, setMaxBatches] = useState(step.max_batches != null ? String(step.max_batches) : '');
+  const backChoices = useMemo(() => sendBackChoices(pipelineSteps, idx), [pipelineSteps, idx]);
+  const backSources = useMemo(() => sendBackSources(pipelineSteps, idx), [pipelineSteps, idx]);
   const [pickedSkills, setPickedSkills] = useState<string[]>(step.skills ?? []);
   const [defaultSkill, setDefaultSkill] = useState(step.default_skill ?? '');
   // Drop any stale deps that no longer match a sibling node id.
@@ -90,7 +104,21 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
     timeoutMs.trim() && !/^\d+$/.test(timeoutMs.trim())
       ? 'Must be a positive whole number of milliseconds'
       : null;
-  const canSubmit = !runnerError && !timeoutError;
+  const maxBatchesError =
+    batches && maxBatches.trim() && !/^[1-9]\d*$/.test(maxBatches.trim())
+      ? 'Must be a whole number of 1 or more'
+      : null;
+  const sendBackError = autoReview && sendBackTo
+    ? backChoices.find((c) => c.ref === sendBackTo)?.blocked
+      ?? (backChoices.some((c) => c.ref === sendBackTo) ? null : `"${sendBackTo}" is not a step before this one`)
+    : null;
+  // Turning human review on here breaks every later step that sends its
+  // rejects back to this one — the host refuses that save, so say it here.
+  const humanReviewError = humanReview && backSources.length > 0
+    ? `${backSources.join(', ')} send${backSources.length === 1 ? 's' : ''} auto-review rejects back to this step, ` +
+      'and a send-back target cannot have human review. Change that step\'s "Send rejects back to" first.'
+    : null;
+  const canSubmit = !runnerError && !timeoutError && !maxBatchesError && !sendBackError && !humanReviewError;
 
   const submit = () => {
     if (!canSubmit) { return; }
@@ -112,6 +140,9 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
       auto_review: autoReview,
       auto_review_runner: autoReview ? runner.trim() : undefined,
       auto_review_timeout_ms: parsedTimeout,
+      send_back_to: autoReview ? sendBackTo : '',
+      batches,
+      max_batches: batches && /^[1-9]\d*$/.test(maxBatches.trim()) ? Number(maxBatches.trim()) : undefined,
     });
     onClose();
   };
@@ -314,6 +345,9 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
           label="Human review"
           help="Pause for manual approval after the step is marked done. When off, the step auto-advances."
         />
+        {humanReviewError && (
+          <div className="-mt-2 text-[10.5px] text-destructive">{humanReviewError}</div>
+        )}
 
         <Toggle
           checked={autoReview}
@@ -356,6 +390,69 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
               <p className="mt-1 text-[10px] italic text-muted-foreground">
                 Max time the validator may run before it's aborted and the step is rejected. Default 120000.
               </p>
+            )}
+            <label
+              htmlFor="step-send-back"
+              className="mb-1 mt-3 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground"
+            >
+              Send rejects back to
+            </label>
+            <select
+              id="step-send-back"
+              value={sendBackTo}
+              onChange={(e) => setSendBackTo(e.target.value)}
+              className="w-full rounded-md border border-border bg-input/50 px-2 py-1.5 font-mono text-[11.5px] text-foreground focus:border-primary focus:outline-none"
+            >
+              <option value="">nowhere — reject this step and stop the run</option>
+              {backChoices.map((c) => (
+                <option key={c.ref} value={c.ref} disabled={!!c.blocked && c.ref !== sendBackTo}>
+                  {c.label}{c.blocked ? ` — ${c.blocked}` : ''}
+                </option>
+              ))}
+              {sendBackTo && !backChoices.some((c) => c.ref === sendBackTo) && (
+                <option value={sendBackTo}>{sendBackTo} — not a step before this one</option>
+              )}
+            </select>
+            {sendBackError ? (
+              <div className="mt-1 text-[10.5px] text-destructive">{sendBackError}</div>
+            ) : (
+              <p className="mt-1 text-[10px] italic text-muted-foreground">
+                {sendBackTo
+                  ? `On reject, Run to completion reopens ${sendBackTo} with the validator's reason as feedback and carries on, up to the workflow's max send-backs.`
+                  : 'For a check on the code an earlier step wrote (review, verify): rerunning this step on the same code gives the same answer.'}
+              </p>
+            )}
+          </div>
+        )}
+
+        <Toggle
+          checked={batches}
+          onChange={setBatches}
+          label="Run in batches"
+          help="Under Run to completion, a series of fresh sessions instead of one. Each ends its first produces file with Status: continue or Status: done."
+        />
+
+        {batches && (
+          <div>
+            {splitLines(produces).length === 0 && (
+              <div className="mb-2 text-[10.5px] text-destructive">
+                Needs a produces file: the first one carries the Status: line.
+              </div>
+            )}
+            <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+              Max batches per run <span className="font-normal normal-case tracking-normal">(optional)</span>
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={maxBatches}
+              onChange={(e) => setMaxBatches(e.target.value)}
+              placeholder="10"
+              spellCheck={false}
+              className="w-full rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+            />
+            {maxBatchesError && (
+              <div className="mt-1 text-[10.5px] text-destructive">{maxBatchesError}</div>
             )}
           </div>
         )}
