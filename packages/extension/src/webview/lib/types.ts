@@ -669,6 +669,14 @@ export type StepHistoryEntry =
       costUsd?: number;
     }
   | {
+      // Feedback given at launch ("Run with feedback") that the step did not
+      // already carry. Same revision; the agent reads it from the run file.
+      kind: 'feedback';
+      at: string;
+      revision: number;
+      feedback: string;
+    }
+  | {
       // A /annotate-artifact round that edited the .md, merged from the
       // artifacts folder's `.annotation-history.json` at read time.
       kind: 'annotate';

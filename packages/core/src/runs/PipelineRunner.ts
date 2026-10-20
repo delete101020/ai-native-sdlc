@@ -847,6 +847,36 @@ export function chooseStepModel(args: {
 }
 
 /**
+ * Put the feedback a step is launched with on the step itself, so the agent
+ * reads it from the run file and the history keeps it. Text the step already
+ * carries (from a rerun or a send-back) is left as it is and adds no entry;
+ * anything new replaces `feedback` and is logged as a `feedback` entry. Only
+ * the feedback moves — status and revision do not.
+ */
+export function recordLaunchFeedback(args: {
+  state: RunState;
+  stepIdx: number;
+  feedback: string;
+}): RunState {
+  const { state, stepIdx } = args;
+  if (!Number.isInteger(stepIdx) || stepIdx < 0 || stepIdx >= state.steps.length) {
+    throw new PipelineRunError(`Invalid stepIdx ${stepIdx}`);
+  }
+  const feedback = args.feedback.trim();
+  const target = state.steps[stepIdx];
+  if (!feedback || feedback === target.feedback?.trim()) { return state; }
+  const next = clone(state);
+  next.steps[stepIdx] = {
+    ...target,
+    feedback,
+    history: [...(target.history ?? []), {
+      kind: 'feedback', at: new Date().toISOString(), revision: target.revision, feedback,
+    }],
+  };
+  return next;
+}
+
+/**
  * Request an update on a previously-approved step. Triggered by the user
  * outside the awaiting_review flow when requirements change after the step
  * was approved (or after the run already moved past it). Behaves like a

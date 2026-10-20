@@ -17,6 +17,7 @@ import {
   ExternalLink,
   Eye,
   Highlighter,
+  MessageSquare,
   Brain,
   Folder,
   FolderOpen,
@@ -2086,6 +2087,8 @@ function HistoryIcon({ kind }: { kind: StepHistoryEntry['kind'] }) {
       return <Square className="mt-0.5 h-3 w-3 shrink-0 text-warning" />;
     case 'batch':
       return <RefreshCw className="mt-0.5 h-3 w-3 shrink-0 text-info" />;
+    case 'feedback':
+      return <MessageSquare className="mt-0.5 h-3 w-3 shrink-0 text-warning" />;
     case 'annotate':
       return <Highlighter className="mt-0.5 h-3 w-3 shrink-0 text-primary" />;
   }
@@ -2156,6 +2159,8 @@ function HistoryLabel({ entry }: { entry: StepHistoryEntry }) {
           </span>
         </span>
       );
+    case 'feedback':
+      return <span className="font-semibold text-warning">Run with feedback</span>;
     case 'annotate':
       return (
         <span className="font-semibold text-primary">
@@ -2176,6 +2181,8 @@ function HistoryBody({ entry }: { entry: StepHistoryEntry }) {
       return entry.feedback ? (
         <div className="font-mono text-muted-foreground">↳ {entry.feedback}</div>
       ) : null;
+    case 'feedback':
+      return <div className="whitespace-pre-wrap font-mono text-muted-foreground">↳ {entry.feedback}</div>;
     case 'auto_review':
       return (
         <div className="font-mono text-foreground/80">

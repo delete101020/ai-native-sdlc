@@ -456,6 +456,7 @@ export {
   requestStepUpdate,
   chooseStepSkill,
   chooseStepModel,
+  recordLaunchFeedback,
   canRerunApprovedStep,
   rerunApprovedStep,
   dirtyUpstreamOf,

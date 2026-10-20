@@ -46,6 +46,7 @@ import {
   requestStepUpdate,
   chooseStepSkill,
   chooseStepModel,
+  recordLaunchFeedback,
   pickAgentModel,
   normalizeStep,
   submitAutoReviewVerdict,
@@ -1180,6 +1181,35 @@ export function recordLaunchedModel(root: string, runId: string, stepIdx: number
     saveRun(root, chooseStepModel({ state, stepIdx, models: opts.models, model }), state);
   } catch {
     // Not an agent with models, or its default is not among them: nothing to record.
+  }
+}
+
+/**
+ * Put a launch's feedback on the step it runs, for the prompt to point at:
+ * the text the agent gets is the step's `feedback` in the run file, and the
+ * history says what it was. Returns where to read it, or `null` when the run
+ * or step cannot be found — the caller must not launch without the feedback.
+ *
+ * Replaces `.aidlc/runs/<id>.feedback.md`, a file outside the run state that
+ * lingered untracked (or was swept into a feature commit) after the run; an
+ * old one is removed here.
+ */
+export function recordLaunchedFeedback(
+  root: string, runId: string, stepIdx: number | null, feedback: string,
+): { file: string; stepIdx: number; step: string } | null {
+  try {
+    fs.rmSync(path.join(RunStateStore.dir(root), `${runId}.feedback.md`), { force: true });
+    const state = RunStateStore.load(root, runId);
+    if (!state) { return null; }
+    const idx = stepIdx ?? state.currentStepIdx;
+    const rec = state.steps[idx];
+    if (!rec) { return null; }
+    const next = recordLaunchFeedback({ state, stepIdx: idx, feedback });
+    if (next !== state) { saveRun(root, next, state); }
+    const file = path.relative(root, RunStateStore.file(root, runId)).split(path.sep).join('/');
+    return { file, stepIdx: idx, step: rec.name ?? rec.agent };
+  } catch {
+    return null;
   }
 }
 

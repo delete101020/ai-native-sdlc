@@ -67,6 +67,7 @@ import {
   deleteEpicCommand,
   recordLaunchedSkill,
   recordLaunchedModel,
+  recordLaunchedFeedback,
   launchModelFor,
 } from './runCommands';
 
@@ -455,21 +456,25 @@ export function registerV2WorkspaceCommands(
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!root) { return; }
 
+      // The feedback goes on the step in the run file, and the prompt points
+      // at it — never into the command line, where a long or multi-line text
+      // is cut at the first newline (or by the shell's own quoting).
+      let prompt = `${slash} ${id}`;
+      if (fb) {
+        const at = recordLaunchedFeedback(root, id, step, fb);
+        if (!at) {
+          void vscode.window.showErrorMessage(
+            `Could not record the feedback on run "${id}", so the step was not launched. Reload the run and try again.`,
+          );
+          return;
+        }
+        prompt += ` — Update the artifact per the feedback of step ${at.stepIdx + 1} ("${at.step}"): ` +
+          `the "feedback" field of steps[${at.stepIdx}] in ${at.file}. Read it before anything else.`;
+      }
+
       ensureCommandFiles(root);
       recordLaunchedSkill(root, id, step, slash);
       recordLaunchedModel(root, id, step);
-
-      // The feedback goes to a file the prompt points at, never into the
-      // command line: a long or multi-line text pasted into a shell is cut at
-      // the first newline (or by the shell's own quoting), and the agent got
-      // half a sentence.
-      let prompt = `${slash} ${id}`;
-      if (fb) {
-        const rel = `.aidlc/runs/${id}.feedback.md`;
-        fs.mkdirSync(path.join(root, '.aidlc', 'runs'), { recursive: true });
-        fs.writeFileSync(path.join(root, rel), fb + '\n', 'utf8');
-        prompt += ` — Update the artifact per the feedback in ${rel}. Read that whole file before anything else.`;
-      }
 
       // GH-73 Problem B: Always create fresh terminal; never reuse existing
       // one since it might be at shell prompt, not Claude REPL.

@@ -259,6 +259,18 @@ export type StepHistoryEntry =
     }
   | {
       /**
+       * Feedback given when the step was launched ("Run with feedback"), when
+       * it is not the text the step already carried. The launch prompt points
+       * the agent at the step's `feedback`, so this is the record of what it
+       * was told — the revision does not change.
+       */
+      kind: 'feedback';
+      at: string;
+      revision: number;
+      feedback: string;
+    }
+  | {
+      /**
        * A round of the /annotate-artifact review loop that edited the .md.
        * Sourced from the artifacts folder's `.annotation-history.json` and
        * merged into the owning step's history at read time (never written to

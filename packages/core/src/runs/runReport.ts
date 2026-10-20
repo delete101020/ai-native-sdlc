@@ -67,6 +67,8 @@ function renderHistory(history: StepHistoryEntry[]): string[] {
         return h.why === 'timeout'
           ? `  - ⏱ stopped after ${h.minutes ?? '?'} min (timeout_minutes, rev ${h.revision})`
           : `  - ⏹ stopped mid-step (rev ${h.revision})`;
+      case 'feedback':
+        return `  - ✎ launched with feedback (rev ${h.revision}): ${h.feedback}`;
       case 'batch':
         return `  - ↻ batch ${h.batch} done, more to come (rev ${h.revision}` +
           `${typeof h.costUsd === 'number' ? `, $${h.costUsd.toFixed(4)}` : ''})`;
