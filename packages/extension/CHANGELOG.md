@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.0.42
+
+Long feedback now reaches the agent in full when you rerun a step or use
+**Update with feedback**.
+
+### Fixed
+
+- Feedback is written to `.aidlc/runs/<epic>.feedback.md` and the prompt points
+  the agent at that file. It used to be pasted into the `claude '…'` command
+  line, where a newline or a quote cut it short, so the agent saw only part of it.
+
 ## 4.0.41
 
 Autopilot: once a person has approved intent and build-plan, a run can carry
