@@ -143,4 +143,13 @@
     -webkit-font-smoothing: antialiased;
     margin: 0;
   }
+  /* A native <select>'s popup list paints its own background: with a translucent
+     bg-input it falls back to white while the options inherit light text. */
+  .dark {
+    color-scheme: dark;
+  }
+  option {
+    background-color: var(--color-popover);
+    color: var(--color-popover-foreground);
+  }
 }
