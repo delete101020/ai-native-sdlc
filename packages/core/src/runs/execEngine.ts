@@ -105,6 +105,15 @@ export interface ExecOptions {
  * renders. The engine calls these instead of writing to a console, so the
  * same loop backs the CLI (chalk) and the extension (panel).
  */
+/**
+ * How a step is named to a person: `name · agent`. Two steps can share an
+ * agent (cr-build-spec and cr-build both run cr-dev), so the agent alone does
+ * not say which step it is. Every hook event carries this as `label`.
+ */
+export function stepLabel(s: { agent: string; name?: string }): string {
+  return s.name && s.name !== s.agent ? `${s.name} · ${s.agent}` : s.agent;
+}
+
 export interface ExecHooks {
   /** Live claude stdout stream. */
   onOutput?(chunk: string): void;
@@ -116,7 +125,7 @@ export interface ExecHooks {
   onRunFailed?(reason: string): void;
   /** A step is about to execute. */
   onStepStart?(e: {
-    stepIdx: number; agent: string; revision: number;
+    stepIdx: number; agent: string; label: string; revision: number;
     skills: string[]; model?: string; context?: string;
     /**
      * Approved-but-suspect steps this one depends on — see `dirtyUpstreamOf`.
@@ -128,35 +137,35 @@ export interface ExecHooks {
   }): void;
   /** A step finished `markStepDone` and transitioned. */
   onStepResult?(e: {
-    stepIdx: number; agent: string; status: string; costUsd?: number;
+    stepIdx: number; agent: string; label: string; status: string; costUsd?: number;
     /** True when costUsd came from tokens × a declared rate, not from the CLI. */
     costEstimated?: boolean;
     runner?: string; model?: string;
   }): void;
   /** The runner exited non-zero, or `markStepDone` rejected the artifacts. */
   onStepFailed?(e: {
-    stepIdx: number; agent: string; missing?: string[]; message?: string;
+    stepIdx: number; agent: string; label: string; missing?: string[]; message?: string;
   }): void;
   /** Loop paused at a human_review gate. */
-  onAwaitingReview?(e: { agent: string; runId: string }): void;
+  onAwaitingReview?(e: { agent: string; label: string; runId: string }): void;
   /**
    * The running step was stopped through {@link ExecOptions.signal}. It is
    * left `awaiting_work`; the loop returns `cancelled` next.
    */
-  onStepStopped?(e: { stepIdx: number; agent: string; revision: number; runId: string }): void;
+  onStepStopped?(e: { stepIdx: number; agent: string; label: string; revision: number; runId: string }): void;
   /**
    * A session of a `batches: true` step ended on `Status: continue`. The step
    * stays `awaiting_work`, and the loop starts the next session unless it
    * stops for {@link onBatchPause} or the batch ceiling.
    */
   onBatchDone?(e: {
-    stepIdx: number; agent: string; revision: number; batch: number;
+    stepIdx: number; agent: string; label: string; revision: number; batch: number;
     costUsd?: number; costEstimated?: boolean; runId: string;
   }): void;
   /** `pause_between_batches`: the loop stopped after a batch, for a person to look first. */
-  onBatchPause?(e: { stepIdx: number; agent: string; batch: number; report: string; runId: string }): void;
+  onBatchPause?(e: { stepIdx: number; agent: string; label: string; batch: number; report: string; runId: string }): void;
   /** Loop paused because the current step was rejected. */
-  onRejected?(e: { agent: string; runId: string }): void;
+  onRejected?(e: { agent: string; label: string; runId: string }): void;
   /**
    * A step the run sent work back to came back with the code unchanged, so
    * the loop stopped rather than have it reviewed into the same reject again.
@@ -164,27 +173,27 @@ export interface ExecHooks {
    * and a step that hit `max_batches` still asking for more. The step is left
    * `awaiting_work` on the same revision.
    */
-  onStalled?(e: { stepIdx: number; agent: string; revision: number; reason: string; runId: string }): void;
+  onStalled?(e: { stepIdx: number; agent: string; label: string; revision: number; reason: string; runId: string }): void;
   /**
    * A rejected step the loop walked past — `optional: true`, or a pipeline
    * with `on_failure: continue` — naming where it went instead.
    */
   onStepSkipped?(e: {
-    stepIdx: number; agent: string; reason: string; nextStepIdx: number; runId: string;
+    stepIdx: number; agent: string; label: string; reason: string; nextStepIdx: number; runId: string;
   }): void;
   /** Auto-review validator is about to run. */
-  onAutoReviewStart?(e: { agent: string }): void;
+  onAutoReviewStart?(e: { agent: string; label: string }): void;
   /**
    * Auto-review verdict landed. On a reject, `reason` is what the run
    * recorded — the validator's reason plus why the run did not send the work
    * back, when it did not — and `sentBackTo` is set when it did.
    */
   onAutoReviewResult?(e: {
-    agent: string; decision: 'pass' | 'reject'; reason: string; runId: string;
-    sentBackTo?: { stepIdx: number; agent: string; revision: number; count: number; max: number };
+    agent: string; label: string; decision: 'pass' | 'reject'; reason: string; runId: string;
+    sentBackTo?: { stepIdx: number; agent: string; label: string; revision: number; count: number; max: number };
   }): void;
   /** A human_review step was auto-approved (--auto-approve). */
-  onAutoApproved?(e: { agent: string }): void;
+  onAutoApproved?(e: { agent: string; label: string }): void;
   /** Budget verdict after a step ran. */
   onBudget?(e: {
     spent: number; limit: number; ok: boolean;
@@ -326,7 +335,7 @@ async function execLoop(
         await autoApproveStep(root, state, hooks);
         continue;
       }
-      hooks.onAwaitingReview?.({ agent: step.agent, runId });
+      hooks.onAwaitingReview?.({ agent: step.agent, label: stepLabel(step), runId });
       return { kind: 'awaiting_review' };
     }
 
@@ -345,7 +354,7 @@ async function execLoop(
       if (skippable && openElsewhere >= 0) {
         hooks.onStepSkipped?.({
           stepIdx: state.currentStepIdx,
-          agent: step.agent,
+          agent: step.agent, label: stepLabel(step),
           reason: step.rejectReason ?? step.autoReviewVerdict?.reason ?? 'rejected',
           nextStepIdx: openElsewhere,
           runId,
@@ -353,7 +362,7 @@ async function execLoop(
         persist(root, { ...state, currentStepIdx: openElsewhere });
         continue;
       }
-      hooks.onRejected?.({ agent: step.agent, runId });
+      hooks.onRejected?.({ agent: step.agent, label: stepLabel(step), runId });
       return { kind: 'rejected' };
     }
 
@@ -368,7 +377,7 @@ async function execLoop(
       }
       const parked = state.steps.find((s) => s.status === 'rejected');
       if (parked) {
-        hooks.onRejected?.({ agent: parked.agent, runId });
+        hooks.onRejected?.({ agent: parked.agent, label: stepLabel(parked), runId });
         return { kind: 'rejected' };
       }
     }
@@ -398,7 +407,7 @@ async function execLoop(
       const batchNo = after ? batchesOf(after.steps[idx]).length : n;
       if (cfg && n >= cfg.max) {
         hooks.onStalled?.({
-          stepIdx: idx, agent: step.agent, revision: step.revision, runId,
+          stepIdx: idx, agent: step.agent, label: stepLabel(step), revision: step.revision, runId,
           reason: `"${step.agent}" ran ${n} batch${n === 1 ? '' : 'es'} (\`max_batches: ${cfg.max}\`) and still ` +
             'says `Status: continue`. Read its progress before letting it carry on: running exec again allows ' +
             `${cfg.max} more.`,
@@ -407,7 +416,7 @@ async function execLoop(
       }
       if (cfg?.pause) {
         hooks.onBatchPause?.({
-          stepIdx: idx, agent: step.agent, batch: batchNo, runId,
+          stepIdx: idx, agent: step.agent, label: stepLabel(step), batch: batchNo, runId,
           report: batchReport(initialPipeline, after ?? state, idx) ?? '',
         });
         return { kind: 'batch_pause' };
@@ -540,19 +549,19 @@ async function execStep(
   try {
     ws = WorkspaceLoader.load(root);
   } catch (err) {
-    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to load workspace: ${errMsg(err)}` });
+    hooks.onStepFailed?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), message: `Failed to load workspace: ${errMsg(err)}` });
     return 'failed';
   }
 
   const pipeline = ws.config.pipelines.find((p) => p.id === state.pipelineId);
   if (!pipeline) {
-    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Pipeline "${state.pipelineId}" not found in workspace.yaml.` });
+    hooks.onStepFailed?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), message: `Pipeline "${state.pipelineId}" not found in workspace.yaml.` });
     return 'failed';
   }
 
   const agent = ws.config.agents.find((a) => a.id === agentId);
   if (!agent) {
-    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Agent "${agentId}" not found in workspace.yaml.` });
+    hooks.onStepFailed?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), message: `Agent "${agentId}" not found in workspace.yaml.` });
     return 'failed';
   }
 
@@ -576,13 +585,13 @@ async function execStep(
   try {
     runner = ws.runners.resolve(agent);
   } catch (err) {
-    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to resolve runner for agent "${agentId}": ${errMsg(err)}` });
+    hooks.onStepFailed?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), message: `Failed to resolve runner for agent "${agentId}": ${errMsg(err)}` });
     return 'failed';
   }
   try {
     prompt = buildStepPrompt(ws, agent, skillIds, runner, root, state.runId, stepRec, stepIdx);
   } catch (err) {
-    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to load skills for agent "${agentId}": ${errMsg(err)}` });
+    hooks.onStepFailed?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), message: `Failed to load skills for agent "${agentId}": ${errMsg(err)}` });
     return 'failed';
   }
   const skillText = prompt.text;
@@ -609,7 +618,7 @@ async function execStep(
   const report = norm?.batches ? batchReport(pipeline, state, stepIdx) : null;
   if (norm?.batches && !report) {
     hooks.onStepFailed?.({
-      stepIdx, agent: agentId,
+      stepIdx, agent: agentId, label: stepLabel(stepRec),
       message: `Step "${agentId}" has \`batches: true\` but no \`produces\` file to write its \`Status:\` line in.`,
     });
     return 'failed';
@@ -630,7 +639,7 @@ async function execStep(
   }
 
   hooks.onStepStart?.({
-    stepIdx, agent: agentId, revision: stepRec.revision,
+    stepIdx, agent: agentId, label: stepLabel(stepRec), revision: stepRec.revision,
     skills: skillIds, model: agentModel, context: userMessage,
     dirtyUpstream: dirtyUpstreamOf({ state, pipeline, stepIdx })
       .map((d) => ({ stepIdx: d.stepIdx, step: d.step, byStep: d.dirty.byStep })),
@@ -692,19 +701,19 @@ async function execStep(
     recordInterrupted(root, runId, stepIdx, timedOut ? { why: 'timeout', minutes } : { why: 'stopped' });
     if (timedOut) {
       hooks.onStepFailed?.({
-        stepIdx, agent: agentId,
+        stepIdx, agent: agentId, label: stepLabel(stepRec),
         message: `Step "${agentId}" ran past its ${minutes}-minute limit (\`timeout_minutes\`) and was stopped. ` +
           `It is still awaiting work on revision ${stepRec.revision}; nothing was sent back. Whatever it ` +
           'half-wrote is still in the working tree.',
       });
       return 'failed';
     }
-    hooks.onStepStopped?.({ stepIdx, agent: agentId, revision: stepRec.revision, runId });
+    hooks.onStepStopped?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), revision: stepRec.revision, runId });
     return 'stopped';
   }
 
   if (!result || !result.success) {
-    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Step "${agentId}" failed (non-zero exit).` });
+    hooks.onStepFailed?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), message: `Step "${agentId}" failed (non-zero exit).` });
     return 'failed';
   }
 
@@ -713,7 +722,7 @@ async function execStep(
   // later ones were started because an earlier one changed code.
   if (sentBackHere && codeUnchanged && batchNo <= 1) {
     hooks.onStalled?.({
-      stepIdx, agent: agentId, revision: stepRec.revision, runId,
+      stepIdx, agent: agentId, label: stepLabel(stepRec), revision: stepRec.revision, runId,
       reason: `Revision ${stepRec.revision} of "${agentId}" changed no code — the working tree is what it was ` +
         `before it ran (its report aside). Sent back ${state.sendBacks} time${state.sendBacks === 1 ? '' : 's'}; ` +
         'stopping rather than have the same code reviewed again.',
@@ -724,7 +733,7 @@ async function execStep(
   const stale = unchangedProduces(producedBefore, root);
   if (stale.length > 0) {
     hooks.onStepFailed?.({
-      stepIdx, agent: agentId,
+      stepIdx, agent: agentId, label: stepLabel(stepRec),
       message: `Step "${agentId}" reported success but left its artifacts unchanged: ${stale.join(', ')}. `
         + 'The agent may have failed to write them. Check its output, then rerun the step.',
     });
@@ -735,7 +744,7 @@ async function execStep(
     const read = readBatchStatusFile(root, report);
     if ('error' in read) {
       hooks.onStepFailed?.({
-        stepIdx, agent: agentId,
+        stepIdx, agent: agentId, label: stepLabel(stepRec),
         message: `Step "${agentId}" runs in batches and its report cannot say whether it is done: ${read.error} ` +
           'Add the line, then run exec again.',
       });
@@ -744,7 +753,7 @@ async function execStep(
     if (read.status === 'continue') {
       if (codeUnchanged) {
         hooks.onStalled?.({
-          stepIdx, agent: agentId, revision: stepRec.revision, runId,
+          stepIdx, agent: agentId, label: stepLabel(stepRec), revision: stepRec.revision, runId,
           reason: `Batch ${batchNo} of "${agentId}" asked for another session but changed no code — the working ` +
             'tree is what it was before it ran (its report aside). Stopping rather than start the same batch again.',
         });
@@ -753,7 +762,7 @@ async function execStep(
       const fresh = RunStateStore.load(root, runId);
       const rec = fresh?.steps[stepIdx];
       if (!fresh || !rec) {
-        hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Run "${runId}" disappeared.` });
+        hooks.onStepFailed?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), message: `Run "${runId}" disappeared.` });
         return 'failed';
       }
       recordProvenance(rec, { agent, resolvedModel, agentModel, skillIds, alternatives, modelOpts });
@@ -764,7 +773,7 @@ async function execStep(
       }];
       persist(root, fresh);
       hooks.onBatchDone?.({
-        stepIdx, agent: agentId, revision: rec.revision, batch: batchNo,
+        stepIdx, agent: agentId, label: stepLabel(stepRec), revision: rec.revision, batch: batchNo,
         costUsd: cost, costEstimated: rec.costEstimated, runId,
       });
       return 'batch';
@@ -787,9 +796,9 @@ async function execStep(
     next = markStepDone({ state: freshState, pipeline, workspaceRoot: root });
   } catch (err) {
     if (err instanceof PipelineRunError && err.missing?.length) {
-      hooks.onStepFailed?.({ stepIdx, agent: agentId, missing: err.missing });
+      hooks.onStepFailed?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), missing: err.missing });
     } else {
-      hooks.onStepFailed?.({ stepIdx, agent: agentId, message: errMsg(err) });
+      hooks.onStepFailed?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), message: errMsg(err) });
     }
     return 'failed';
   }
@@ -798,7 +807,7 @@ async function execStep(
 
   const doneStep = next.steps[stepIdx];
   hooks.onStepResult?.({
-    stepIdx, agent: agentId, status: doneStep.status, costUsd: doneStep.costUsd,
+    stepIdx, agent: agentId, label: stepLabel(stepRec), status: doneStep.status, costUsd: doneStep.costUsd,
     costEstimated: doneStep.costEstimated, runner: agent.runner, model: resolvedModel,
   });
   return 'done';
@@ -951,7 +960,7 @@ async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks):
     return false;
   }
   const step = state.steps[state.currentStepIdx];
-  hooks.onAutoReviewStart?.({ agent: step.agent });
+  hooks.onAutoReviewStart?.({ agent: step.agent, label: stepLabel(step) });
 
   let verdict;
   try {
@@ -959,7 +968,7 @@ async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks):
   } catch (err) {
     // Config-level failure (missing/unloadable runner). Validator errors are
     // already converted to a reject verdict inside runAutoReview.
-    hooks.onStepFailed?.({ stepIdx: state.currentStepIdx, agent: step.agent, message: `Auto-review could not run: ${errMsg(err)}` });
+    hooks.onStepFailed?.({ stepIdx: state.currentStepIdx, agent: step.agent, label: stepLabel(step), message: `Auto-review could not run: ${errMsg(err)}` });
     return false;
   }
 
@@ -967,7 +976,7 @@ async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks):
   try {
     next = submitAutoReviewVerdict({ state, pipeline, verdict });
   } catch (err) {
-    hooks.onStepFailed?.({ stepIdx: state.currentStepIdx, agent: step.agent, message: errMsg(err) });
+    hooks.onStepFailed?.({ stepIdx: state.currentStepIdx, agent: step.agent, label: stepLabel(step), message: errMsg(err) });
     return false;
   }
 
@@ -976,14 +985,14 @@ async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks):
   const sentBack = verdict.decision === 'reject' && next.currentStepIdx !== idx
     && next.steps[idx].status === 'pending';
   hooks.onAutoReviewResult?.({
-    agent: step.agent,
+    agent: step.agent, label: stepLabel(step),
     decision: verdict.decision,
     reason: next.steps[idx].rejectReason ?? verdict.reason,
     runId,
     ...(sentBack ? {
       sentBackTo: {
         stepIdx: next.currentStepIdx,
-        agent: next.steps[next.currentStepIdx].agent,
+        agent: next.steps[next.currentStepIdx].agent, label: stepLabel(next.steps[next.currentStepIdx]),
         revision: next.steps[next.currentStepIdx].revision,
         count: next.sendBacks ?? 0,
         max: pipeline.max_send_backs ?? DEFAULT_MAX_SEND_BACKS,
@@ -1018,7 +1027,7 @@ async function autoApproveStep(root: string, state: RunState, hooks: ExecHooks):
   // that approveStep clears for a human carries on.
   const next = { ...approveStep({ state, pipeline }), sendBacks: state.sendBacks };
   persist(root, next, state);
-  hooks.onAutoApproved?.({ agent: state.steps[state.currentStepIdx].agent });
+  hooks.onAutoApproved?.({ agent: state.steps[state.currentStepIdx].agent, label: stepLabel(state.steps[state.currentStepIdx]) });
 }
 
 /**

@@ -634,7 +634,7 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
     onRunFailed: (reason) => console.error(chalk.red(`\n${reason}`)),
 
     onStepStart: (e) => {
-      info(chalk.bold(`\n▶  Step ${e.stepIdx}: ${e.agent}`) + chalk.dim(` (rev ${e.revision})`));
+      info(chalk.bold(`\n▶  Step ${e.stepIdx}: ${e.label}`) + chalk.dim(` (rev ${e.revision})`));
       info(chalk.dim(`   skills: ${e.skills.join(', ')}  model: ${e.model ?? CODING_MODEL}`));
       if (e.context) { info(chalk.dim(`   context: ${e.context}`)); }
       // A dirty upstream does not stop the step — `dirty` means done — so the
@@ -651,11 +651,11 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
     onStepResult: (e) => {
       sep();
       if (e.status === 'awaiting_auto_review') {
-        info(chalk.cyan(`\n✔  Step "${e.agent}" done — auto-review pending.`));
+        info(chalk.cyan(`\n✔  Step "${e.label}" done — auto-review pending.`));
       } else if (e.status === 'awaiting_review') {
-        info(chalk.cyan(`\n✔  Step "${e.agent}" done — awaiting review.`));
+        info(chalk.cyan(`\n✔  Step "${e.label}" done — awaiting review.`));
       } else {
-        info(chalk.green(`\n✔  Step "${e.agent}" approved.`));
+        info(chalk.green(`\n✔  Step "${e.label}" approved.`));
       }
       if (typeof e.costUsd === 'number') { info(chalk.dim(`   cost: $${e.costUsd.toFixed(4)}`)); }
     },
@@ -665,22 +665,22 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
         for (const m of e.missing) { console.error(chalk.dim(`   ✘ ${m}`)); }
         console.error(chalk.dim('\n   Produce the files above, then: aidlc run mark-done ' + runId));
       } else {
-        console.error(chalk.red(`\n✘  ${e.message ?? `Step "${e.agent}" failed.`}`));
+        console.error(chalk.red(`\n✘  ${e.message ?? `Step "${e.label}" failed.`}`));
         console.error(chalk.dim('   Fix the issue then retry: aidlc run exec ' + runId));
       }
     },
 
     onAwaitingReview: (e) => {
-      info(chalk.cyan(`\n⏸  Step "${e.agent}" is awaiting human review.`));
+      info(chalk.cyan(`\n⏸  Step "${e.label}" is awaiting human review.`));
       info(chalk.dim(`  Approve: aidlc run approve ${e.runId}`));
       info(chalk.dim(`  Reject:  aidlc run reject ${e.runId} --reason "..."`));
     },
     onRejected: (e) => {
-      info(chalk.red(`\n✘  Step "${e.agent}" was rejected.`));
+      info(chalk.red(`\n✘  Step "${e.label}" was rejected.`));
       info(chalk.dim(`  Rerun: aidlc run rerun ${e.runId} [--feedback "..."]`));
     },
     onStepStopped: (e) => {
-      info(chalk.yellow(`\n⏹  Stopped "${e.agent}" mid-step (rev ${e.revision}). It is still awaiting work.`));
+      info(chalk.yellow(`\n⏹  Stopped "${e.label}" mid-step (rev ${e.revision}). It is still awaiting work.`));
       info(chalk.dim('  Anything it half-wrote is still in the working tree — check git status.'));
       info(chalk.dim(`  Resume: aidlc run exec ${e.runId}`));
     },
@@ -692,34 +692,34 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
     },
     onBatchDone: (e) => {
       sep();
-      info(chalk.cyan(`\n↻  Batch ${e.batch} of "${e.agent}" done — starting the next in a fresh session.`));
+      info(chalk.cyan(`\n↻  Batch ${e.batch} of "${e.label}" done — starting the next in a fresh session.`));
       if (typeof e.costUsd === 'number') { info(chalk.dim(`   cost: $${e.costUsd.toFixed(4)}`)); }
     },
     onBatchPause: (e) => {
-      info(chalk.cyan(`\n⏸  Batch ${e.batch} of "${e.agent}" done; pausing (pause_between_batches).`));
+      info(chalk.cyan(`\n⏸  Batch ${e.batch} of "${e.label}" done; pausing (pause_between_batches).`));
       if (e.report) { info(chalk.dim(`  Progress: ${e.report}`)); }
       info(chalk.dim(`  Next batch: aidlc run exec ${e.runId}`));
     },
     onStepSkipped: (e) => {
-      info(chalk.yellow(`\n⤳  Step "${e.agent}" was rejected — carrying on.`) +
+      info(chalk.yellow(`\n⤳  Step "${e.label}" was rejected — carrying on.`) +
         chalk.dim(` ${e.reason}`));
       info(chalk.dim(`  Want it back? aidlc run rerun ${e.runId} --step ${e.stepIdx}`));
     },
 
-    onAutoReviewStart: (e) => info(chalk.bold(`\n🔍  Auto-review: "${e.agent}"`)),
+    onAutoReviewStart: (e) => info(chalk.bold(`\n🔍  Auto-review: "${e.label}"`)),
     onAutoReviewResult: (e) => {
       if (e.decision === 'pass') {
         info(chalk.green('✔  Auto-review passed') + chalk.dim(` — ${e.reason}`));
       } else if (e.sentBackTo) {
         const to = e.sentBackTo;
-        info(chalk.yellow(`↩  Auto-review rejected — sent back to "${to.agent}" (rev ${to.revision}, ` +
+        info(chalk.yellow(`↩  Auto-review rejected — sent back to "${to.label}" (rev ${to.revision}, ` +
           `send-back ${to.count} of ${to.max})`) + chalk.dim(` — ${e.reason}`));
       } else {
         info(chalk.red('✘  Auto-review rejected') + chalk.dim(` — ${e.reason}`));
         info(chalk.dim(`  Fix the issue, then: aidlc run rerun ${e.runId} [--feedback "..."]`));
       }
     },
-    onAutoApproved: (e) => info(chalk.green(`✔  Auto-approved "${e.agent}" (--auto-approve)`)),
+    onAutoApproved: (e) => info(chalk.green(`✔  Auto-approved "${e.label}" (--auto-approve)`)),
 
     onBudget: (e) => {
       // A spend figure that mixes measured cost with an estimate, or that is

@@ -483,7 +483,7 @@ export {
   estimateCostUsd,
 } from './runs/pricing';
 export type { ModelRate, PricingTable, CostEstimate } from './runs/pricing';
-export { runExecLoop } from './runs/execEngine';
+export { runExecLoop, stepLabel } from './runs/execEngine';
 export type { ExecOutcome, ExecOptions, ExecHooks } from './runs/execEngine';
 export { verifyRun } from './runs/verifyRun';
 export type { VerifyReport, StepDrift } from './runs/verifyRun';

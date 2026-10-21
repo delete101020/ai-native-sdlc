@@ -132,8 +132,8 @@ export async function execRunToCompletion(
             onOutput: (chunk) => channel!.append(chunk),
             onErrorOutput: (chunk) => channel!.append(chunk),
             onStepStart: (e) => {
-              progress.report({ message: `step ${e.stepIdx + 1} · ${e.agent}` });
-              log(`\n▶ step ${e.stepIdx + 1} · ${e.agent}${e.model ? ` (${e.model})` : ''}`);
+              progress.report({ message: `step ${e.stepIdx + 1} · ${e.label}` });
+              log(`\n▶ step ${e.stepIdx + 1} · ${e.label}${e.model ? ` (${e.model})` : ''}`);
               // The step index moved before the agent produced anything; the
               // panel should say which step is being worked, not the last one
               // that finished. The loop runs one step at a time, so its own
@@ -150,45 +150,45 @@ export async function execRunToCompletion(
               const cost = typeof e.costUsd === 'number'
                 ? ` · $${e.costUsd.toFixed(4)}${e.costEstimated ? ' (est)' : ''}`
                 : '';
-              log(`✔ step ${e.stepIdx + 1} · ${e.agent} → ${e.status}${cost}`);
+              log(`✔ step ${e.stepIdx + 1} · ${e.label} → ${e.status}${cost}`);
               onChange();
             },
             onStepFailed: (e) => {
-              log(`✖ step ${e.stepIdx + 1} · ${e.agent} — ${e.missing?.length
+              log(`✖ step ${e.stepIdx + 1} · ${e.label} — ${e.missing?.length
                 ? `missing artifact(s): ${e.missing.join(', ')}`
                 : e.message ?? 'failed'}`);
               onChange();
             },
             onAutoReviewStart: (e) => {
-              progress.report({ message: `auto-review · ${e.agent}` });
-              log(`🤖 auto-review · ${e.agent}`);
+              progress.report({ message: `auto-review · ${e.label}` });
+              log(`🤖 auto-review · ${e.label}`);
             },
             onAutoReviewResult: (e) => {
               const back = e.sentBackTo
-                ? `, sent back to ${e.sentBackTo.agent} (rev ${e.sentBackTo.revision}, ${e.sentBackTo.count} of ${e.sentBackTo.max})`
+                ? `, sent back to ${e.sentBackTo.label} (rev ${e.sentBackTo.revision}, ${e.sentBackTo.count} of ${e.sentBackTo.max})`
                 : '';
-              log(`🤖 auto-review · ${e.agent} → ${e.decision}${back}${e.reason ? ` — ${e.reason}` : ''}`);
+              log(`🤖 auto-review · ${e.label} → ${e.decision}${back}${e.reason ? ` — ${e.reason}` : ''}`);
               onChange();
             },
-            onAutoApproved: (e) => { log(`👤 auto-approved · ${e.agent}`); onChange(); },
-            onAwaitingReview: (e) => { log(`⏸ paused for your review · ${e.agent}`); },
-            onRejected: (e) => { log(`⏸ step rejected · ${e.agent}`); },
+            onAutoApproved: (e) => { log(`👤 auto-approved · ${e.label}`); onChange(); },
+            onAwaitingReview: (e) => { log(`⏸ paused for your review · ${e.label}`); },
+            onRejected: (e) => { log(`⏸ step rejected · ${e.label}`); },
             onStalled: (e) => { log(`⏸ ${e.reason}`); onChange(); },
             onBatchDone: (e) => {
               const cost = typeof e.costUsd === 'number' ? ` · $${e.costUsd.toFixed(4)}` : '';
-              log(`↻ step ${e.stepIdx + 1} · ${e.agent} — batch ${e.batch} done, next batch in a fresh session${cost}`);
+              log(`↻ step ${e.stepIdx + 1} · ${e.label} — batch ${e.batch} done, next batch in a fresh session${cost}`);
               onChange();
             },
             onBatchPause: (e) => {
-              log(`⏸ batch ${e.batch} of ${e.agent} done — pausing between batches${e.report ? ` (progress: ${e.report})` : ''}`);
+              log(`⏸ batch ${e.batch} of ${e.label} done — pausing between batches${e.report ? ` (progress: ${e.report})` : ''}`);
               onChange();
             },
             onStepStopped: (e) => {
-              log(`⏹ stopped ${e.agent} mid-step (rev ${e.revision}) — still awaiting work; check git status for what it left`);
+              log(`⏹ stopped ${e.label} mid-step (rev ${e.revision}) — still awaiting work; check git status for what it left`);
               onChange();
             },
             onStepSkipped: (e) => {
-              log(`⤳ step rejected but optional · ${e.agent} — moving to step ${e.nextStepIdx + 1}`);
+              log(`⤳ step rejected but optional · ${e.label} — moving to step ${e.nextStepIdx + 1}`);
               onChange();
             },
             onBudget: (e) => {
