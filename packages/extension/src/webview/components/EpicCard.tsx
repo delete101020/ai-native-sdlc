@@ -2585,6 +2585,7 @@ function RunGate({
           runId={epic.runId}
           steps={epic.stepDetails.map((d) => ({
             agent: d.agent,
+            name: d.stepName,
             hasHumanReview: !!d.stepHasHumanReview,
           }))}
           currentStepIdx={epic.currentStep ?? 0}

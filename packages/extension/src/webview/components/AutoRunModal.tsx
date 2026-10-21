@@ -5,6 +5,8 @@ import { postMessage } from '@/lib/bridge';
 
 export interface AutoRunStep {
   agent: string;
+  /** The step's own name — two steps can share an agent (cr-build-spec and cr-build on cr-dev). */
+  name?: string;
   /** Whether this step pauses for a person once its artifact is written. */
   hasHumanReview: boolean;
 }
@@ -39,6 +41,7 @@ export function AutoRunModal({ runId, steps, currentStepIdx, onClose }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const label = (s: AutoRunStep) => (s.name && s.name !== s.agent ? `${s.name} · ${s.agent}` : s.agent);
   const remaining = steps
     .map((s, idx) => ({ ...s, idx }))
     .filter((s) => s.idx >= currentStepIdx);
@@ -117,13 +120,13 @@ export function AutoRunModal({ runId, steps, currentStepIdx, onClose }: Props) {
                 {autoApprove ? (
                   <>
                     {gated.length} step{gated.length === 1 ? '' : 's'} (
-                    <span className="font-mono">{gated.map((s) => s.agent).join(', ')}</span>) will
+                    <span className="font-mono">{gated.map(label).join(', ')}</span>) will
                     be approved unread. Auto-review still has to pass first.
                   </>
                 ) : (
                   <>
                     Leave it off and the loop stops at{' '}
-                    <span className="font-mono text-foreground/80">{firstGate.agent}</span> for you
+                    <span className="font-mono text-foreground/80">{label(firstGate)}</span> for you
                     to read. Approve there and press this again to carry on.
                   </>
                 )}
@@ -143,7 +146,7 @@ export function AutoRunModal({ runId, steps, currentStepIdx, onClose }: Props) {
           <option value="end">The last step — run the pipeline out</option>
           {remaining.map((s) => (
             <option key={s.idx} value={s.idx}>
-              Step {s.idx + 1} · {s.agent}
+              Step {s.idx + 1} · {label(s)}
             </option>
           ))}
         </select>
