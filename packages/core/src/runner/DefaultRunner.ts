@@ -96,10 +96,12 @@ export class DefaultRunner implements AidlcRunner {
 
     const handleEvent = (evt: StreamEvent): void => {
       if (evt.type === 'assistant' && evt.message?.content) {
-        // Stream each text block of the assistant turn live.
+        // Stream each text block of the assistant turn live. A block is a whole
+        // message with no trailing newline — end it with a blank line, or the
+        // next one starts mid-sentence on the same line.
         for (const block of evt.message.content) {
           if (block.type === 'text' && typeof block.text === 'string') {
-            ctx.onOutput(block.text);
+            ctx.onOutput(block.text.replace(/\s*$/, '\n\n'));
           }
         }
       } else if (evt.type === 'result') {

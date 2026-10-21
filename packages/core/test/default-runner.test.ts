@@ -80,7 +80,7 @@ describe('DefaultRunner — stream-json parsing', () => {
 
     const res = await p;
     expect(res.success).toBe(true);
-    expect(chunks.join('')).toBe('Hello world');
+    expect(chunks.join('')).toBe('Hello\n\nworld\n\n');
     expect(res.output).toBe('Hello world');
     expect(res.costUsd).toBeCloseTo(0.0123);
   });
