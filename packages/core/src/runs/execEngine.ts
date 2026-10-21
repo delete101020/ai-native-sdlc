@@ -350,7 +350,7 @@ async function execLoop(
           nextStepIdx: openElsewhere,
           runId,
         });
-        RunStateStore.save(root, { ...state, currentStepIdx: openElsewhere });
+        persist(root, { ...state, currentStepIdx: openElsewhere });
         continue;
       }
       hooks.onRejected?.({ agent: step.agent, runId });
@@ -363,7 +363,7 @@ async function execLoop(
     if (step.status === 'approved') {
       const openElsewhere = state.steps.findIndex((s) => isActiveStatus(s.status));
       if (openElsewhere >= 0) {
-        RunStateStore.save(root, { ...state, currentStepIdx: openElsewhere });
+        persist(root, { ...state, currentStepIdx: openElsewhere });
         continue;
       }
       const parked = state.steps.find((s) => s.status === 'rejected');
@@ -1022,8 +1022,8 @@ async function autoApproveStep(root: string, state: RunState, hooks: ExecHooks):
 }
 
 /**
- * Save a transitioned run, and commit the epic's artifacts when the workspace
- * asked for that (`artifact_commit: on_approve`).
+ * Save a transitioned run, mirror it into the epic's state.json, and commit the
+ * epic's artifacts when the workspace asked for that (`artifact_commit: on_approve`).
  *
  * The exec loop runs unattended, which is exactly when artifacts are most
  * likely to be left dirty and unclaimed: nobody is watching the working tree.
@@ -1033,7 +1033,6 @@ async function autoApproveStep(root: string, state: RunState, hooks: ExecHooks):
  */
 function persist(root: string, next: RunState, before?: RunState): void {
   RunStateStore.save(root, next);
-  if (!before) { return; }
 
   let doc: unknown;
   try {
@@ -1042,10 +1041,12 @@ function persist(root: string, next: RunState, before?: RunState): void {
     return;
   }
   const cfgDoc = doc as { state?: unknown; artifact_commit?: unknown };
-  if (resolveArtifactCommitConfig(cfgDoc).mode !== 'on_approve') { return; }
-
-  // state.json is part of the commit, so it has to carry the approval first.
+  // Always, not only for on_approve: the panel reads state.json, and an
+  // unattended run otherwise leaves it showing the step it started on.
+  // Also first — state.json is part of the commit, so it has to carry the approval.
   try { mirrorRunStateToEpic(root, next, cfgDoc); } catch { /* snapshot only */ }
+  if (!before || resolveArtifactCommitConfig(cfgDoc).mode !== 'on_approve') { return; }
+
   commitApprovedArtifacts({ workspaceRoot: root, before, after: next, doc: cfgDoc });
 }
 
