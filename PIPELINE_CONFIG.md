@@ -124,6 +124,15 @@ reads it: input it cannot evaluate, which it allows when someone is watching,
 is blocked. The gate is a Claude Code hook, so Codex and Copilot steps run
 without it; `doctor` warns about each one.
 
+### A step only a person runs — `attended: true`
+
+A step that has to ask someone (a close-out, a sign-off interview) gets
+`attended: true` on the step itself. `run exec` stops before it — exit 0,
+**Run to completion** says the next step is yours — and leaves it
+`awaiting_work`; run it by hand. Without the flag the loop spawns the agent,
+the skill refuses under `AIDLC_AUTOPILOT=1`, and the missing artifact stops
+the run as an error.
+
 ### Stopping a step — `timeout_minutes`
 
 ```yaml

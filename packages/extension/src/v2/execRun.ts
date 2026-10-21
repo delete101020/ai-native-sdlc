@@ -196,6 +196,7 @@ export async function execRunToCompletion(
             },
             onCancelled: () => { log('⏹ cancelled at a step boundary'); },
             onUntilStop: (e) => { log(`⏹ stopped after step ${e.untilIdx + 1} (--until)`); },
+            onAttendedStep: (e) => { log(`⏹ stopped before step ${e.stepIdx + 1} · ${e.label} — a person runs it`); },
             onRunCompleted: () => { log('✅ run completed'); },
             onRunFailed: (reason) => { failure = reason; log(`✖ ${reason}`); },
           },
@@ -229,6 +230,9 @@ function reportOutcome(runId: string, outcome: ExecOutcome, failure?: string): v
       return;
     case 'until':
       show(`${runId} stopped at the step you asked for.`);
+      return;
+    case 'attended':
+      show(`${runId} ran everything it can alone. The next step is yours to run.`);
       return;
     case 'awaiting_review':
       show(`${runId} is paused for your review. Approve the step to carry on.`, 'warn');

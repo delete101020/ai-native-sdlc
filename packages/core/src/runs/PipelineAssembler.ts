@@ -146,6 +146,7 @@ export function assemblePipeline(
     if (norm.skills && norm.skills.length > 0) { step.skills = norm.skills; }
     if (norm.default_skill) { step.default_skill = norm.default_skill; }
     if (norm.model) { step.model = norm.model; }
+    if (norm.attended) { step.attended = true; }
     if (auto_review_runner) { step.auto_review_runner = auto_review_runner; }
     const on_reject = gate.on_reject ?? norm.on_reject;
     if (on_reject) { step.on_reject = { send_back_to: on_reject.send_back_to }; }

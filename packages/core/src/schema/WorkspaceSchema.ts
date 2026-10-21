@@ -283,6 +283,12 @@ const PipelineStepObjectSchema = z
     /** When true, the runner pauses for human approval before advancing. */
     human_review: z.boolean().default(false),
     /**
+     * A step only a person can run — the unattended `run exec` loop stops
+     * before it, as a clean stop rather than an error, and leaves it
+     * `awaiting_work` for someone to run by hand.
+     */
+    attended: z.boolean().optional(),
+    /**
      * Command run once after a batch of follow-up epics is opened from the
      * `followups.json` this step produces. See `schema/FollowUpHookSchema.ts`,
      * which also rejects misspelt `on_*` keys that Zod would otherwise strip.
@@ -482,6 +488,8 @@ export interface NormalizedStep {
   timeout_minutes?: number;
   /** Run as a series of sessions — see the schema. */
   batches?: { max: number; pause: boolean };
+  /** Run by a person, never by the exec loop — see the schema. */
+  attended?: boolean;
   human_review: boolean;
   /** Git behavior for branch-artifact steps (GH-74 Part 3). */
   git?: { branch: boolean; push: boolean; open_pr: boolean };
@@ -574,6 +582,7 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
         }
       : {}),
     human_review: obj.human_review === true,
+    ...(obj.attended === true && { attended: true }),
     ...(git && { git }),
   };
 }

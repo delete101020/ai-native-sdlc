@@ -481,7 +481,8 @@ export function registerRun(program: Command): void {
 // back to the CLI's chalk output + exit codes.
 
 /**
- * 0 = run completed (or deliberately stopped at --until); 2 = paused on a gate
+ * 0 = run completed (or deliberately stopped at --until, or before an
+ * `attended` step); 2 = paused on a gate
  * (awaiting human review / rejected / budget); 1 = error. --require-complete
  * collapses every non-`completed` outcome to 1 so naive `cmd && next` chains
  * fail when the pipeline didn't finish.
@@ -491,7 +492,7 @@ function execExitCode(outcome: ExecOutcome, requireComplete: boolean): number {
   if (outcome.kind === 'completed') { return 0; }
   if (outcome.kind === 'dry_run') { return 0; } // a preview, never a CI failure
   if (requireComplete) { return 1; }
-  if (outcome.kind === 'until') { return 0; }
+  if (outcome.kind === 'until' || outcome.kind === 'attended') { return 0; }
   return 2; // awaiting_review | rejected | stalled | budget_pause | batch_pause | cancelled
 }
 
@@ -745,6 +746,8 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
     },
 
     onUntilStop: (e) => info(chalk.dim(`\nStopped at step ${e.untilIdx} as requested.`)),
+
+    onAttendedStep: (e) => info(chalk.dim(`\nStopped before step ${e.stepIdx + 1} · ${e.label} — a person runs it.`)),
 
     onDryRunPreview: (e) => {
       const layers = [

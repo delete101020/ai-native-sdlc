@@ -51,12 +51,13 @@ import { harnessCapabilities, type AidlcRunner, type RunnerResult } from '../run
 
 /**
  * Why the loop stopped. Callers map this to an exit code (CLI) or a final
- * status message (extension). `completed` / `until` are clean stops; the rest
+ * status message (extension). `completed` / `until` / `attended` are clean stops; the rest
  * are gates a human must clear.
  */
 export type ExecOutcome =
   | { kind: 'completed' }
   | { kind: 'until' }
+  | { kind: 'attended' }
   | { kind: 'dry_run' }
   | { kind: 'awaiting_review' }
   | { kind: 'rejected' }
@@ -203,6 +204,8 @@ export interface ExecHooks {
   }): void;
   /** The caller's `shouldCancel` returned true at a step boundary. */
   onCancelled?(): void;
+  /** Stopped before an `attended: true` step — one a person runs by hand. */
+  onAttendedStep?(e: { stepIdx: number; agent: string; label: string; runId: string }): void;
   /** Stopped at the --until boundary. */
   onUntilStop?(e: { untilIdx: number }): void;
   /** Dry-run: assembled prompt preview (no claude spawned). */
@@ -385,6 +388,14 @@ async function execLoop(
     if (step.status !== 'awaiting_work') {
       hooks.onRunFailed?.(`Unexpected step status "${step.status}" — cannot exec.`);
       return { kind: 'error' };
+    }
+
+    // A step only a person runs: stop before spawning it. The loop got as far
+    // as it was meant to, so this is a clean stop, not a failure.
+    if (!opts.dryRun && initialPipeline.steps[state.currentStepIdx]
+      && normalizeStep(initialPipeline.steps[state.currentStepIdx]).attended) {
+      hooks.onAttendedStep?.({ stepIdx: state.currentStepIdx, agent: step.agent, label: stepLabel(step), runId });
+      return { kind: 'attended' };
     }
 
     // Execute the current step.
