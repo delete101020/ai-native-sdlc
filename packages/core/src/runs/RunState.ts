@@ -166,10 +166,12 @@ export type StepHistoryEntry =
       /**
        * Set when the run sent the work back on its own, after an auto-review
        * reject: whether the target came from the validator's verdict
-       * (`sendBackTo`) or from the step's `on_reject.send_back_to`. Absent on
-       * a human's reject.
+       * (`sendBackTo`) or from the step's `on_reject.send_back_to`, or
+       * `handoff` — the validator named an earlier step `on_reject` does not,
+       * so the run reopened it and stopped there for a person to run. Absent
+       * on a human's reject.
        */
-      source?: 'verdict' | 'config';
+      source?: 'verdict' | 'config' | 'handoff';
       /** {@link StepRecord.skill} of the revision that was rejected. */
       skill?: string;
       /** {@link StepRecord.chosenModel} of the revision that was rejected. */
@@ -303,9 +305,10 @@ export interface AutoReviewVerdict {
   /**
    * On a reject, where the validator wants the work to go: a step reference
    * (index, name or agent id, as for `aidlc run reject --to`), or `null` to
-   * stop here for a human. Only the step's `on_reject.send_back_to` is ever
-   * sent back to automatically; any other target stops the run with the
-   * suggestion in the reason. Absent = the step's `on_reject` decides.
+   * stop here for a human. The step's `on_reject.send_back_to` is sent back
+   * to and the run carries on; any other earlier step is reopened and the
+   * run stops there, for a person to run (`handoff`). Absent = the step's
+   * `on_reject` decides.
    */
   sendBackTo?: string | number | null;
 }

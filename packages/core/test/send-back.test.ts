@@ -65,7 +65,7 @@ describe('submitAutoReviewVerdict — where a reject goes', () => {
     expect(s.sendBacks).toBe(1);
     expect(s.steps.map((r) => r.status)).toEqual(['approved', 'awaiting_work', 'pending', 'pending']);
     expect(s.steps[1].revision).toBe(2);
-    expect(s.steps[1].feedback).toBe('Rejected at step 4 (rev): null check missing');
+    expect(s.steps[1].feedback).toBe('Rejected at step 4 (review): null check missing');
     // The validator's own entry survives next to the reject that routed it.
     expect(s.steps[3].history!.map((h) => h.kind)).toEqual(['auto_review', 'reject']);
     expect(s.steps[3].history![1]).toMatchObject({ kind: 'reject', sentBackToIdx: 1, source: 'config' });
@@ -89,23 +89,21 @@ describe('submitAutoReviewVerdict — where a reject goes', () => {
     }
   });
 
-  it('never follows a validator to a step on_reject does not name', () => {
+  it('hands a step on_reject does not name back to a person', () => {
     const s = reject({ sendBackTo: 'spec' });
-    expect(s.currentStepIdx).toBe(3);
-    expect(s.steps[3].status).toBe('rejected');
-    expect(s.steps[3].rejectReason).toBe(
-      'null check missing\n\nThe validator suggests sending this back to "spec" (step 1); only "implement" (step 2) ' +
-      'is sent back automatically. Send it back by hand if you agree.',
-    );
+    expect(s.currentStepIdx).toBe(0);
+    expect(s.steps.map((r) => r.status)).toEqual(['awaiting_work', 'pending', 'pending', 'pending']);
+    expect(s.steps[0].feedback).toBe('Rejected at step 4 (review): null check missing');
+    expect(s.steps[3].history!.at(-1)).toMatchObject({ kind: 'reject', sentBackToIdx: 0, source: 'handoff' });
   });
 
-  it('lets a person act on that suggestion', () => {
-    const s = rejectStep({ state: { ...reject({ sendBackTo: 'spec' }), sendBacks: 2 }, pipeline, reason: 'agreed', targetIdx: 0 });
+  it('lets a person send a validator-rejected step back', () => {
+    const s = rejectStep({ state: { ...reject({ sendBackTo: null }), sendBacks: 2 }, pipeline, reason: 'agreed', targetIdx: 0 });
     expect(s.currentStepIdx).toBe(0);
     expect(s.steps[0].status).toBe('awaiting_work');
     expect(s.sendBacks).toBeUndefined();
     // An in-place reject of a step that is already rejected still is refused.
-    expect(() => rejectStep({ state: reject({ sendBackTo: 'spec' }), pipeline, reason: 'x' })).toThrow(/expected "awaiting_review"/);
+    expect(() => rejectStep({ state: reject({ sendBackTo: null }), pipeline, reason: 'x' })).toThrow(/expected "awaiting_review"/);
   });
 
   it('stops on a target it cannot resolve', () => {
@@ -124,7 +122,8 @@ describe('submitAutoReviewVerdict — where a reject goes', () => {
     expect(s.steps[3].history!.at(-1)).toMatchObject({ sentBackToIdx: 3 });
     expect(s.steps[3].history!.at(-1)).not.toHaveProperty('source');
     const suggested = reject({ sendBackTo: 'implement' }, plain);
-    expect(suggested.steps[3].rejectReason).toContain('no step is (see `on_reject.send_back_to`) sent back automatically');
+    expect(suggested.currentStepIdx).toBe(1);
+    expect(suggested.steps[3].history!.at(-1)).toMatchObject({ sentBackToIdx: 1, source: 'handoff' });
   });
 });
 
@@ -302,6 +301,24 @@ pipelines:
     expect(s.steps[1].rejectReason).toContain('Sent back 3 times already (max_send_backs: 3)');
     expect(s.steps[1].history!.filter((h) => h.kind === 'reject' && h.source === 'config')).toHaveLength(3);
     expect(fs.existsSync(runLockFile(root, 'R-1'))).toBe(false);
+  });
+
+  it('hands a step on_reject does not name to a person, and stops there', async () => {
+    const root = workspace('grow');
+    const aidlc = path.join(root, '.aidlc');
+    fs.writeFileSync(path.join(aidlc, 'hold.mjs'),
+      'export default () => ({ decision: "reject", reason: "spec is wrong", sendBackTo: "implement" });\n');
+    const yaml = path.join(aidlc, 'workspace.yaml');
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, 'utf8').replace(/\n\s+on_reject: .*\n/, '\n'));
+    const stoppedAt: string[] = [];
+    const outcome = await runExecLoop(root, 'R-1', {}, { onAttendedStep: (e) => { stoppedAt.push(e.label); } });
+    expect(outcome).toEqual({ kind: 'attended' });
+    expect(stoppedAt).toEqual(['implement']);
+    expect(devCalls(root)).toBe(1);
+    const s = RunStateStore.load(root, 'R-1')!;
+    expect(s.currentStepIdx).toBe(0);
+    expect(s.steps[0]).toMatchObject({ status: 'awaiting_work', revision: 2, feedback: 'Rejected at step 2 (review): spec is wrong' });
+    expect(s.steps[1].history!.at(-1)).toMatchObject({ kind: 'reject', source: 'handoff' });
   });
 
   it('stops when the step it sent work back to changes no code', async () => {

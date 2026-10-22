@@ -534,11 +534,12 @@ export function submitAutoReviewVerdict(args: {
  * (`targetIdx`), or nowhere — the step is rejected in place and the run stops,
  * with `note` saying why when the reason is not obvious.
  *
- * Only the step's `on_reject.send_back_to` is ever a target. A validator may
- * confirm it through `sendBackTo`, or stop the run (`null`, or this step);
- * anything else it names is a suggestion for a human, never a route — the
- * machine sends work back to `implement`, and a fault in the direction
- * (intent, spec, plan) is a person's to act on.
+ * The step's `on_reject.send_back_to` is where the run sends work back and
+ * carries on. A validator may confirm it through `sendBackTo`, or stop the
+ * run (`null`, or this step). Any other earlier step it names is a
+ * `handoff`: the work goes back there, but the run stops for a person — the
+ * machine reworks `implement` alone, and a fault in the direction (intent,
+ * spec, plan) is a person's to act on, often behind a `human_review` gate.
  */
 function autoRejectRoute(
   state: RunState,
@@ -546,8 +547,7 @@ function autoRejectRoute(
   idx: number,
   norm: ReturnType<typeof normalizeStep>,
   verdict: AutoReviewVerdict,
-): { targetIdx: number; source: 'verdict' | 'config'; note?: string } | { note?: string } {
-  const label = (i: number): string => `"${stepIdentity(state.steps[i])}" (step ${i + 1})`;
+): { targetIdx: number; source: 'verdict' | 'config' | 'handoff'; note?: string } | { note?: string } {
   const configured = norm.on_reject?.send_back_to;
   const cfgIdx = configured ? findStepIndex(pipeline.steps.map(normalizeStep), configured) : -1;
   // Checked when workspace.yaml loads; one that slips past still stops here.
@@ -565,14 +565,7 @@ function autoRejectRoute(
   if (v < 0 || v > idx) {
     return { note: `The validator asked to send this back to "${asked}", which is not a step before this one.` };
   }
-  if (v !== cfgIdx) {
-    const allowed = cfgIdx >= 0 ? `only ${label(cfgIdx)} is` : 'no step is (see `on_reject.send_back_to`)';
-    return {
-      note: `The validator suggests sending this back to ${label(v)}; ${allowed} sent back automatically. ` +
-        'Send it back by hand if you agree.',
-    };
-  }
-  return { targetIdx: v, source: 'verdict' };
+  return { targetIdx: v, source: v === cfgIdx ? 'verdict' : 'handoff' };
 }
 
 /**
@@ -1357,12 +1350,12 @@ function sendBack(next: RunState, args: {
   at: string;
   pipeline?: PipelineConfig;
   /** Set when the run, not a person, decided — see the reject history entry. */
-  source?: 'verdict' | 'config';
+  source?: 'verdict' | 'config' | 'handoff';
 }): void {
   const { idx, targetIdx, reason, at: now, pipeline, source } = args;
   const before = clone(next);
   const step = next.steps[idx];
-  const blame = `Rejected at step ${idx + 1} (${step.agent})${reason ? `: ${reason}` : ''}`;
+  const blame = `Rejected at step ${idx + 1} (${stepIdentity(step)})${reason ? `: ${reason}` : ''}`;
   const rejectedHistory = pushHistory(step.history, {
     kind: 'reject',
     at: now,

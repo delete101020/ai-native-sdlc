@@ -251,8 +251,9 @@ const PipelineStepObjectSchema = z
      * The target is a step name (or agent id) before this one, without
      * `human_review` — work a human gate approved goes back through a human.
      * A validator can name the same target in its verdict (`sendBackTo`), or
-     * name this step / `null` to stop here instead. Bounded by the
-     * pipeline's `max_send_backs`.
+     * name this step / `null` to stop here instead. Naming any other earlier
+     * step — a `human_review` one included — sends the work back there and
+     * stops the run for a person. Bounded by the pipeline's `max_send_backs`.
      */
     on_reject: z.object({ send_back_to: z.string().min(1) }).optional(),
     /**

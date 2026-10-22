@@ -331,6 +331,7 @@ async function execLoop(
     if (step.status === 'awaiting_auto_review') {
       const proceed = await runAutoReviewStep(root, runId, hooks);
       if (!proceed) { return { kind: 'error' }; }
+      if (proceed === 'handoff') { return { kind: 'attended' }; }
       continue;
     }
 
@@ -961,7 +962,12 @@ function recordInterrupted(
 }
 
 /** Run the auto-review validator for the current step and submit its verdict. */
-async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks): Promise<boolean> {
+/**
+ * `handoff` when the verdict sent the work back to a step the run does not
+ * rework on its own (see `autoRejectRoute`): the loop stops there, as before
+ * an `attended` step.
+ */
+async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks): Promise<boolean | 'handoff'> {
   const state = RunStateStore.load(root, runId);
   if (!state) {
     hooks.onRunFailed?.(`Run "${runId}" disappeared.`);
@@ -1012,6 +1018,12 @@ async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks):
       },
     } : {}),
   });
+  const last = next.steps[idx].history?.at(-1);
+  if (sentBack && last?.kind === 'reject' && last.source === 'handoff') {
+    const target = next.steps[next.currentStepIdx];
+    hooks.onAttendedStep?.({ stepIdx: next.currentStepIdx, agent: target.agent, label: stepLabel(target), runId });
+    return 'handoff';
+  }
   return true;
 }
 
