@@ -1,5 +1,30 @@
 # Changelog
 
+## 4.0.44
+
+When a reviewer sends work back to a step autopilot does not rework on its own
+(a spec behind a human gate, say), the run now sends it there and stops for
+you, instead of leaving the review rejected. A step its validator rejected can
+also be sent back from the panel, and steps are named by their name only.
+
+### Added
+
+- **Send back…** on a step its auto-reviewer rejected: opens the reject modal
+  on the step the validator suggested (`sendBackTo`), with the reject reason
+  prefilled as the reopened step's feedback.
+
+### Changed
+
+- A validator's `sendBackTo` naming an earlier step other than the step's
+  `on_reject.send_back_to` is now acted on: that step reopens with the reason
+  as its feedback and the run stops before it, as before an `attended` step,
+  for a person to run. The reject is recorded with `source: 'handoff'`.
+  Before, the run only wrote the suggestion into the reject reason. A
+  send-back to `on_reject` still carries on unattended.
+- Steps are named by their name alone in the CLI, the exec loop output, the
+  modals and notifications (`cr-build-spec`, not `cr-build-spec · cr-dev`).
+  The agent still shows when a step has no name, and in the pipeline builder.
+
 ## 4.0.43
 
 The build ⇄ review loop can now be set up from the UI, and re-saving a
