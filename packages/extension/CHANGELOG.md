@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.0.45
+
+A step approved by Run to completion's auto-approve is now marked as such, so
+you can tell it from one a person approved.
+
+### Added
+
+- An approval the exec loop makes under auto-approve (`aidlc run exec
+  --auto-approve`) is recorded with `auto: true` on the step's history. The
+  timeline shows **Auto-approved**, and `aidlc run report` lists it as
+  `auto-approved`.
+
 ## 4.0.44
 
 When a reviewer sends work back to a step autopilot does not rework on its own
