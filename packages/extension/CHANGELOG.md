@@ -1,5 +1,37 @@
 # Changelog
 
+## 4.0.43
+
+The build ⇄ review loop can now be set up from the UI, and re-saving a
+pipeline no longer drops it. Autopilot stops cleanly before a step that needs a
+person, and its output names steps instead of just agents.
+
+### Added
+
+- Pipeline modal: **Autopilot** and **Max send-backs**. Step config modal:
+  **Send rejects back to**, **Run in batches** and **Max batches**. The
+  pipeline card shows badges for autopilot, send-back target and batches.
+- A step marked `attended: true` is never spawned by the exec loop: the run
+  stops before it with outcome `attended` (exit 0 in the CLI, an info
+  notification in the extension).
+
+### Fixed
+
+- **Edit pipeline** kept only the fields it knew about, so re-saving lost
+  `on_reject` and `batches` (silently ending the build ⇄ review loop) and
+  re-enabled disabled steps. It now edits only the fields it owns, and refuses
+  an `on_reject` the schema would reject.
+- Launch feedback is recorded on the step's history (`steps[i].feedback`)
+  instead of `.aidlc/runs/<epic>.feedback.md`, which lingered and got swept
+  into feature commits. Leftover files are removed on launch; the timeline
+  shows a "Run with feedback" entry and `aidlc run report` lists it.
+- Autopilot mirrors every run transition into the epic's `state.json`, so the
+  panel follows an unattended run without a reload.
+- Exec loop output (CLI and the Autopilot channel) labels steps as
+  `name · agent`, and each streamed assistant message ends with a blank line.
+- **Run to completion** picker names steps, not just agents.
+- Native dropdown lists are readable in the dark theme.
+
 ## 4.0.42
 
 Long feedback now reaches the agent in full when you rerun a step or use
