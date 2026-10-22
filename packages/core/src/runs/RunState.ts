@@ -201,6 +201,11 @@ export type StepHistoryEntry =
       skill?: string;
       /** {@link StepRecord.chosenModel} of the revision that was approved. */
       model?: string;
+      /**
+       * The exec loop approved it under `--auto-approve` (Run to completion
+       * with auto-approve on), not a person. Absent on a human's approval.
+       */
+      auto?: true;
     }
   | {
       /**

@@ -641,6 +641,8 @@ export function approveStep(args: {
   pipeline: PipelineConfig;
   /** Step to approve. Defaults to `state.currentStepIdx`. */
   stepIdx?: number;
+  /** The exec loop approving under `--auto-approve`, not a person — recorded on the history entry. */
+  auto?: boolean;
 }): RunState {
   const { pipeline } = args;
   const state = alignedOrThrow(args.state, pipeline);
@@ -656,7 +658,7 @@ export function approveStep(args: {
   }
   const next = clone(state);
   delete next.sendBacks; // a person acted — see RunState.sendBacks
-  return advance(next, idx, pipeline);
+  return advance(next, idx, pipeline, args.auto);
 }
 
 /**
@@ -1200,7 +1202,7 @@ export function rerunApprovedStep(args: {
  * The run transitions to `completed` once every step is settled — approved,
  * or an `optional` step the run gave up on (see {@link isRunComplete}).
  */
-function advance(next: RunState, idx: number, pipeline: PipelineConfig): RunState {
+function advance(next: RunState, idx: number, pipeline: PipelineConfig, auto?: boolean): RunState {
   const finishedAt = new Date().toISOString();
   const approved = next.steps[idx];
   next.steps[idx] = {
@@ -1217,6 +1219,7 @@ function advance(next: RunState, idx: number, pipeline: PipelineConfig): RunStat
       revision: approved.revision,
       ...(approved.skill ? { skill: approved.skill } : {}),
       ...(approved.chosenModel ? { model: approved.chosenModel } : {}),
+      ...(auto ? { auto: true as const } : {}),
     }),
   };
 

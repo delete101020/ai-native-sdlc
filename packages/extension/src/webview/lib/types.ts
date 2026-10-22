@@ -645,6 +645,8 @@ export type StepHistoryEntry =
       model?: string;
       /** Skill the approved revision ran, on a step with alternatives. */
       skill?: string;
+      /** Approved by Run to completion's auto-approve, not a person. */
+      auto?: true;
     }
   | {
       // A "Mark step done" taken back — same revision, nothing rerun.

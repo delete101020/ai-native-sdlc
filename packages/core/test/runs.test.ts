@@ -137,6 +137,13 @@ describe('PipelineRunner — state machine', () => {
     expect(() => markStepDone({ state: next, pipeline: PIPELINE_HUMAN, workspaceRoot: root })).toThrowError(/blocked/i);
   });
 
+  it('marks an approval the exec loop made under --auto-approve', () => {
+    touch(root, 'PRD.md');
+    const done = markStepDone({ state: startRun({ runId: 'R-AA', pipeline: PIPELINE_HUMAN, context: {} }), pipeline: PIPELINE_HUMAN, workspaceRoot: root });
+    expect(approveStep({ state: done, pipeline: PIPELINE_HUMAN, auto: true }).steps[0].history!.at(-1)).toMatchObject({ kind: 'approve', auto: true });
+    expect(approveStep({ state: done, pipeline: PIPELINE_HUMAN }).steps[0].history!.at(-1)).not.toHaveProperty('auto');
+  });
+
   it('canStartStep is a soft read-only check for requires', () => {
     const s = startRun({ runId: 'R-4', pipeline: PIPELINE_HUMAN, context: {} });
     // Step 0 has no requires

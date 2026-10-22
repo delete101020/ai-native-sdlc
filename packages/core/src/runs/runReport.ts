@@ -60,7 +60,7 @@ function renderHistory(history: StepHistoryEntry[]): string[] {
       case 'auto_review':
         return `  - 🤖 auto-review ${h.decision} (rev ${h.revision}): ${h.reason}`;
       case 'approve':
-        return `  - ✔ approved (rev ${h.revision}${h.skill ? `, ${h.skill}` : ''}${h.model ? `, ${h.model}` : ''})`;
+        return `  - ✔ ${h.auto ? 'auto-approved' : 'approved'} (rev ${h.revision}${h.skill ? `, ${h.skill}` : ''}${h.model ? `, ${h.model}` : ''})`;
       case 'undo':
         return `  - ↶ mark-done undone (rev ${h.revision}, was ${h.from})`;
       case 'interrupted':

@@ -1050,7 +1050,7 @@ async function autoApproveStep(root: string, state: RunState, hooks: ExecHooks):
   const pipeline = ws.config.pipelines.find((p) => p.id === state.pipelineId)!;
   // --auto-approve is the loop approving, not a person: the send-back count
   // that approveStep clears for a human carries on.
-  const next = { ...approveStep({ state, pipeline }), sendBacks: state.sendBacks };
+  const next = { ...approveStep({ state, pipeline, auto: true }), sendBacks: state.sendBacks };
   persist(root, next, state);
   hooks.onAutoApproved?.({ agent: state.steps[state.currentStepIdx].agent, label: stepLabel(state.steps[state.currentStepIdx]) });
 }

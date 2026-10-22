@@ -2120,7 +2120,7 @@ function HistoryLabel({ entry }: { entry: StepHistoryEntry }) {
     case 'approve':
       return (
         <span className="font-semibold text-success">
-          Approved
+          {entry.auto ? 'Auto-approved' : 'Approved'}
           {entry.skill && <span className="ml-1 font-mono font-normal text-muted-foreground">· {entry.skill}</span>}
           {entry.model && <span className="ml-1 font-mono font-normal text-muted-foreground">· {entry.model}</span>}
         </span>
