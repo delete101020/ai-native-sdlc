@@ -59,6 +59,7 @@ import {
   AutoReviewerError,
   claudeModelArg,
   providerAliases,
+  stepLabel as stepDisplayName,
 } from '@aidlc/core';
 import type { PipelineConfig, ProviderConfig, RunState } from '@aidlc/core';
 
@@ -873,12 +874,12 @@ export async function rejectStepCommand(runIdArg?: string, stepIdxArg?: number):
     saveRun(root, next, state);
     if (targetIdx === idx) {
       void vscode.window.showInformationMessage(
-        `Rejected step "${currentStep.agent}". Open the epic and click "Rerun" when ready.`,
+        `Rejected step "${stepDisplayName(currentStep)}". Open the epic and click "Rerun" when ready.`,
       );
     } else {
       const target = state.steps[targetIdx];
       void vscode.window.showInformationMessage(
-        `Rejected step "${currentStep.agent}" → sent back to step ${targetIdx + 1} "${target.agent}". Intermediate steps reset to pending.`,
+        `Rejected step "${stepDisplayName(currentStep)}" → sent back to step ${targetIdx + 1} "${stepDisplayName(target)}". Intermediate steps reset to pending.`,
       );
     }
   } catch (err) {
@@ -919,12 +920,12 @@ export async function rejectStepInlineCommand(
     saveRun(root, next, state);
     if (targetIdx === idx) {
       void vscode.window.showInformationMessage(
-        `Rejected step "${currentStep.agent}". Open the epic and click "Rerun" when ready.`,
+        `Rejected step "${stepDisplayName(currentStep)}". Open the epic and click "Rerun" when ready.`,
       );
     } else {
       const target = state.steps[targetIdx];
       void vscode.window.showInformationMessage(
-        `Rejected step "${currentStep.agent}" → sent back to step ${targetIdx + 1} "${target.agent}". Intermediate steps reset to pending.`,
+        `Rejected step "${stepDisplayName(currentStep)}" → sent back to step ${targetIdx + 1} "${stepDisplayName(target)}". Intermediate steps reset to pending.`,
       );
     }
   } catch (err) {
@@ -944,7 +945,7 @@ async function pickRejectTarget(state: RunState, fromIdx?: number): Promise<numb
   // Steps can share an agent, so the step name is what tells them apart.
   const stepLabel = (i: number) => {
     const s = state.steps[i];
-    return s.name && s.name !== s.agent ? `${s.name} · ${s.agent}` : s.agent;
+    return s.name ?? s.agent;
   };
   const items: Array<vscode.QuickPickItem & { stepIdx: number }> = [
     {

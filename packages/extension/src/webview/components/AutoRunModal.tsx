@@ -41,7 +41,7 @@ export function AutoRunModal({ runId, steps, currentStepIdx, onClose }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const label = (s: AutoRunStep) => (s.name && s.name !== s.agent ? `${s.name} · ${s.agent}` : s.agent);
+  const label = (s: AutoRunStep) => s.name ?? s.agent;
   const remaining = steps
     .map((s, idx) => ({ ...s, idx }))
     .filter((s) => s.idx >= currentStepIdx);

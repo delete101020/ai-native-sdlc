@@ -42,7 +42,7 @@ pipelines:
 
   expect(outcome).toEqual({ kind: 'attended' });
   expect(ran).toEqual([0]);
-  expect(stoppedAt).toEqual(['close · a']);
+  expect(stoppedAt).toEqual(['close']);
   const final = RunStateStore.load(root, 'R-1')!;
   expect(final.steps[0].status).toBe('approved');
   expect(final.steps[1].status).toBe('awaiting_work');

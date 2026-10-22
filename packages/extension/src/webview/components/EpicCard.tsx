@@ -1817,7 +1817,7 @@ function RequestUpdateAction({
       </button>
       {open && (
         <RequestUpdateModal
-          agent={focused.agent}
+          agent={focused.stepName ?? focused.agent}
           runId={epic.runId}
           stepIdx={focusedIdx}
           downstreamCount={downstreamCount}
@@ -2343,6 +2343,21 @@ function RunGate({
     focused.stepHasAutoReview &&
     focused.autoReviewVerdict?.decision === 'reject';
 
+  // A rejected step can still go back to an earlier one — how a person acts
+  // on a validator's `sendBackTo` the run would not follow on its own.
+  const canSendBack = status === 'rejected' && focusedIdx > 0;
+  const suggestedIdx = (() => {
+    const to = focused.autoReviewVerdict?.sendBackTo;
+    let i = -1;
+    if (typeof to === 'number') {
+      i = to;
+    } else if (typeof to === 'string') {
+      i = epic.stepDetails.findIndex((d) => d.stepName === to);
+      if (i < 0) { i = epic.stepDetails.findIndex((d) => d.agent === to); }
+    }
+    return i >= 0 && i < focusedIdx ? i : focusedIdx - 1;
+  })();
+
   const gates: string[] = [];
   if (focused.stepHasAutoReview) { gates.push('🤖 auto-review'); }
   if (focused.stepHasHumanReview) { gates.push('👤 human review'); }
@@ -2535,6 +2550,16 @@ function RunGate({
             Rerun
           </GateButton>
         )}
+        {canSendBack && (
+          <GateButton
+            variant="reject"
+            disabled={busy}
+            title={busy ? busyTitle : `Reopen an earlier step with this reason as its feedback — suggested: ${stepLabel(suggestedIdx)}`}
+            onClick={() => setRejectOpen(true)}
+          >
+            <Undo2 className="h-3 w-3" /> Send back…
+          </GateButton>
+        )}
         {/* Not per-status: the loop starts from wherever the run stands and
             clears auto-review, rejection is the one thing it cannot resume
             from — a rejected step needs feedback before rerunning. */}
@@ -2556,12 +2581,15 @@ function RunGate({
           currentStepIdx={focusedIdx}
           steps={epic.stepDetails.map((d) => ({ agent: d.agent, name: d.stepName }))}
           onClose={() => setRejectOpen(false)}
+          {...(status === 'rejected'
+            ? { sendBackOnly: true, defaultTargetIdx: suggestedIdx, defaultReason: focused.rejectReason }
+            : {})}
         />
       )}
       {rerunOpen && epic.runId && (
         <RerunModal
           runId={epic.runId}
-          agent={focused.agent}
+          agent={focused.stepName ?? focused.agent}
           rejectReason={focused.rejectReason}
           onSubmit={(feedback) =>
             postMessage({ type: 'rerunStepInline', runId: epic.runId!, feedback, stepIdx: focusedIdx })
@@ -2571,7 +2599,7 @@ function RunGate({
       )}
       {runOpen && epic.runId && slashCommand && (
         <RunWithFeedbackModal
-          agent={focused.agent}
+          agent={focused.stepName ?? focused.agent}
           runId={epic.runId}
           slashCommand={slashCommand}
           carriedFeedback={focused.feedback}

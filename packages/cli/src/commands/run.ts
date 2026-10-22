@@ -25,6 +25,7 @@ import {
   type RunState,
   type PipelineConfig,
   CODING_MODEL,
+  stepLabel,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { info, setQuiet } from '../output';
@@ -83,7 +84,7 @@ export function registerRun(program: Command): void {
       printRunSummary(state);
       const first = state.steps[0];
       if (first) {
-        console.log(chalk.dim(`  Current step: ${chalk.bold(first.agent)} — awaiting_work`));
+        console.log(chalk.dim(`  Current step: ${chalk.bold(stepLabel(first))} — awaiting_work`));
         console.log(chalk.dim(`  When done: aidlc run mark-done ${runId}`));
       }
     });
@@ -134,13 +135,13 @@ export function registerRun(program: Command): void {
 
       if (step.status === prevStatus) {
         // Idempotent no-op: step was already marked done in this revision.
-        console.log(chalk.dim(`• Step "${step.agent}" is already ${step.status} — nothing to do.`));
+        console.log(chalk.dim(`• Step "${stepLabel(step)}" is already ${step.status} — nothing to do.`));
       } else if (step.status === 'awaiting_review') {
-        console.log(chalk.cyan('✔') + ` Step "${step.agent}" is now ${chalk.cyan('awaiting_review')}`);
+        console.log(chalk.cyan('✔') + ` Step "${stepLabel(step)}" is now ${chalk.cyan('awaiting_review')}`);
         console.log(chalk.dim(`  Approve: aidlc run approve ${runId}`));
         console.log(chalk.dim(`  Reject:  aidlc run reject ${runId} --reason "..."`));
       } else {
-        console.log(chalk.green('✔') + ` Step "${step.agent}" approved, advancing…`);
+        console.log(chalk.green('✔') + ` Step "${stepLabel(step)}" approved, advancing…`);
         printRunSummary(next);
       }
     });
@@ -170,7 +171,7 @@ export function registerRun(program: Command): void {
 
       saveRunState(root, next, state);
       const approvedStep = state.steps[state.currentStepIdx];
-      console.log(chalk.green('✔') + ` Approved "${approvedStep.agent}"`);
+      console.log(chalk.green('✔') + ` Approved "${stepLabel(approvedStep)}"`);
       printRunSummary(next);
 
       if (next.status === 'completed') {
@@ -204,7 +205,7 @@ export function registerRun(program: Command): void {
         targetIdx = requireStepIdx(state, opts.to);
         if (targetIdx >= idx) {
           console.error(chalk.red(
-            `--to must name a step before the rejected one (${idx}:${state.steps[idx].agent}), got ${targetIdx}:${state.steps[targetIdx].agent}.`,
+            `--to must name a step before the rejected one (${idx}:${stepLabel(state.steps[idx])}), got ${targetIdx}:${stepLabel(state.steps[targetIdx])}.`,
           ));
           process.exit(1);
         }
@@ -222,13 +223,13 @@ export function registerRun(program: Command): void {
       const step = state.steps[idx];
       if (targetIdx !== undefined) {
         const target = next.steps[targetIdx];
-        console.log(chalk.red('✘') + ` Rejected "${step.agent}" — sent back to "${target.agent}" (rev ${target.revision})`);
+        console.log(chalk.red('✘') + ` Rejected "${stepLabel(step)}" — sent back to "${stepLabel(target)}" (rev ${target.revision})`);
         console.log(chalk.dim(`  Reason: ${opts.reason}`));
         console.log(chalk.dim(`  When done: aidlc run mark-done ${runId}`));
         printRunSummary(next);
         return;
       }
-      console.log(chalk.red('✘') + ` Rejected "${step.agent}"`);
+      console.log(chalk.red('✘') + ` Rejected "${stepLabel(step)}"`);
       console.log(chalk.dim(`  Reason: ${opts.reason}`));
       console.log(chalk.dim(`  Rerun:  aidlc run rerun ${runId} [--feedback "..."]`));
     });
@@ -261,7 +262,7 @@ export function registerRun(program: Command): void {
 
       saveRunState(root, next, state);
       const step = next.steps[stepIdx ?? next.currentStepIdx];
-      console.log(chalk.yellow('↺') + ` Rerunning "${step.agent}" (rev ${step.revision})`);
+      console.log(chalk.yellow('↺') + ` Rerunning "${stepLabel(step)}" (rev ${step.revision})`);
       if (opts.feedback) { console.log(chalk.dim(`  Feedback: ${opts.feedback}`)); }
       console.log(chalk.dim(`  When done: aidlc run mark-done ${runId}`));
     });
@@ -290,7 +291,7 @@ export function registerRun(program: Command): void {
 
       saveRunState(root, next, state);
       const target = next.steps[stepIdx];
-      console.log(chalk.yellow('↻') + ` Reopened "${target.agent}" for update (rev ${target.revision})`);
+      console.log(chalk.yellow('↻') + ` Reopened "${stepLabel(target)}" for update (rev ${target.revision})`);
       if (opts.feedback) { console.log(chalk.dim(`  Feedback: ${opts.feedback}`)); }
       console.log(chalk.dim(`  When done: aidlc run mark-done ${runId}`));
       printRunSummary(next);
@@ -323,14 +324,14 @@ export function registerRun(program: Command): void {
 
       saveRunState(root, next, state);
       const target = next.steps[stepIdx];
-      console.log(chalk.yellow('↺') + ` Rerunning "${target.agent}" (rev ${target.revision})`);
+      console.log(chalk.yellow('↺') + ` Rerunning "${stepLabel(target)}" (rev ${target.revision})`);
       if (opts.feedback) { console.log(chalk.dim(`  Feedback: ${opts.feedback}`)); }
 
       const marked = next.steps.filter((st) => st.dirty?.byStepIdx === stepIdx);
       if (marked.length > 0) {
         console.log(chalk.yellow(`  ⚠ ${marked.length} approved step(s) downstream kept and marked dirty:`));
         for (const m of marked) {
-          console.log(chalk.dim(`      ${m.stepIdx}. ${m.name ?? m.agent}`));
+          console.log(chalk.dim(`      ${m.stepIdx}. ${stepLabel(m)}`));
         }
         console.log(chalk.dim('    They still count as done. Redo each one to clear its mark.'));
       }
@@ -435,7 +436,7 @@ export function registerRun(program: Command): void {
 
       console.error(chalk.red('✘') + ` Drift detected in ${report.drift.length} of ${report.checked} step(s):`);
       for (const d of report.drift) {
-        console.error(chalk.yellow(`\n  Step ${d.stepIdx} (${d.agent}) — ${d.status}`));
+        console.error(chalk.yellow(`\n  Step ${d.stepIdx} (${stepLabel(state.steps[d.stepIdx] ?? d)}) — ${d.status}`));
         for (const m of d.missing)        { console.error(chalk.dim(`    ✘ missing file:   ${m}`)); }
         for (const m of d.missingMarkers) { console.error(chalk.dim(`    ✘ missing content: ${m}`)); }
       }
@@ -582,7 +583,7 @@ async function driveAutoReview(root: string, runId: string, state: RunState): Pr
   const pipeline = requirePipelineForRun(root, state);
   const step = state.steps[state.currentStepIdx];
   console.log(chalk.bold(`
-🔍 Auto-review: "${step.agent}"`));
+🔍 Auto-review: "${stepLabel(step)}"`));
 
   let verdict;
   try {
@@ -614,7 +615,7 @@ async function driveAutoReview(root: string, runId: string, state: RunState): Pr
   console.log(chalk.green('✔') + ' Auto-review passed' + chalk.dim(` — ${verdict.reason}`));
   const after = next.steps[state.currentStepIdx];
   if (after.status === 'awaiting_review') {
-    console.log(chalk.cyan('✔') + ` Step "${after.agent}" is now ${chalk.cyan('awaiting_review')}`);
+    console.log(chalk.cyan('✔') + ` Step "${stepLabel(after)}" is now ${chalk.cyan('awaiting_review')}`);
     console.log(chalk.dim(`  Approve: aidlc run approve ${runId}`));
     console.log(chalk.dim(`  Reject:  aidlc run reject ${runId} --reason "..."`));
   }

@@ -107,12 +107,14 @@ export interface ExecOptions {
  * same loop backs the CLI (chalk) and the extension (panel).
  */
 /**
- * How a step is named to a person: `name · agent`. Two steps can share an
- * agent (cr-build-spec and cr-build both run cr-dev), so the agent alone does
- * not say which step it is. Every hook event carries this as `label`.
+ * How a step is named to a person: its name, else its agent. Two steps can
+ * share an agent (cr-build-spec and cr-build both run cr-dev), so the agent
+ * alone does not say which step it is — and the agent behind a step is the
+ * workflow author's concern, not the person running it. Every hook event
+ * carries this as `label`.
  */
 export function stepLabel(s: { agent: string; name?: string }): string {
-  return s.name && s.name !== s.agent ? `${s.name} · ${s.agent}` : s.agent;
+  return s.name ?? s.agent;
 }
 
 export interface ExecHooks {

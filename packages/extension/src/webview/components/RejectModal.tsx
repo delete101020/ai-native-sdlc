@@ -8,11 +8,20 @@ interface Props {
   currentStepIdx: number;
   steps: Array<{ agent: string; name?: string }>;
   onClose: () => void;
+  /**
+   * The step is already `rejected` (by its validator), so rejecting it in
+   * place changes nothing: only an earlier step is offered.
+   */
+  sendBackOnly?: boolean;
+  defaultTargetIdx?: number;
+  defaultReason?: string;
 }
 
-export function RejectModal({ runId, currentStepIdx, steps, onClose }: Props) {
-  const [reason, setReason] = useState('');
-  const [targetIdx, setTargetIdx] = useState(currentStepIdx);
+export function RejectModal({
+  runId, currentStepIdx, steps, onClose, sendBackOnly, defaultTargetIdx, defaultReason,
+}: Props) {
+  const [reason, setReason] = useState(defaultReason ?? '');
+  const [targetIdx, setTargetIdx] = useState(defaultTargetIdx ?? currentStepIdx);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -32,6 +41,7 @@ export function RejectModal({ runId, currentStepIdx, steps, onClose }: Props) {
   }, [reason, targetIdx]);
 
   const submit = () => {
+    if (sendBackOnly && targetIdx >= currentStepIdx) { return; }
     postMessage({
       type: 'rejectStepInline',
       runId,
@@ -43,11 +53,11 @@ export function RejectModal({ runId, currentStepIdx, steps, onClose }: Props) {
   };
 
   // Two steps can share an agent (cr-build-spec and cr-build both run cr-dev),
-  // so the step name is what tells them apart; the agent rides along.
+  // so the step name is what tells them apart.
   const stepLabel = (i: number) => {
     const s = steps[i];
     if (!s) return '';
-    return s.name && s.name !== s.agent ? `${s.name} · ${s.agent}` : s.agent;
+    return s.name ?? s.agent;
   };
   const resetsHint = (idx: number) =>
     idx + 1 === currentStepIdx
@@ -70,7 +80,7 @@ export function RejectModal({ runId, currentStepIdx, steps, onClose }: Props) {
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <h2 id="reject-modal-title" className="text-sm font-semibold text-foreground">
-              Reject step
+              {sendBackOnly ? 'Send back' : 'Reject step'}
             </h2>
             <p className="mt-0.5 text-[11.5px] text-muted-foreground">
               Step {currentStepIdx + 1} —{' '}
@@ -105,13 +115,15 @@ export function RejectModal({ runId, currentStepIdx, steps, onClose }: Props) {
               Send work back to
             </div>
             <div className="space-y-1">
-              <RadioOption
-                checked={targetIdx === currentStepIdx}
-                onSelect={() => setTargetIdx(currentStepIdx)}
-                label={`Stay on step ${currentStepIdx + 1}`}
-                detail={`Rerun in place — ${currentLabel}`}
-                hint="Default"
-              />
+              {!sendBackOnly && (
+                <RadioOption
+                  checked={targetIdx === currentStepIdx}
+                  onSelect={() => setTargetIdx(currentStepIdx)}
+                  label={`Stay on step ${currentStepIdx + 1}`}
+                  detail={`Rerun in place — ${currentLabel}`}
+                  hint="Default"
+                />
+              )}
               {upstreamOptions
                 .slice()
                 .reverse()
@@ -142,7 +154,7 @@ export function RejectModal({ runId, currentStepIdx, steps, onClose }: Props) {
             onClick={submit}
             className="rounded-md border border-destructive/50 bg-destructive/15 px-3 py-1.5 text-[11.5px] font-semibold text-destructive hover:border-destructive hover:bg-destructive/25"
           >
-            Reject
+            {sendBackOnly ? 'Send back' : 'Reject'}
           </button>
         </div>
       </div>

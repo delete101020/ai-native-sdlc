@@ -12,6 +12,7 @@ import {
   resolveArtifactCommitConfig,
   findStepIndex,
   AMBIGUOUS_STEP_INDEX,
+  stepLabel as stepDisplayName,
   type RunState,
   type StepRecord,
   type PipelineConfig,
@@ -257,7 +258,7 @@ export function printRunSummary(state: RunState): void {
     const isCurrent = i === state.currentStepIdx && state.status === 'running';
     const marker    = isCurrent ? chalk.yellow('▶') : ' ';
     const idxLabel  = chalk.dim(`${i}.`);
-    const agent     = isCurrent ? chalk.bold(step.agent) : chalk.dim(step.agent);
+    const agent     = isCurrent ? chalk.bold(stepDisplayName(step)) : chalk.dim(stepDisplayName(step));
     const status    = colorStatus(step.status);
     const rev       = step.revision > 1 ? chalk.dim(` rev${step.revision}`) : '';
     const feedback  = step.feedback    ? chalk.dim(` [feedback: ${step.feedback.slice(0, 40)}]`) : '';

@@ -597,6 +597,8 @@ export interface AutoReviewVerdict {
   reason: string;
   at: string;
   runner: string;
+  /** The earlier step the validator asked to send the work back to (name, agent or index). */
+  sendBackTo?: string | number | null;
 }
 
 /**
