@@ -159,6 +159,64 @@ export function isRunComplete(state: RunState, pipeline: PipelineConfig): boolea
 }
 
 /**
+ * The open step the autopilot loop should run next, or -1 when none of the
+ * open steps is worth running.
+ *
+ * The cursor alone is not that answer on a DAG. It stays put while it points
+ * at an open step, and an open step can be one the run no longer needs:
+ * CR-261023-02 had its cursor on `cr-solo-ba` long after `cr-solo-dev`,
+ * `cr-merge` and `cr-build-spec` were approved, so an autopilot started to
+ * run `cr-build` through `cr-review` ran `cr-solo-ba` instead.
+ *
+ * An open step is skipped when it is a dead-end peer of an approved step (the
+ * run completes without it, see {@link isRunComplete}), or, given `untilIdx`,
+ * when it is neither that step nor something it transitively waits on. The
+ * cursor wins when it is not skipped; otherwise the first open step that is
+ * not skipped. A sequential pipeline always gets its cursor back.
+ *
+ * Pure: no filesystem, no clock, no mutation.
+ */
+export function nextRunnableStep(
+  state: RunState,
+  pipeline: PipelineConfig,
+  untilIdx = -1,
+): number {
+  if (!usesDag(pipeline)) { return state.currentStepIdx; }
+
+  const skipped = deadEndPeersOfApproved(state, pipeline);
+  if (untilIdx >= 0) {
+    skipped.delete(untilIdx);
+    const onPath = ancestorsOf(pipeline, untilIdx);
+    onPath.add(untilIdx);
+    state.steps.forEach((_, i) => { if (!onPath.has(i)) { skipped.add(i); } });
+  }
+
+  const runnable = (i: number): boolean =>
+    isActiveStatus(state.steps[i]?.status ?? 'pending') && !skipped.has(i);
+  if (runnable(state.currentStepIdx)) { return state.currentStepIdx; }
+  return state.steps.findIndex((_, i) => runnable(i));
+}
+
+/** Every step `idx` transitively depends on, matched by `name ?? agent`. */
+function ancestorsOf(pipeline: PipelineConfig, idx: number): Set<number> {
+  const normalized = pipeline.steps.map(normalizeStep);
+  const idxByDagId = new Map<string, number>();
+  normalized.forEach((s, i) => { idxByDagId.set(s.name ?? s.agent, i); });
+  const found = new Set<number>();
+  const queue = [idx];
+  while (queue.length > 0) {
+    const cur = queue.pop() as number;
+    for (const dep of normalized[cur]?.depends_on ?? []) {
+      const di = idxByDagId.get(dep);
+      if (di === undefined || found.has(di) || di === idx) { continue; }
+      found.add(di);
+      queue.push(di);
+    }
+  }
+  return found;
+}
+
+/**
  * Unapproved steps nothing depends on whose stage an approved peer has
  * already settled. Ranks come from {@link weighStepProgress}, so completion
  * and the percentage can never disagree about what a stage is.

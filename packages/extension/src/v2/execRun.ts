@@ -191,6 +191,10 @@ export async function execRunToCompletion(
               log(`⤳ step rejected but optional · ${e.label} — moving to step ${e.nextStepIdx + 1}`);
               onChange();
             },
+            onStepBypassed: (e) => {
+              log(`⤳ not running ${e.label} — not needed on the way — moving to step ${e.nextStepIdx + 1} · ${e.nextLabel}`);
+              onChange();
+            },
             onBudget: (e) => {
               log(`💰 $${e.spent.toFixed(4)} of $${e.limit.toFixed(2)}${e.ok ? '' : ` — ${e.exceeded} ceiling crossed`}`);
             },

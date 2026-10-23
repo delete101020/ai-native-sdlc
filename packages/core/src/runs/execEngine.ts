@@ -27,7 +27,7 @@ import {
 import { runAutoReview } from './AutoReviewer';
 import { commitApprovedArtifacts, resolveArtifactCommitConfig } from './EpicArtifactCommit';
 import { epicsRoot, mirrorRunStateToEpic } from './EpicScaffold';
-import { isActiveStatus, isStepOptional } from './runProgress';
+import { isActiveStatus, isStepOptional, nextRunnableStep } from './runProgress';
 import { checkBudget, type CostAccounting } from './budget';
 import { snapshotProduces, unchangedProduces } from './producesSnapshot';
 import { revisionFeedback } from './revisionFeedback';
@@ -184,6 +184,14 @@ export interface ExecHooks {
   onStepSkipped?(e: {
     stepIdx: number; agent: string; label: string; reason: string; nextStepIdx: number; runId: string;
   }): void;
+  /**
+   * The loop moved the cursor off an open step it does not need to run — a
+   * dead-end side branch, or a step `--until` does not wait on — to the step
+   * it will run instead.
+   */
+  onStepBypassed?(e: {
+    stepIdx: number; label: string; nextStepIdx: number; nextLabel: string; runId: string;
+  }): void;
   /** Auto-review validator is about to run. */
   onAutoReviewStart?(e: { agent: string; label: string }): void;
   /**
@@ -323,6 +331,28 @@ async function execLoop(
     if (state.status === 'failed') {
       hooks.onRunFailed?.('Run failed.');
       return { kind: 'error' };
+    }
+
+    // On a DAG the cursor can sit on an open side branch nothing waits on, or
+    // one `--until` does not lead through; run the step that matters instead.
+    // A rejection keeps the cursor: the handling below decides what it means.
+    const atIdx = state.currentStepIdx;
+    if (state.steps[atIdx] && state.steps[atIdx].status !== 'rejected') {
+      const pick = nextRunnableStep(state, initialPipeline, untilIdx);
+      if (pick >= 0 && pick !== atIdx) {
+        hooks.onStepBypassed?.({
+          stepIdx: atIdx, label: stepLabel(state.steps[atIdx]),
+          nextStepIdx: pick, nextLabel: stepLabel(state.steps[pick]),
+          runId,
+        });
+        state.currentStepIdx = pick;
+        // A preview writes nothing; it only needs to show the right step.
+        if (!opts.dryRun) { persist(root, state); }
+      } else if (pick < 0 && untilIdx >= 0 && isActiveStatus(state.steps[atIdx].status)) {
+        // Open work remains, but none of it is on the way to the --until step.
+        hooks.onUntilStop?.({ untilIdx });
+        return { kind: 'until' };
+      }
     }
 
     const step = state.steps[state.currentStepIdx];

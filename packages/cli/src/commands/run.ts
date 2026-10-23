@@ -708,6 +708,9 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
       info(chalk.dim(`  Want it back? aidlc run rerun ${e.runId} --step ${e.stepIdx}`));
     },
 
+    onStepBypassed: (e) => {
+      info(chalk.dim(`\n⤳  Not running "${e.label}" — the run does not need it here. Running "${e.nextLabel}" instead.`));
+    },
     onAutoReviewStart: (e) => info(chalk.bold(`\n🔍  Auto-review: "${e.label}"`)),
     onAutoReviewResult: (e) => {
       if (e.decision === 'pass') {

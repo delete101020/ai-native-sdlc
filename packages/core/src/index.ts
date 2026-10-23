@@ -469,6 +469,7 @@ export {
   isRunComplete,
   isStepOptional,
   isActiveStatus,
+  nextRunnableStep,
   weighStepProgress,
 } from './runs/runProgress';
 export type { RunProgress, ProgressStep, ProgressWeighting } from './runs/runProgress';
