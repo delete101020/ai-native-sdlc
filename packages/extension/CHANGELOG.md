@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.0.47
+
+An autopilot run that stopped mid-step — an account out of usage, a step past
+its `timeout_minutes`, Stop now — can be picked up again. Before, the
+half-written code it left made the next Run to completion refuse to start.
+
+### Added
+
+- A step that stops short records what it left uncommitted. Running the loop
+  again starts on exactly those changes, and the agent is told to carry on
+  from them rather than start over. If anything else has changed in the tree
+  since, the run is still refused.
+- `aidlc run exec --allow-dirty` starts on uncommitted changes anyway, for a
+  run that stopped before its leftovers were recorded. In the panel, a refusal
+  caused only by uncommitted changes has a **Carry on with them** button that
+  does the same.
+
 ## 4.0.46
 
 Run to completion no longer runs a side branch the pipeline has left behind.
