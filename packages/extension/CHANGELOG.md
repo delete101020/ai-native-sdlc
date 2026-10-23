@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.0.46
+
+Run to completion no longer runs a side branch the pipeline has left behind.
+A CR whose BA and QC lenses were never run, because the merge only waits on
+the dev lens, now runs `cr-build` when you ask for `cr-build` through
+`cr-review`, instead of `cr-solo-ba`.
+
+### Fixed
+
+- The exec loop (`aidlc run exec`, Run to completion) picks the step it runs
+  instead of taking the run's cursor as is. An open step nothing depends on,
+  whose stage an approved peer has already settled, is skipped. With an
+  until step, so is any open step that step does not wait on. A skipped step
+  keeps its status, so you can still run it by hand, and the loop logs
+  `⤳ not running …` when it moves on.
+
 ## 4.0.45
 
 A step approved by Run to completion's auto-approve is now marked as such, so
