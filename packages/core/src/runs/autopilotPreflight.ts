@@ -11,7 +11,11 @@
  * 2. **A clean working tree** — leaving out the epic's own folder and
  *    `.aidlc/`. Work left uncommitted would be built on, reviewed and
  *    committed as if the agent had written it, and a run that stops halfway
- *    would leave it mixed in with the agent's.
+ *    would leave it mixed in with the agent's. Two exceptions: exactly the
+ *    tree a step of this run left when it stopped short (its recorded
+ *    `leftover` — say the account ran out of usage and the run is picked up
+ *    on another), and `--allow-dirty`, where the person says it is theirs to
+ *    vouch for.
  * 3. **The approval gate**, for steps Claude runs: the
  *    `.claude/hooks/aidlc-approval-gate.py` PreToolUse hook, registered and
  *    present. It is what stops a force-push to main or a staged `.env` when
@@ -29,8 +33,9 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { claudeConfigDir } from '../util/claudeHome';
+import { codeFingerprint, uncommittedPaths } from './codeFingerprint';
 import { epicsRoot } from './EpicScaffold';
-import type { RunState } from './RunState';
+import type { RunState, StepRecord } from './RunState';
 import { normalizeStep } from '../schema/WorkspaceSchema';
 import type { PipelineConfig, WorkspaceConfig } from '../schema/WorkspaceSchema';
 
@@ -108,6 +113,15 @@ export function autopilotPreflight(args: {
   state: RunState;
   pipeline: PipelineConfig;
   config: WorkspaceConfig;
+  /** Start on top of uncommitted changes nobody can vouch for (`--allow-dirty`). */
+  allowDirty?: boolean;
+  /** Told when the tree is dirty and the run starts anyway, and why. */
+  onNote?: (message: string) => void;
+  /**
+   * Told the uncommitted paths when they are why the run may not start, so a
+   * front end can offer to start anyway instead of only printing the refusal.
+   */
+  onDirty?: (paths: string[]) => void;
   /** Overrides the user's Claude config dir, for tests. */
   userConfigDir?: string;
 }): string[] {
@@ -136,18 +150,35 @@ export function autopilotPreflight(args: {
       problems.push(`You are on "${branch}". Autopilot does not commit to it — switch to a branch for this epic (git switch -c <branch>).`);
     }
 
-    const skip = [
+    const exclude = [
       toPosix(path.relative(root, path.join(epicsRoot(root, config), state.runId))),
       '.aidlc',
     ];
-    const dirty = dirtyPaths(git(['status', '--porcelain=v1', '-z', '--untracked-files=all']) ?? '')
-      .filter((p) => !skip.some((s) => p === s || p.startsWith(`${s}/`)));
+    const dirty = uncommittedPaths(root, exclude);
     if (dirty.length > 0) {
-      const shown = dirty.slice(0, 5).join(', ') + (dirty.length > 5 ? `, and ${dirty.length - 5} more` : '');
-      problems.push(
-        `The working tree has uncommitted changes (${shown}). Commit or stash them first: the agent would build ` +
-        'on them, and its own changes would be mixed in with them.',
-      );
+      const shown = listPaths(dirty);
+      const left = state.steps.filter((s) => s.leftover);
+      const tree = left.length > 0 ? codeFingerprint(root, exclude) : null;
+      const own = tree ? left.find((s) => s.leftover!.tree === tree) : undefined;
+      if (own) {
+        args.onNote?.(
+          `Carrying on from what "${own.name ?? own.agent}" left uncommitted when it ${leftoverWhy(own)} ` +
+          `(${shown}). Nothing else has changed since.`,
+        );
+      } else if (args.allowDirty) {
+        args.onNote?.(`--allow-dirty: starting on top of uncommitted changes (${shown}).`);
+      } else {
+        args.onDirty?.(dirty);
+        const changed = left.length > 0
+          ? ` They are not what "${left.map((s) => s.name ?? s.agent).join('", "')}" left when it stopped — ` +
+            'something has changed since.'
+          : '';
+        problems.push(
+          `The working tree has uncommitted changes (${shown}). Commit or stash them first: the agent would build ` +
+          `on them, and its own changes would be mixed in with them.${changed} If they are this run's own ` +
+          'unfinished work, run again with --allow-dirty.',
+        );
+      }
     }
   }
 
@@ -203,17 +234,16 @@ export function emptyCiChecksMessage(runner: string, step: string): string {
     'typecheck and test commands to it before leaving a run alone.';
 }
 
-/** Paths in `git status --porcelain=v1 -z` output. A rename's source path is skipped. */
-function dirtyPaths(out: string): string[] {
-  const parts = out.split('\0');
-  const paths: string[] = [];
-  for (let i = 0; i < parts.length; i++) {
-    const entry = parts[i];
-    if (entry.length < 4) { continue; }
-    paths.push(entry.slice(3));
-    if (entry[0] === 'R' || entry[0] === 'C') { i++; }
+function listPaths(paths: string[]): string {
+  return paths.slice(0, 5).join(', ') + (paths.length > 5 ? `, and ${paths.length - 5} more` : '');
+}
+
+function leftoverWhy(step: StepRecord): string {
+  switch (step.leftover!.why) {
+    case 'timeout': return 'ran past its timeout_minutes';
+    case 'stopped': return 'was stopped';
+    default: return 'failed';
   }
-  return paths;
 }
 
 /** Claude Code matches `matcher` against the tool name; absent, empty or `*` matches every tool. */

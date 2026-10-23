@@ -53,6 +53,11 @@ export interface ExecRunOptions {
   autoApprove: boolean;
   /** Stop after this step index; omitted runs to the end. */
   untilIdx?: number;
+  /**
+   * Start on top of uncommitted changes. Never set up front: only offered
+   * after the preflight refused on them, by the button on that refusal.
+   */
+  allowDirty?: boolean;
 }
 
 /**
@@ -124,6 +129,7 @@ export async function execRunToCompletion(
           runId,
           {
             autoApprove: opts.autoApprove,
+            allowDirty: opts.allowDirty,
             untilIdx: opts.untilIdx ?? -1,
             shouldCancel: () => token.isCancellationRequested,
             signal: stopNow.signal,
@@ -203,6 +209,7 @@ export async function execRunToCompletion(
             onAttendedStep: (e) => { log(`⏹ stopped before step ${e.stepIdx + 1} · ${e.label} — a person runs it`); },
             onRunCompleted: () => { log('✅ run completed'); },
             onRunFailed: (reason) => { failure = reason; log(`✖ ${reason}`); },
+            onPreflightNote: (message) => log(`⚠ ${message}`),
           },
         );
       },
@@ -215,7 +222,43 @@ export async function execRunToCompletion(
     onChange();
   }
 
+  if (outcome.kind === 'error' && outcome.dirty) {
+    offerAllowDirty(root, runId, opts, onChange, outcome.dirty);
+    return;
+  }
   reportOutcome(runId, outcome, failure);
+}
+
+/**
+ * The preflight refused only because the tree has uncommitted changes nobody
+ * can vouch for — typically a step that died before this run recorded what it
+ * left. Whether they are this run's own unfinished work is the user's call, so
+ * the panel's answer to `--allow-dirty` is a button on that refusal rather
+ * than a setting that could be left on.
+ */
+function offerAllowDirty(
+  root: string,
+  runId: string,
+  opts: ExecRunOptions,
+  onChange: () => void,
+  dirty: string[],
+): void {
+  const carryOn = 'Carry on with them';
+  const shown = dirty.length <= 3
+    ? dirty.join(', ')
+    : `${dirty.slice(0, 3).join(', ')} and ${dirty.length - 3} more`;
+  void vscode.window.showWarningMessage(
+    `${runId} did not start: the working tree has uncommitted changes (${shown}). ` +
+    'Commit or stash them, or — if they are this run\'s own unfinished work — carry on with them.',
+    carryOn,
+    'Show log',
+  ).then((pick) => {
+    if (pick === carryOn) {
+      void execRunToCompletion(root, runId, { ...opts, allowDirty: true }, onChange);
+    } else if (pick) {
+      channel?.show();
+    }
+  });
 }
 
 /** Turn the stop reason into the one notification the user gets. */

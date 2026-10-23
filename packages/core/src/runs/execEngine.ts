@@ -32,13 +32,13 @@ import { checkBudget, type CostAccounting } from './budget';
 import { snapshotProduces, unchangedProduces } from './producesSnapshot';
 import { revisionFeedback } from './revisionFeedback';
 import { acquireRunLock } from './runLock';
-import { codeFingerprint } from './codeFingerprint';
+import { codeFingerprint, uncommittedPaths } from './codeFingerprint';
 import { readBatchStatusFile } from './batchStatus';
 import { autopilotPreflight, AUTOPILOT_ENV } from './autopilotPreflight';
 import { STOP_GRACE_MS } from '../runner/processTree';
 import { estimateCostUsd, ratesFromConfig, providerAliases } from './pricing';
 import { pickAgentModel, resolveProviderModel, stepModelOptions } from '../presets/models';
-import type { RunState, StepRecord } from './RunState';
+import type { RunState, StepLeftover, StepRecord } from './RunState';
 import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, resolveStepSkills, stepSkillAlternatives, DEFAULT_MAX_SEND_BACKS } from '../schema/WorkspaceSchema';
 import { resolvePath } from './RunState';
@@ -65,7 +65,14 @@ export type ExecOutcome =
   | { kind: 'budget_pause' }
   | { kind: 'batch_pause' }
   | { kind: 'cancelled' }
-  | { kind: 'error' };
+  | {
+      kind: 'error';
+      /**
+       * The uncommitted paths, when they are the only thing the autopilot
+       * preflight refused on — starting again with `allowDirty` would run.
+       */
+      dirty?: string[];
+    };
 
 /** Options controlling one exec loop. Mirrors the CLI's `run exec` flags. */
 export interface ExecOptions {
@@ -88,11 +95,18 @@ export interface ExecOptions {
    * Aborting it stops the running step now: the runner kills the agent's
    * whole process tree, the step stays `awaiting_work` on the same revision
    * with an `interrupted` history entry, and the loop returns `cancelled`.
-   * Whatever the agent half-wrote stays in the working tree — the `produces`
-   * snapshot keeps it from passing as the next attempt's output, and an
-   * autopilot run will not start again until the tree is clean.
+   * Whatever the agent half-wrote stays in the working tree and is recorded
+   * as the step's `leftover` — the `produces` snapshot keeps it from passing
+   * as the next attempt's output, and an autopilot run starts again on top of
+   * it only while the tree is exactly what the step left.
    */
   signal?: AbortSignal;
+  /**
+   * Let an autopilot run start on top of uncommitted changes that are not a
+   * recorded `leftover` — say a step's agent was killed outright, with no
+   * chance to record one. The person vouches for them.
+   */
+  allowDirty?: boolean;
   /**
    * Skill to run on a step whose `skills` are alternatives (`default_skill`
    * set), in place of the one remembered on the step or the default. Applies
@@ -126,6 +140,8 @@ export interface ExecHooks {
   onRunCompleted?(): void;
   /** Terminal failure (run failed / disappeared / unexpected step status). */
   onRunFailed?(reason: string): void;
+  /** The autopilot preflight let the run start on a dirty tree, and why. */
+  onPreflightNote?(message: string): void;
   /** A step is about to execute. */
   onStepStart?(e: {
     stepIdx: number; agent: string; label: string; revision: number;
@@ -293,9 +309,14 @@ async function execLoop(
 
   if (initialPipeline.autopilot && !opts.dryRun) {
     let problems: string[];
+    let dirty: string[] | undefined;
     try {
       const ws = WorkspaceLoader.load(root);
-      problems = autopilotPreflight({ root, state: initialState, pipeline: initialPipeline, config: ws.config });
+      problems = autopilotPreflight({
+        root, state: initialState, pipeline: initialPipeline, config: ws.config,
+        allowDirty: opts.allowDirty, onNote: (m) => hooks.onPreflightNote?.(m),
+        onDirty: (paths) => { dirty = paths; },
+      });
     } catch (err) {
       problems = [`Could not check the workspace: ${errMsg(err)}`];
     }
@@ -304,7 +325,7 @@ async function execLoop(
         `Pipeline "${initialPipeline.id}" is an autopilot pipeline, and it is not safe to leave this run alone yet:\n` +
         problems.map((p) => `  - ${p}`).join('\n'),
       );
-      return { kind: 'error' };
+      return dirty && problems.length === 1 ? { kind: 'error', dirty } : { kind: 'error' };
     }
   }
 
@@ -669,7 +690,8 @@ async function execStep(
   }
   const batchNo = report ? batchesOf(stepRec).length + 1 : 0;
   const batchNote = report ? batchInstructions(report, batchNo, stepRec.revision) : null;
-  const userMessage = [baseMessage, feedback, batchNote].filter(Boolean).join('\n\n');
+  const leftoverNote = leftoverInstructions(stepRec);
+  const userMessage = [baseMessage, feedback, leftoverNote, batchNote].filter(Boolean).join('\n\n');
 
   if (opts.dryRun) {
     hooks.onDryRunPreview?.({
@@ -743,6 +765,7 @@ async function execStep(
 
   if (stop.signal.aborted) {
     recordInterrupted(root, runId, stepIdx, timedOut ? { why: 'timeout', minutes } : { why: 'stopped' });
+    recordLeftover(root, runId, stepIdx, timedOut ? 'timeout' : 'stopped', codeExclude);
     if (timedOut) {
       hooks.onStepFailed?.({
         stepIdx, agent: agentId, label: stepLabel(stepRec),
@@ -757,6 +780,7 @@ async function execStep(
   }
 
   if (!result || !result.success) {
+    recordLeftover(root, runId, stepIdx, 'failed', codeExclude);
     hooks.onStepFailed?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), message: `Step "${agentId}" failed (non-zero exit).` });
     return 'failed';
   }
@@ -810,6 +834,7 @@ async function execStep(
         return 'failed';
       }
       recordProvenance(rec, { agent, resolvedModel, agentModel, skillIds, alternatives, modelOpts });
+      delete rec.leftover;
       const cost = addBatchCost(rec, batchNo, result, batchCost(result, ws, agent.runner, resolvedModel ?? agentModel));
       rec.history = [...(rec.history ?? []), {
         kind: 'batch', at: new Date().toISOString(), revision: rec.revision, batch: batchNo,
@@ -836,6 +861,7 @@ async function execStep(
     // Provenance of the step, recorded whether or not a cost came back.
     const rec = freshState.steps[stepIdx];
     recordProvenance(rec, { agent, resolvedModel, agentModel, skillIds, alternatives, modelOpts });
+    delete rec.leftover;
     addBatchCost(rec, batchNo, result, batchCost(result, ws, agent.runner, resolvedModel ?? agentModel));
     next = markStepDone({ state: freshState, pipeline, workspaceRoot: root });
   } catch (err) {
@@ -989,6 +1015,42 @@ function recordInterrupted(
     kind: 'interrupted', at: new Date().toISOString(), revision: rec.revision, ...what,
   }];
   RunStateStore.save(root, fresh);
+}
+
+/**
+ * Note on the step what its agent left uncommitted when it ended without
+ * finishing, so the autopilot preflight can tell that tree from someone
+ * else's changes and the next attempt carries on from it. A clean tree (or
+ * no git) clears the note instead.
+ */
+function recordLeftover(
+  root: string,
+  runId: string,
+  stepIdx: number,
+  why: StepLeftover['why'],
+  exclude: readonly string[],
+): void {
+  const fresh = RunStateStore.load(root, runId);
+  const rec = fresh?.steps[stepIdx];
+  if (!fresh || !rec) { return; }
+  const paths = uncommittedPaths(root, exclude);
+  const tree = paths.length > 0 ? codeFingerprint(root, exclude) : null;
+  if (tree) {
+    rec.leftover = { at: new Date().toISOString(), revision: rec.revision, why, tree, paths };
+  } else {
+    delete rec.leftover;
+  }
+  RunStateStore.save(root, fresh);
+}
+
+/** What the next attempt at a step is told about the one that stopped short. */
+function leftoverInstructions(rec: StepRecord): string | null {
+  const l = rec.leftover;
+  if (!l || l.revision !== rec.revision) { return null; }
+  const shown = l.paths.slice(0, 20).join(', ') + (l.paths.length > 20 ? `, and ${l.paths.length - 20} more` : '');
+  return `A previous attempt at this revision stopped before it finished. Its unfinished changes are still in ` +
+    `the working tree, uncommitted: ${shown}. Read them first and carry on from there — keep what is right, ` +
+    'finish what is missing — rather than starting over.';
 }
 
 /** Run the auto-review validator for the current step and submit its verdict. */

@@ -511,6 +511,7 @@ export type {
   AutoReviewVerdict,
   StepHistoryEntry,
   StepDirtyMark,
+  StepLeftover,
 } from './runs/RunState';
 
 // ── Built-in workflow presets (shared by extension + CLI) ──────────

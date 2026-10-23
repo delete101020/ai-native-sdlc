@@ -63,3 +63,33 @@ export function codeFingerprint(root: string, exclude: readonly string[]): strin
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }
+
+/**
+ * Uncommitted paths under `root` (tracked changes and untracked files),
+ * minus `exclude` and anything under it. Empty when git cannot say.
+ */
+export function uncommittedPaths(root: string, exclude: readonly string[]): string[] {
+  let out: string;
+  try {
+    out = execFileSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
+      cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch {
+    return [];
+  }
+  const skip = exclude.map((p) => p.split(path.sep).join('/')).filter((p) => p && !p.startsWith('..'));
+  return statusPaths(out).filter((p) => !skip.some((s) => p === s || p.startsWith(`${s}/`)));
+}
+
+/** Paths in `git status --porcelain=v1 -z` output. A rename's source path is skipped. */
+function statusPaths(out: string): string[] {
+  const parts = out.split('\0');
+  const paths: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const entry = parts[i];
+    if (entry.length < 4) { continue; }
+    paths.push(entry.slice(3));
+    if (entry[0] === 'R' || entry[0] === 'C') { i++; }
+  }
+  return paths;
+}

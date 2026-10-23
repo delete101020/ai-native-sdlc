@@ -145,6 +145,27 @@ export interface StepRecord {
    * backward compat with state files written before this field existed.
    */
   history?: StepHistoryEntry[];
+  /**
+   * What this step's agent left uncommitted when it ended without finishing
+   * — a non-zero exit (the account ran out of usage, the CLI crashed), its
+   * `timeout_minutes`, a "stop now". The autopilot preflight lets a run start
+   * again on top of exactly this tree, and the next attempt is told to carry
+   * on from it. Cleared when the step next finishes.
+   */
+  leftover?: StepLeftover;
+}
+
+/** See {@link StepRecord.leftover}. */
+export interface StepLeftover {
+  /** ISO timestamp the attempt ended. */
+  at: string;
+  /** Revision the attempt was working on. */
+  revision: number;
+  why: 'failed' | 'timeout' | 'stopped';
+  /** {@link codeFingerprint} of the working tree when the attempt ended. */
+  tree: string;
+  /** Uncommitted paths at that moment, for messages and the next prompt. */
+  paths: string[];
 }
 
 /**

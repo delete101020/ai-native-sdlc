@@ -151,8 +151,22 @@ describe('autopilot preflight', () => {
     fs.writeFileSync(path.join(r.root, 'notes.txt'), 'new\n');
     expect(preflight(r)).toEqual([
       'The working tree has uncommitted changes (src.txt, notes.txt). Commit or stash them first: the agent would ' +
-      'build on them, and its own changes would be mixed in with them.',
+      'build on them, and its own changes would be mixed in with them. If they are this run\'s own unfinished ' +
+      'work, run again with --allow-dirty.',
     ]);
+  });
+
+  it('lets --allow-dirty start on uncommitted changes, and says so', () => {
+    const r = repo();
+    installGate(r.root);
+    git(r.root, 'switch', '-q', '-c', 'feat/x');
+    fs.writeFileSync(path.join(r.root, 'src.txt'), 'half-written\n');
+    const notes: string[] = [];
+    expect(autopilotPreflight({
+      root: r.root, state: RunStateStore.load(r.root, 'R-1')!, pipeline: r.config.pipelines[0], config: r.config,
+      userConfigDir: r.userDir, allowDirty: true, onNote: (m) => notes.push(m),
+    })).toEqual([]);
+    expect(notes).toEqual(['--allow-dirty: starting on top of uncommitted changes (src.txt).']);
   });
 
   it('refuses a Claude step without the approval gate, and says where to look', () => {
@@ -325,6 +339,74 @@ describe('stopping a running step', () => {
     const step = RunStateStore.load(root, 'R-1')!.steps[0];
     expect(step.status).toBe('awaiting_work');
     expect(step.history).toEqual([expect.objectContaining({ kind: 'interrupted', why: 'stopped' })]);
+  });
+});
+
+describe('picking up a step that stopped short', () => {
+  /** repo('custom'), on a feature branch, whose runner half-writes src.txt and fails on its first call. */
+  function failingOnce(): ReturnType<typeof repo> {
+    const r = repo('custom');
+    git(r.root, 'switch', '-q', '-c', 'feat/x');
+    fs.writeFileSync(path.join(r.root, '.aidlc', 'probe.cjs'), `
+const fs = require('fs'); const path = require('path');
+module.exports = { async run(o) {
+  const count = path.join(o.workspaceRoot, '.aidlc', 'calls');
+  const n = fs.existsSync(count) ? Number(fs.readFileSync(count, 'utf8')) + 1 : 1;
+  fs.writeFileSync(count, String(n));
+  if (n === 1) {
+    fs.writeFileSync(path.join(o.workspaceRoot, 'src.txt'), 'half-written\\n');
+    return { success: false, output: 'usage limit reached' };
+  }
+  fs.writeFileSync(path.join(o.workspaceRoot, '.aidlc', 'args.json'), JSON.stringify(o.args));
+  fs.writeFileSync(path.join(o.workspaceRoot, 'src.txt'), 'finished\\n');
+  return { success: true, output: 'ok' };
+} };
+`);
+    return r;
+  }
+
+  it('records what a failed step left, starts again on exactly that tree, and tells the agent', async () => {
+    const r = failingOnce();
+    expect(await runExecLoop(r.root, 'R-1', {})).toEqual({ kind: 'error' });
+    const leftover = RunStateStore.load(r.root, 'R-1')!.steps[0].leftover;
+    expect(leftover).toMatchObject({ why: 'failed', revision: 1, paths: ['src.txt'] });
+    expect(leftover!.tree).toMatch(/^[0-9a-f]{40}$/);
+
+    const notes: string[] = [];
+    let failed = '';
+    await runExecLoop(r.root, 'R-1', {}, { onPreflightNote: (m) => notes.push(m), onRunFailed: (m) => { failed = m; } });
+    expect(failed).toBe('');
+    expect(notes).toEqual([
+      'Carrying on from what "dev" left uncommitted when it failed (src.txt). Nothing else has changed since.',
+    ]);
+    const args = JSON.parse(fs.readFileSync(path.join(r.root, '.aidlc', 'args.json'), 'utf8')) as string[];
+    expect(args.join('\n')).toMatch(/A previous attempt at this revision stopped before it finished\. .*: src\.txt\./);
+    expect(RunStateStore.load(r.root, 'R-1')!.steps[0].leftover).toBeUndefined();
+  });
+
+  it('refuses once the tree is no longer what the step left', async () => {
+    const r = failingOnce();
+    await runExecLoop(r.root, 'R-1', {});
+    fs.writeFileSync(path.join(r.root, 'notes.txt'), 'mine\n');
+    let failed = '';
+    // The only blocker, so the outcome names the paths for a front end to offer --allow-dirty on.
+    expect(await runExecLoop(r.root, 'R-1', {}, { onRunFailed: (m) => { failed = m; } }))
+      .toEqual({ kind: 'error', dirty: ['src.txt', 'notes.txt'] });
+    expect(failed).toContain(
+      'The working tree has uncommitted changes (src.txt, notes.txt). Commit or stash them first: the agent would ' +
+      'build on them, and its own changes would be mixed in with them. They are not what "dev" left when it ' +
+      'stopped — something has changed since.',
+    );
+    expect(fs.existsSync(path.join(r.root, '.aidlc', 'args.json'))).toBe(false);
+    expect(await runExecLoop(r.root, 'R-1', { allowDirty: true })).toEqual({ kind: 'completed' });
+  });
+
+  it('does not name the paths when something else blocks the run too', async () => {
+    const r = failingOnce();
+    await runExecLoop(r.root, 'R-1', {});
+    fs.writeFileSync(path.join(r.root, 'notes.txt'), 'mine\n');
+    git(r.root, 'switch', '-q', 'main');
+    expect(await runExecLoop(r.root, 'R-1', {})).toEqual({ kind: 'error' });
   });
 });
 

@@ -394,9 +394,10 @@ export function registerRun(program: Command): void {
     .option('--message <text>',   'Override the user message sent to claude (default: context pairs)')
     .option('--dry-run',          'Print the assembled prompt without spawning claude')
     .option('--skill <id>',       'On steps that offer alternative skills (default_skill), run this one')
+    .option('--allow-dirty',      'Autopilot: start on top of uncommitted changes (e.g. a step killed mid-run)')
     .action(async (runId: string, opts: {
       until?: string; autoApprove?: boolean; requireComplete?: boolean; json?: boolean; message?: string; dryRun?: boolean;
-      skill?: string;
+      skill?: string; allowDirty?: boolean;
     }, actionCmd: Command) => {
       const root = resolveWorkspaceRoot(actionCmd);
       // In --json mode decorative stdout is silenced so the only thing on stdout
@@ -521,7 +522,10 @@ function execSummary(runId: string, outcome: ExecOutcome, exitCode: number, stat
 async function execLoop(
   root: string,
   runId: string,
-  opts: { until?: string; autoApprove?: boolean; json?: boolean; message?: string; dryRun?: boolean; skill?: string },
+  opts: {
+    until?: string; autoApprove?: boolean; json?: boolean; message?: string; dryRun?: boolean; skill?: string;
+    allowDirty?: boolean;
+  },
 ): Promise<ExecOutcome> {
   // Resolve --until against the initial state (keeps the CLI's nice not-found
   // error + exit). The engine reloads state each iteration on its own.
@@ -555,6 +559,7 @@ async function execLoop(
       runId,
       {
         untilIdx, autoApprove: opts.autoApprove, message: opts.message, dryRun: opts.dryRun, skill: opts.skill,
+        allowDirty: opts.allowDirty,
         shouldCancel: () => cancelRequested,
         signal: stopNow.signal,
       },
@@ -634,6 +639,7 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
 
     onRunCompleted: () => info(chalk.green('\n🎉 Run completed — all steps approved.')),
     onRunFailed: (reason) => console.error(chalk.red(`\n${reason}`)),
+    onPreflightNote: (message) => info(chalk.yellow(`⚠  ${message}`)),
 
     onStepStart: (e) => {
       info(chalk.bold(`\n▶  Step ${e.stepIdx}: ${e.label}`) + chalk.dim(` (rev ${e.revision})`));

@@ -469,6 +469,15 @@ and approval — a `pass` advances the step, a `reject` stops with a rerun hint.
 With `--auto-approve` it also clears `human_review` gates without pausing — a
 single command then drives the entire pipeline end-to-end.
 
+An `autopilot: true` pipeline refuses to start on uncommitted changes, with
+one exception: when a step stopped short (a non-zero exit such as the account
+running out of usage, its `timeout_minutes`, a "stop now"), the run records
+what it left in the working tree, and `run exec` carries on from exactly that
+tree — switch accounts and run it again. The next attempt is told to finish
+the half-written changes rather than start over. If the tree has changed
+since, or the agent was killed before anything could be recorded, pass
+`--allow-dirty` to start anyway.
+
 **`run request-update`** reopens an already-approved step (bumps its revision,
 resets downstream steps), mirroring the extension's "Request update" action.
 
