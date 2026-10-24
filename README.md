@@ -27,6 +27,17 @@ Code transcript.
 
 ![aidlc demo](packages/extension/media/demo.gif)
 
+## ✨ What's New in v4.0.35 – v4.0.48 — autopilot (this fork)
+
+- **🤖 Autopilot** — once a person has approved intent and build-plan, a run carries on to review unattended (`autopilot: true`, the `native-autopilot` recipe, or the Builder's loop settings). A reviewer's rejection goes back to `on_reject.send_back_to` with its findings as the feedback, up to `max_send_backs`; long steps run in `batches`, every step can have `timeout_minutes`, and the run stops cleanly before a step that needs a person. It refuses `main` and a dirty tree, except to resume a run cut short (out of usage, timed out, **Stop now**) from the code it left behind. Steps approved by auto-approve are marked as such.
+- **↩️ Send work back** — `aidlc run reject <run> --to <step>`, and from the panel for a step its validator rejected. Pickers name steps, not agents, so two steps on one agent are told apart. Long rerun feedback reaches the agent in full, through a file.
+- **⏭️ Switch a step off** — `enabled: false`, or `aidlc epic step disable|enable` on a running epic: the step is skipped and what depends on it moves on. `aidlc doctor` lists them.
+- **🧾 Free JSON inputs** — Start Epic's Inputs can be edited as the whole `inputs.json`, for keys such as `legacy_source` that no field holds; `aidlc epic start --inputs-json` does the same.
+- **🔗 Follow-ups of several epics** — one follow-up can follow two or more epics (`--also`, **Also follows**), with an id that names them, and its agents read each parent's `intent.md` and `spec.md`.
+- **🗂️ Epics panel** — **My epics** names the agent that just stopped and is waiting on you, and a step's upstream inputs show before you finish it.
+
+---
+
 ## ✨ What's New in v4.0 — AIDLC Native on the Marketplace (this fork)
 
 Covers 4.0.0 – 4.0.34. The full, per-release record is in [`packages/extension/CHANGELOG.md`](packages/extension/CHANGELOG.md).

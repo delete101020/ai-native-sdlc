@@ -69,6 +69,8 @@ aidlc epic start EPIC-1 --brief "fix the login redirect loop"   # → recipe nat
 aidlc run exec EPIC-1                                            # runs steps, stops at review gates
 ```
 
+Every release's changes are on the **Changelog** tab.
+
 Just exploring? **AIDLC Native: Load Demo Project** drops a finished example (the classic workflow and
 six sample epics) into the open folder.
 
@@ -81,7 +83,24 @@ six sample epics) into the open folder.
   **Reject** either keeps the work on this step (then **Rerun**) or sends it back to an earlier step with
   your reason as that step's feedback, resetting the steps in between — see [ONBOARDING.md §7](https://github.com/delete101020/ai-native-sdlc/blob/main/ONBOARDING.md#7-working-a-step--and-sending-work-back).
 - **Run to completion** — one button, the same engine as `aidlc run exec`. Cancelling takes effect at
-  the next step boundary, so a half-written artifact never passes a gate.
+  the next step boundary, so a half-written artifact never passes a gate. Steps cleared by its
+  auto-approve are marked as such, so you can tell them from a person's approval.
+- **Autopilot** — once a person has approved intent and build-plan, a run carries on to review
+  unattended (`autopilot: true` on a pipeline, the `native-autopilot` recipe, or the Builder's loop
+  settings). The reviewer's findings become the next revision's feedback (`on_reject.send_back_to`,
+  `max_send_backs`), long steps run in `batches`, and each step can have `timeout_minutes`. It refuses
+  to start on `main` or a dirty tree, stops cleanly before a step that needs a person, and a run cut
+  short — out of usage, timed out, **Stop now** — picks up from the code it left behind.
+- **Switch a step off** — a step with `enabled: false` is skipped (shown as *SKIPPED*) and what depends
+  on it moves on without it; `aidlc epic step disable|enable <epic> <step>` does it on a running epic.
+- **Start Epic inputs** — a field per capability, or the whole `inputs.json` as free JSON for values no
+  single field holds, such as `{"legacy_source": {"kind": "none"}}`. Switching views keeps what you typed.
+- **Follow-up epics** — **New follow-up epic** parks work found mid-epic as `<parent>-F<n>`, and one
+  follow-up can follow several epics (**Also follows**); its agents read each parent's `intent.md` and
+  `spec.md` first. A step's `followups.json` opens a batch of them at once.
+- **An Epics panel that scales** — search by ID or name, a flat or grouped view, tags and filters,
+  **Go to Epic** (`Ctrl+Alt+E`), an active epic that follows your git branch, and **My epics**, which
+  says which agent just stopped and is waiting on you.
 - **Incident loop** — **Report a Signal** turns a production signal into an incident epic;
   `aidlc maintain --signal` does the same from a webhook or a cron job.
 - **Artifact review in the browser** — open any artifact in the bundled
@@ -94,7 +113,8 @@ six sample epics) into the open folder.
 - **AIDLC Monitor** — token usage and cost, session insights from Claude Code transcripts, and live agent
   sessions through [agents-observe](https://github.com/simple10/agents-observe).
 - **One window, one Claude account** — pin a Claude config dir per workspace
-  (`aidlcNative.claude.configDir`) or switch with **AIDLC Native: Switch Claude Account**.
+  (`aidlcNative.claude.configDir`) or switch with **AIDLC Native: Switch Claude Account**. The status
+  bar shows how much of each plan window is used (`5h 2% · 1w 38% · Fable 61%`), the way `/usage` does.
 - **Workspace Builder** — a visual editor for agents, skills, pipelines and recipes.
 - **Requirements import** — pull requirements from Jira, GitHub Issues, Linear, Redmine or a file into
   `requirements.md` (Builder → Analyze, or `aidlc analyze`).

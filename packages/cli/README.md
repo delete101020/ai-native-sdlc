@@ -297,10 +297,37 @@ aidlc epic start <id> --brief "…" [--llm]       # classify the brief → recip
 aidlc epic start <id> --recipe <recipeId>       # or pick the recipe yourself
 aidlc epic start <id> --pipeline <pipelineId>   # or use an existing pipeline as-is
 aidlc epic start <id> … --tag payment --tag "thanh toán"   # tag it at creation
+aidlc epic start <id> … --input jira=PROJ-12              # a capability input (repeatable)
+aidlc epic start <id> … --inputs-json '{"legacy_source":{"kind":"none"}}'   # or @file.json
 aidlc epic tag <id>                             # print this epic's tags
 aidlc epic tag <id> payment "release q3"        # add tags (also --add/--remove/--set/--clear)
+aidlc epic describe <id> [text…]                # print or set the description
+aidlc epic workflow <id> [--recipe|--pipeline …]   # change the workflow, until the first step moves
+aidlc epic strict <id> [on|off]                 # depth of work (strict_mode)
 aidlc epic follow-up <parent> --title "…" [--desc "…"]   # park work found mid-epic as <parent>-F<n>
+aidlc epic use [id] · epic current · epic next-id   # the active epic, and the id to give the next one
+aidlc epic watch [id] · epic unwatch <id>       # listed under My epics in the sidebar
+aidlc epic archive <id> · epic unarchive <id>   # hide from the list; nothing is deleted
 ```
+
+**Changing a running epic's steps.** `<step>` is a step name, an agent id or a
+0-based index.
+
+```
+aidlc epic step add     <id> --agent <a> --name <n> [--after|--before <step>] [--human-review]
+aidlc epic step remove  <id> <step>             # drop a step that has not started
+aidlc epic step set     <id> <step> [--[no-]human-review] [--auto-review <runner>|--no-auto-review]
+aidlc epic step disable <id> <step>             # skip it; what depends on it moves on without it
+aidlc epic step enable  <id> <step>             # switch it back on, until anything after it has started
+```
+
+A step with `enabled: false` in the pipeline is skipped the same way, and
+`aidlc doctor` lists the disabled steps of every epic.
+
+**Inputs.** `--input` fills one capability (`files`, `jira`, `github`, …);
+`--inputs-json` adds any other key of `inputs.json`, such as `legacy_source`.
+When both set a key, `--input` wins. `from_epic`, `follow_up_key`, `also_from`
+and `extra_projects` are written by AIDLC and refused there.
 
 **Follow-ups opened by hand.** Work that turns up while an epic is in flight —
 a CR in build finds a second screen that needs the same change — goes into
@@ -468,6 +495,14 @@ to the next step automatically. Steps declaring `auto_review: true` have their
 and approval — a `pass` advances the step, a `reject` stops with a rerun hint.
 With `--auto-approve` it also clears `human_review` gates without pausing — a
 single command then drives the entire pipeline end-to-end.
+
+**Autopilot.** An `autopilot: true` pipeline (or the `native-autopilot`
+recipe) runs on from an approved intent and build-plan to review. A reviewer's
+rejection sends the work back to `on_reject.send_back_to`, with its findings as
+the feedback, up to `max_send_backs` (default 3); the run stops when a
+send-back changes no code, or before a step that needs a person. `batches: true`
+runs a long step as a series of fresh sessions, and `timeout_minutes` caps any
+step. Steps approved this way, or by `--auto-approve`, are marked as such.
 
 An `autopilot: true` pipeline refuses to start on uncommitted changes, with
 one exception: when a step stopped short (a non-zero exit such as the account

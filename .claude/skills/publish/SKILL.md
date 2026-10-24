@@ -69,8 +69,44 @@ Edit, by hand:
 - `README.md` → the version in the source-build example
   (`aidlc-native-<version>.vsix`, `aidlc --version  # <version>`).
 
+Then bring the listing pages up to date. Each registry shows the README packed
+into its artifact, so a page left behind here stays wrong until the next
+release:
+
+| File | Shown on |
+|---|---|
+| `packages/extension/README.md` | Marketplace and Open VSX **Details** tab |
+| `packages/extension/package.json` → `description` | Marketplace search results and card |
+| `packages/cli/README.md` (and `AUTOMATION.md`) | npm package page |
+| `README.md` → the newest **What's New** block | GitHub |
+
+For every `feat` and user-visible `fix` in `git log v<old>..HEAD`, check that
+each page it belongs on describes it, and add it where it is missing:
+
+- A new extension feature (a button, a panel, a pipeline key) goes in the
+  extension README's **Features**.
+- A new CLI command, subcommand or option goes in the CLI README's command
+  reference, with its real syntax from `node packages/cli/dist/bundle.js <cmd> --help`.
+- The root README's newest **What's New** block names the range it covers.
+  Extend it, or open a new block when the release starts a new theme.
+
+Then run the gate — it must pass before the release commit:
+
 ```
-git add packages/extension/package.json packages/cli/package.json packages/extension/CHANGELOG.md README.md
+.claude/skills/publish/docs-check.sh <old-version> <new-version>
+```
+
+It fails when a `code` term the new CHANGELOG section names (a pipeline key, a
+command, a flag) is on none of the listing pages, or when there are `feat`
+commits and the extension or CLI README has not changed since `v<old>`. Fix
+each miss by writing it on the page it belongs to. Only a term that is
+genuinely not a user-facing feature (an example step id, an internal field)
+may be waived, with `DOCS_CHECK_IGNORE="term1 term2"`. Name every waived term
+in the step-6 summary. Never waive a whole page, and never skip the gate.
+
+```
+git add packages/extension/package.json packages/cli/package.json packages/extension/CHANGELOG.md README.md \
+        packages/extension/README.md packages/cli/README.md packages/cli/AUTOMATION.md
 git commit -m "chore(release): v<new-version>"
 git tag v<new-version>          # lightweight, like every earlier tag
 ```
@@ -95,7 +131,8 @@ shows `"version": "<new-version>"` and `"displayName": "AIDLC Native"`.
 
 Publishing is public, and a published version number can never be reused on
 any of the three registries. Show the user the version, the CHANGELOG section,
-the commit and the `.vsix` path, and **ask before going further**. Then:
+which listing pages changed (or that none needed to), the commit and the `.vsix`
+path, and **ask before going further**. Then:
 
 ```
 git push origin main v<new-version>
