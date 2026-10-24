@@ -84,7 +84,10 @@ six sample epics) into the open folder.
   your reason as that step's feedback, resetting the steps in between — see [ONBOARDING.md §7](https://github.com/delete101020/ai-native-sdlc/blob/main/ONBOARDING.md#7-working-a-step--and-sending-work-back).
 - **Run to completion** — one button, the same engine as `aidlc run exec`. Cancelling takes effect at
   the next step boundary, so a half-written artifact never passes a gate. Steps cleared by its
-  auto-approve are marked as such, so you can tell them from a person's approval.
+  auto-approve are marked as such, so you can tell them from a person's approval. Progress reads
+  `loop 5 · step 4/7 · cr-review · rev 3 (rejected 2×)`: steps started, which step of how many, and on a
+  rerun its revision. A status bar item follows the run — close the notification and reopen it from
+  there, open the log, or stop. `aidlcNative.autopilot.progressLocation: statusBar` skips the notification.
 - **Autopilot** — once a person has approved intent and build-plan, a run carries on to review
   unattended (`autopilot: true` on a pipeline, the `native-autopilot` recipe, or the Builder's loop
   settings). The reviewer's findings become the next revision's feedback (`on_reject.send_back_to`,

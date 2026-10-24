@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.0.49
+
+**Run to completion** says more while it runs, and gets out of the way. The
+progress line reads `loop 5 · step 4/7 · cr-review · rev 3 (rejected 2×)`, so
+a step being run again, and a run going round in circles, show without
+opening the log. A status bar item follows the run: close the notification,
+and bring it back from there.
+
+### Added
+
+- A status bar item for each run in flight. Its menu shows the progress again,
+  opens the log, stops after the running step, or stops now. The command
+  palette has it as **Autopilot: Running Run**.
+- `aidlcNative.autopilot.progressLocation`: `notification` (the default) shows
+  the notification and the status bar item; `statusBar` shows only the item.
+
+### Changed
+
+- The progress line counts the steps this run has started (`loop`), says which
+  step of how many, and on a rerun adds the revision and how many times the
+  step itself was rejected.
+
 ## 4.0.48
 
 A step switched off with `enabled: false` is now left out of the run. Before,

@@ -27,9 +27,10 @@ Code transcript.
 
 ![aidlc demo](packages/extension/media/demo.gif)
 
-## ✨ What's New in v4.0.35 – v4.0.48 — autopilot (this fork)
+## ✨ What's New in v4.0.35 – v4.0.49 — autopilot (this fork)
 
 - **🤖 Autopilot** — once a person has approved intent and build-plan, a run carries on to review unattended (`autopilot: true`, the `native-autopilot` recipe, or the Builder's loop settings). A reviewer's rejection goes back to `on_reject.send_back_to` with its findings as the feedback, up to `max_send_backs`; long steps run in `batches`, every step can have `timeout_minutes`, and the run stops cleanly before a step that needs a person. It refuses `main` and a dirty tree, except to resume a run cut short (out of usage, timed out, **Stop now**) from the code it left behind. Steps approved by auto-approve are marked as such.
+- **📊 Progress you can put away** — Run to completion reads `loop 5 · step 4/7 · cr-review · rev 3 (rejected 2×)`, and a status bar item follows the run: close the notification and reopen it there, read the log, or stop. `aidlcNative.autopilot.progressLocation: statusBar` keeps it to the status bar.
 - **↩️ Send work back** — `aidlc run reject <run> --to <step>`, and from the panel for a step its validator rejected. Pickers name steps, not agents, so two steps on one agent are told apart. Long rerun feedback reaches the agent in full, through a file.
 - **⏭️ Switch a step off** — `enabled: false`, or `aidlc epic step disable|enable` on a running epic: the step is skipped and what depends on it moves on. `aidlc doctor` lists them.
 - **🧾 Free JSON inputs** — Start Epic's Inputs can be edited as the whole `inputs.json`, for keys such as `legacy_source` that no field holds; `aidlc epic start --inputs-json` does the same.
@@ -428,8 +429,8 @@ To run unreleased changes. **The extension:**
 
 ```sh
 pnpm install
-pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.48.vsix
-code --install-extension packages/extension/aidlc-native-4.0.48.vsix
+pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.49.vsix
+code --install-extension packages/extension/aidlc-native-4.0.49.vsix
 ```
 
 Reload the window afterwards. A `.vsix` installs over the Marketplace copy (same
@@ -440,7 +441,7 @@ id), and the next Marketplace update replaces it again.
 ```sh
 pnpm -r compile
 cd packages/cli && pnpm bundle && npm link               # `aidlc` on your PATH
-aidlc --version                                          # 4.0.48
+aidlc --version                                          # 4.0.49
 ```
 
 To pick up later changes, re-run the same two commands — `npm link` points at
