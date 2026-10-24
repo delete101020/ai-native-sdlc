@@ -8,13 +8,15 @@
  *
  * The loop spawns each step's runner in the extension host, so unlike
  * `Run with Claude` there is no terminal to read. Output goes to an output
- * channel, progress to a cancellable notification, and every transition
+ * channel, progress to a status bar item and a notification that can be
+ * closed and reopened from it (`execRunProgress`), and every transition
  * refreshes the panel so the stepper moves as the run does.
  */
 
 import * as vscode from 'vscode';
 import { runExecLoop, type ExecOutcome } from '@aidlc/core';
 import { agentActivity } from './agentActivity';
+import { ExecRunProgress, stepProgressMessage } from './execRunProgress';
 
 let channel: vscode.OutputChannel | undefined;
 function log(line: string): void {
@@ -100,123 +102,126 @@ export async function execRunToCompletion(
   // Why the loop gave up, for the notification — the log has it too, but an
   // autopilot preflight refusal is the user's to fix and should not need it.
   let failure: string | undefined;
-  // Cancelling the progress notification is the gentle stop (after the running
-  // step); "Stop now" on the follow-up message kills the step.
+  // The gentle stop (Cancel on the notification, or the status bar menu) lets
+  // the running step finish; "Stop now" kills it.
   const stopNow = new AbortController();
+  let stopRequested = false;
+  const killStep = () => {
+    if (stopNow.signal.aborted) { return; }
+    log('⏹ stopping the running step now');
+    stopNow.abort();
+  };
+  const status = new ExecRunProgress(runId, {
+    stopAfterStep: () => {
+      if (!stopRequested) {
+        stopRequested = true;
+        log('⏹ stopping after the running step finishes');
+      }
+      void vscode.window.showWarningMessage(
+        `${runId} will stop after the running step finishes.`,
+        'Stop now',
+      ).then((pick) => { if (pick) { killStep(); } });
+    },
+    stopNow: killStep,
+    showLog: () => channel?.show(),
+  });
+  // Steps this run has started — a step sent back and run again counts each
+  // time, so a run going round in circles shows it.
+  let loop = 0;
   try {
-    outcome = await vscode.window.withProgress(
+    outcome = await runExecLoop(
+      root,
+      runId,
       {
-        location: vscode.ProgressLocation.Notification,
-        title: `AIDLC · ${runId}`,
-        cancellable: true,
+        autoApprove: opts.autoApprove,
+        allowDirty: opts.allowDirty,
+        untilIdx: opts.untilIdx ?? -1,
+        shouldCancel: () => stopRequested,
+        signal: stopNow.signal,
       },
-      async (progress, token) => {
-        progress.report({ message: 'starting…' });
-        token.onCancellationRequested(() => {
-          log('⏹ stopping after the running step finishes');
-          void vscode.window.showWarningMessage(
-            `${runId} will stop after the running step finishes.`,
-            'Stop now',
-          ).then((pick) => {
-            if (pick && !stopNow.signal.aborted) {
-              log('⏹ stopping the running step now');
-              stopNow.abort();
-            }
+      {
+        onOutput: (chunk) => channel!.append(chunk),
+        onErrorOutput: (chunk) => channel!.append(chunk),
+        onStepStart: (e) => {
+          const message = stepProgressMessage({ ...e, loop: ++loop });
+          status.report(message);
+          log(`\n▶ ${message}${e.model ? ` (${e.model})` : ''}`);
+          // The step index moved before the agent produced anything; the
+          // panel should say which step is being worked, not the last one
+          // that finished. The loop runs one step at a time, so its own
+          // earlier entries — the run-wide one from launch, the previous
+          // step's — are all stale now that this step has started.
+          agentActivity.end(runId);
+          agentActivity.begin({
+            runId, stepIdx: e.stepIdx, command: `aidlc ${label} ${runId}`,
+            startedAt: Date.now(), tracked: true,
           });
-        });
-        return runExecLoop(
-          root,
-          runId,
-          {
-            autoApprove: opts.autoApprove,
-            allowDirty: opts.allowDirty,
-            untilIdx: opts.untilIdx ?? -1,
-            shouldCancel: () => token.isCancellationRequested,
-            signal: stopNow.signal,
-          },
-          {
-            onOutput: (chunk) => channel!.append(chunk),
-            onErrorOutput: (chunk) => channel!.append(chunk),
-            onStepStart: (e) => {
-              progress.report({ message: `step ${e.stepIdx + 1} · ${e.label}` });
-              log(`\n▶ step ${e.stepIdx + 1} · ${e.label}${e.model ? ` (${e.model})` : ''}`);
-              // The step index moved before the agent produced anything; the
-              // panel should say which step is being worked, not the last one
-              // that finished. The loop runs one step at a time, so its own
-              // earlier entries — the run-wide one from launch, the previous
-              // step's — are all stale now that this step has started.
-              agentActivity.end(runId);
-              agentActivity.begin({
-                runId, stepIdx: e.stepIdx, command: `aidlc ${label} ${runId}`,
-                startedAt: Date.now(), tracked: true,
-              });
-              onChange();
-            },
-            onStepResult: (e) => {
-              const cost = typeof e.costUsd === 'number'
-                ? ` · $${e.costUsd.toFixed(4)}${e.costEstimated ? ' (est)' : ''}`
-                : '';
-              log(`✔ step ${e.stepIdx + 1} · ${e.label} → ${e.status}${cost}`);
-              onChange();
-            },
-            onStepFailed: (e) => {
-              log(`✖ step ${e.stepIdx + 1} · ${e.label} — ${e.missing?.length
-                ? `missing artifact(s): ${e.missing.join(', ')}`
-                : e.message ?? 'failed'}`);
-              onChange();
-            },
-            onAutoReviewStart: (e) => {
-              progress.report({ message: `auto-review · ${e.label}` });
-              log(`🤖 auto-review · ${e.label}`);
-            },
-            onAutoReviewResult: (e) => {
-              const back = e.sentBackTo
-                ? `, sent back to ${e.sentBackTo.label} (rev ${e.sentBackTo.revision}, ${e.sentBackTo.count} of ${e.sentBackTo.max})`
-                : '';
-              log(`🤖 auto-review · ${e.label} → ${e.decision}${back}${e.reason ? ` — ${e.reason}` : ''}`);
-              onChange();
-            },
-            onAutoApproved: (e) => { log(`👤 auto-approved · ${e.label}`); onChange(); },
-            onAwaitingReview: (e) => { log(`⏸ paused for your review · ${e.label}`); },
-            onRejected: (e) => { log(`⏸ step rejected · ${e.label}`); },
-            onStalled: (e) => { log(`⏸ ${e.reason}`); onChange(); },
-            onBatchDone: (e) => {
-              const cost = typeof e.costUsd === 'number' ? ` · $${e.costUsd.toFixed(4)}` : '';
-              log(`↻ step ${e.stepIdx + 1} · ${e.label} — batch ${e.batch} done, next batch in a fresh session${cost}`);
-              onChange();
-            },
-            onBatchPause: (e) => {
-              log(`⏸ batch ${e.batch} of ${e.label} done — pausing between batches${e.report ? ` (progress: ${e.report})` : ''}`);
-              onChange();
-            },
-            onStepStopped: (e) => {
-              log(`⏹ stopped ${e.label} mid-step (rev ${e.revision}) — still awaiting work; check git status for what it left`);
-              onChange();
-            },
-            onStepSkipped: (e) => {
-              log(`⤳ step rejected but optional · ${e.label} — moving to step ${e.nextStepIdx + 1}`);
-              onChange();
-            },
-            onStepBypassed: (e) => {
-              log(`⤳ not running ${e.label} — not needed on the way — moving to step ${e.nextStepIdx + 1} · ${e.nextLabel}`);
-              onChange();
-            },
-            onBudget: (e) => {
-              log(`💰 $${e.spent.toFixed(4)} of $${e.limit.toFixed(2)}${e.ok ? '' : ` — ${e.exceeded} ceiling crossed`}`);
-            },
-            onCancelled: () => { log('⏹ cancelled at a step boundary'); },
-            onUntilStop: (e) => { log(`⏹ stopped after step ${e.untilIdx + 1} (--until)`); },
-            onAttendedStep: (e) => { log(`⏹ stopped before step ${e.stepIdx + 1} · ${e.label} — a person runs it`); },
-            onRunCompleted: () => { log('✅ run completed'); },
-            onRunFailed: (reason) => { failure = reason; log(`✖ ${reason}`); },
-            onPreflightNote: (message) => log(`⚠ ${message}`),
-          },
-        );
+          onChange();
+        },
+        onStepResult: (e) => {
+          const cost = typeof e.costUsd === 'number'
+            ? ` · $${e.costUsd.toFixed(4)}${e.costEstimated ? ' (est)' : ''}`
+            : '';
+          log(`✔ step ${e.stepIdx + 1} · ${e.label} → ${e.status}${cost}`);
+          onChange();
+        },
+        onStepFailed: (e) => {
+          log(`✖ step ${e.stepIdx + 1} · ${e.label} — ${e.missing?.length
+            ? `missing artifact(s): ${e.missing.join(', ')}`
+            : e.message ?? 'failed'}`);
+          onChange();
+        },
+        onAutoReviewStart: (e) => {
+          status.report(`loop ${loop} · auto-review · ${e.label}`);
+          log(`🤖 auto-review · ${e.label}`);
+        },
+        onAutoReviewResult: (e) => {
+          const back = e.sentBackTo
+            ? `, sent back to ${e.sentBackTo.label} (rev ${e.sentBackTo.revision}, ${e.sentBackTo.count} of ${e.sentBackTo.max})`
+            : '';
+          log(`🤖 auto-review · ${e.label} → ${e.decision}${back}${e.reason ? ` — ${e.reason}` : ''}`);
+          onChange();
+        },
+        onAutoApproved: (e) => { log(`👤 auto-approved · ${e.label}`); onChange(); },
+        onAwaitingReview: (e) => { log(`⏸ paused for your review · ${e.label}`); },
+        onRejected: (e) => { log(`⏸ step rejected · ${e.label}`); },
+        onStalled: (e) => { log(`⏸ ${e.reason}`); onChange(); },
+        onBatchDone: (e) => {
+          const cost = typeof e.costUsd === 'number' ? ` · $${e.costUsd.toFixed(4)}` : '';
+          log(`↻ step ${e.stepIdx + 1} · ${e.label} — batch ${e.batch} done, next batch in a fresh session${cost}`);
+          onChange();
+        },
+        onBatchPause: (e) => {
+          log(`⏸ batch ${e.batch} of ${e.label} done — pausing between batches${e.report ? ` (progress: ${e.report})` : ''}`);
+          onChange();
+        },
+        onStepStopped: (e) => {
+          log(`⏹ stopped ${e.label} mid-step (rev ${e.revision}) — still awaiting work; check git status for what it left`);
+          onChange();
+        },
+        onStepSkipped: (e) => {
+          log(`⤳ step rejected but optional · ${e.label} — moving to step ${e.nextStepIdx + 1}`);
+          onChange();
+        },
+        onStepBypassed: (e) => {
+          log(`⤳ not running ${e.label} — not needed on the way — moving to step ${e.nextStepIdx + 1} · ${e.nextLabel}`);
+          onChange();
+        },
+        onBudget: (e) => {
+          log(`💰 $${e.spent.toFixed(4)} of $${e.limit.toFixed(2)}${e.ok ? '' : ` — ${e.exceeded} ceiling crossed`}`);
+        },
+        onCancelled: () => { log('⏹ cancelled at a step boundary'); },
+        onUntilStop: (e) => { log(`⏹ stopped after step ${e.untilIdx + 1} (--until)`); },
+        onAttendedStep: (e) => { log(`⏹ stopped before step ${e.stepIdx + 1} · ${e.label} — a person runs it`); },
+        onRunCompleted: () => { log('✅ run completed'); },
+        onRunFailed: (reason) => { failure = reason; log(`✖ ${reason}`); },
+        onPreflightNote: (message) => log(`⚠ ${message}`),
       },
     );
   } catch (err) {
     log(`✖ ${err instanceof Error ? err.message : String(err)}`);
   } finally {
+    status.dispose();
     agentActivity.end(runId);
     inFlight.delete(runId);
     onChange();

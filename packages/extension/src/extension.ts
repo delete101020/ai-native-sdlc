@@ -25,6 +25,7 @@ import { WorkspaceWebview } from './v2/workspaceWebview';
 import { themeManager } from './v2/themeManager';
 import { registerTokenMonitor } from './v2/tokenMonitor';
 import { registerAidlcMonitor } from './v2/aidlcMonitor';
+import { registerExecRunProgress } from './v2/execRunProgress';
 import { registerAstGraph } from './v2/astGraph';
 import { registerFollowUpDoneHooks } from './v2/followUpHooks';
 import { installAnnotationTools } from './v2/annotationToolsInstaller';
@@ -283,6 +284,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // status bar item that polls the observe server and a unified Monitor panel
   // (Token Usage / Agents tabs). No-op surface when the server isn't running.
   registerAidlcMonitor(context, output, context.extensionUri);
+
+  // Run to completion — the status bar item's menu (progress, log, stop).
+  registerExecRunProgress(context);
 
   // AST graph — auto-downloads ast-graph CLI, scans workspace in the
   // background, registers it as a Claude MCP server so Claude can read

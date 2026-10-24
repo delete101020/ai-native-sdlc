@@ -306,6 +306,11 @@
         "title": "Refresh Skills & Agents Catalog",
         "icon": "$(refresh)",
         "category": "AIDLC Native"
+      },
+      {
+        "command": "aidlcNative.execRun.menu",
+        "title": "Autopilot: Running Run (progress, log, stop)",
+        "category": "AIDLC Native"
       }
     ],
     "configuration": {
@@ -315,6 +320,20 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "🚧 **Coming soon (experimental).** When enabled, starting an epic runs aidlc-autopilot: it collects epic context and generates a recommended plan (`context.json` + `autopilot-plan.md`) before the pipeline runs. Off by default while the feature is being tested."
+        },
+        "aidlcNative.autopilot.progressLocation": {
+          "type": "string",
+          "default": "notification",
+          "enum": [
+            "notification",
+            "statusBar"
+          ],
+          "enumDescriptions": [
+            "A progress notification plus a status bar item. Close the notification and reopen it from the status bar item.",
+            "Only the status bar item. Click it to show the notification, the log, or stop the run."
+          ],
+          "markdownDescription": "Where **Run to completion** shows its progress (`loop 5 · step 4/7 · cr-review · rev 3 (rejected 2×)`). The status bar item is always there while a run is in flight.",
+          "scope": "window"
         },
         "aidlcNative.tokenMonitor.enabled": {
           "type": "boolean",

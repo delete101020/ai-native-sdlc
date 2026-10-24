@@ -146,6 +146,14 @@ export interface ExecHooks {
   onStepStart?(e: {
     stepIdx: number; agent: string; label: string; revision: number;
     skills: string[]; model?: string; context?: string;
+    /** Steps in the run, so a front end can say "step 4/7". */
+    total: number;
+    /**
+     * Times this step itself was rejected. A revision bumped by a later
+     * step's cascade send-back is not counted — that rejection is on the
+     * step that sent it.
+     */
+    rejections: number;
     /**
      * Approved-but-suspect steps this one depends on — see `dirtyUpstreamOf`.
      * Empty in the ordinary case. Non-empty means the step is about to be
@@ -707,6 +715,8 @@ async function execStep(
   hooks.onStepStart?.({
     stepIdx, agent: agentId, label: stepLabel(stepRec), revision: stepRec.revision,
     skills: skillIds, model: agentModel, context: userMessage,
+    total: state.steps.length,
+    rejections: (stepRec.history ?? []).filter((h) => h.kind === 'reject').length,
     dirtyUpstream: dirtyUpstreamOf({ state, pipeline, stepIdx })
       .map((d) => ({ stepIdx: d.stepIdx, step: d.step, byStep: d.dirty.byStep })),
   });
