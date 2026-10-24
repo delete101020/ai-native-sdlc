@@ -1,5 +1,37 @@
 # Changelog
 
+## 4.0.48
+
+A step switched off with `enabled: false` is now left out of the run. Before,
+the runner still opened it, so a pipeline whose middle steps were disabled sat
+waiting on them. Start Epic also takes free JSON inputs, for values such as
+`legacy_source` that no single capability field can hold.
+
+### Added
+
+- The Inputs section of Start Epic has a **Form / JSON** switch. The JSON view
+  starts from the fields you filled, and anything you add there — objects
+  included — is written to `inputs.json` as is. Switching back to Form keeps
+  every key. Keys AIDLC writes itself (`from_epic`, `follow_up_key`,
+  `also_from`, `extra_projects`) are refused.
+- `aidlc epic start --inputs-json '<json>'` (or `@file.json`) does the same
+  from the CLI.
+- `aidlc epic step enable|disable <epic> <step>` switches a step on or off for
+  one epic and settles its run. Changing **enabled** in the pipeline editor
+  does the same for every epic on that pipeline, and refuses a step that has
+  already done work.
+- `aidlc doctor` has a **Disabled steps** section. It flags a pipeline with
+  every step disabled, a required input only a disabled step produces, a step
+  cut off from the start, and a `send_back_to` that points at a disabled step.
+
+### Fixed
+
+- The runner skips disabled steps. They show as **skipped** (dashed, struck
+  through) in the epic card, `aidlc epic show` and the dashboard, don't count
+  toward progress, and a step that depended on one waits on what that step
+  waited on instead. A step disabled by hand in `pipeline.yaml` after the run
+  started shows as skipped right away and is synced on the next approval.
+
 ## 4.0.47
 
 An autopilot run that stopped mid-step — an account out of usage, a step past
