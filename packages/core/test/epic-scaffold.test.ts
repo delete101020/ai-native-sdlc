@@ -8,6 +8,9 @@ import {
   recipePipelineId,
   slugEpicId,
   lockedEpicDirError,
+  parseExtraInputs,
+  asExtraInputs,
+  EpicScaffoldError,
   RunStateStore,
   type PipelineConfig,
 } from '../src';
@@ -315,5 +318,54 @@ describe('scaffoldEpic — on-disk layout', () => {
       inputs: {},
       pipeline: PIPELINE,
     })).toThrow(/already exists/);
+  });
+});
+
+describe('extra inputs — structured inputs.json entries beside the capability strings', () => {
+  const LEGACY = { kind: 'none', note: 'CR tài liệu thuần — không viết business.md.' };
+
+  function start(extraInputs: Record<string, unknown> | undefined, inputs: Record<string, string> = {}) {
+    const root = tmpRoot();
+    scaffoldEpic({
+      workspaceRoot: root,
+      doc: { state: { root: 'docs/epics' } },
+      epicId: 'CR-1', title: '', description: '',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po', 'developer'],
+      inputs, extraInputs, pipeline: PIPELINE,
+    });
+    return { root, read: () => JSON.parse(fs.readFileSync(path.join(root, 'docs/epics/CR-1/inputs.json'), 'utf8')) };
+  }
+
+  it('writes an object value as is, next to the capability inputs', () => {
+    const { read } = start({ legacy_source: LEGACY }, { jira: 'CR-1' });
+    expect(read()).toEqual({ legacy_source: LEGACY, jira: 'CR-1' });
+  });
+
+  it('lets a capability input win a shared key', () => {
+    const { read } = start({ jira: 'from-json' }, { jira: 'from-field' });
+    expect(read().jira).toBe('from-field');
+  });
+
+  it.each(['from_epic', 'follow_up_key', 'also_from', 'extra_projects'])('refuses the reserved key %s before writing anything', (key) => {
+    const root = tmpRoot();
+    expect(() => scaffoldEpic({
+      workspaceRoot: root, doc: null, epicId: 'CR-1', title: '', description: '',
+      target: { kind: 'pipeline', id: PIPELINE.id }, agents: ['po'], inputs: {},
+      extraInputs: { [key]: 'x' }, pipeline: PIPELINE,
+    })).toThrow(EpicScaffoldError);
+    expect(fs.existsSync(path.join(root, 'docs/epics/CR-1'))).toBe(false);
+  });
+
+  it('parses the text both front doors accept', () => {
+    expect(parseExtraInputs(undefined)).toEqual({});
+    expect(parseExtraInputs('  ')).toEqual({});
+    expect(parseExtraInputs(JSON.stringify({ legacy_source: LEGACY }))).toEqual({ legacy_source: LEGACY });
+    expect(() => parseExtraInputs('{"legacy_source":')).toThrow(/not valid JSON/);
+    expect(() => parseExtraInputs('[1]')).toThrow(/must be a JSON object/);
+    expect(() => parseExtraInputs('"none"')).toThrow(/must be a JSON object/);
+    expect(() => parseExtraInputs('{"from_epic":"CR-0"}')).toThrow(/"from_epic"/);
+    expect(asExtraInputs(null)).toEqual({});
+    expect(() => asExtraInputs('x')).toThrow(EpicScaffoldError);
   });
 });

@@ -13,6 +13,7 @@ import {
   PipelineAssembleError,
   heuristicClassify,
   scaffoldEpic,
+  parseExtraInputs,
   EpicScaffoldError,
   followUpDefaults,
   withFollowUpProvenance,
@@ -178,14 +179,27 @@ export function registerEpic(program: Command): void {
     .option('--title <title>', 'epic title')
     .option('--desc <description>', 'epic description / requirement snapshot')
     .option('--input <kv>', 'capability input as key=value (repeatable)', collectKv, [] as string[])
+    .option('--inputs-json <json>', 'extra inputs.json entries as a JSON object, or @file to read one — e.g. \'{"legacy_source":{"kind":"none"}}\'')
     .option('--tag <tag>', 'tag for this epic (repeatable) — stored uppercase, e.g. "thanh toán" → THANH-TOAN', collectKv, [] as string[])
     .option('--no-strict', 'work to the size of this epic — no invented NFR / risk / alternatives sections')
     .action((epicId: string, opts: {
       recipe?: string; pipeline?: string; brief?: string[]; llm?: boolean;
-      from?: string; title?: string; desc?: string; input: string[]; tag: string[]; strict: boolean;
+      from?: string; title?: string; desc?: string; input: string[]; inputsJson?: string; tag: string[]; strict: boolean;
     }, actionCmd: Command) => {
       const root = resolveWorkspaceRoot(actionCmd);
       const doc  = requireYaml(root);
+
+      // Before a recipe writes a pipeline — a refused epic leaves nothing behind.
+      let extraInputs: Record<string, unknown>;
+      try {
+        const raw = opts.inputsJson?.startsWith('@')
+          ? fs.readFileSync(path.resolve(opts.inputsJson.slice(1)), 'utf8')
+          : opts.inputsJson;
+        extraInputs = parseExtraInputs(raw);
+      } catch (err) {
+        console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+        process.exit(1);
+      }
 
       const modes = [opts.recipe, opts.pipeline, opts.brief?.length ? 'brief' : undefined]
         .filter(Boolean).length;
@@ -251,6 +265,7 @@ export function registerEpic(program: Command): void {
           target: { kind: 'pipeline', id: pipelineCfg.id },
           agents,
           inputs,
+          extraInputs,
           pipeline: pipelineCfg,
           strictMode: opts.strict,
           tags: opts.tag,

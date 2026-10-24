@@ -219,6 +219,7 @@ import {
   readGitUserName,
   suggestEpicId,
   EpicScaffoldError,
+  asExtraInputs,
   parseSignal,
   SignalParseError,
   openIncidentEpic,
@@ -4644,6 +4645,16 @@ export class WorkspaceWebview {
       }
     }
 
+    // Checked before a recipe writes a pipeline, for the same reason as the
+    // follow-up key: a refused epic must not leave a pipeline behind.
+    let extraInputs: Record<string, unknown>;
+    try {
+      extraInputs = asExtraInputs(draft.extraInputs);
+    } catch (err) {
+      void vscode.window.showWarningMessage(`AIDLC: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+
     // Recipe target → assemble a right-sized pipeline named after the epic,
     // write it to workspace.yaml, then continue as a normal pipeline.
     if (targetKind === 'recipe') {
@@ -4734,6 +4745,7 @@ export class WorkspaceWebview {
         target: { kind: targetKind as 'pipeline' | 'agent', id: targetId },
         agents,
         inputs: parentEpicId ? withFollowUpProvenance(inputs, parentEpicId, followUpKey, alsoFrom) : inputs,
+        extraInputs,
         extraProjects: extraProjects && extraProjects.length > 0 ? extraProjects : undefined,
         pipeline: pipelineCfg,
         // Absent means strict — an older webview bundle that does not send the

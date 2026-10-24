@@ -7,6 +7,7 @@ import { pickAndReadFile, pickFolder } from '@/lib/pickFile';
 import { postMessage, onHostMessage } from '@/lib/bridge';
 import { isEpicOwnedPipeline, selectablePipelines } from '@/lib/pipelines';
 import { TagInput } from './TagInput';
+import { inputsToJson, parseInputsJson } from '@/lib/epicInputs';
 
 const ID_PATTERN = /^[A-Z][A-Z0-9-]*$/;
 
@@ -42,6 +43,12 @@ export interface StartEpicDraft {
   title: string;
   description: string;
   inputs: Record<string, string>;
+  /**
+   * `inputs.json` keys the capability fields cannot hold — typed in the JSON
+   * view of the inputs (`legacy_source: { kind, root, entry[] }`). The host
+   * re-checks them with core's `parseExtraInputs`.
+   */
+  extraInputs?: Record<string, unknown>;
   /**
    * Free-text tags. Already folded to canonical uppercase by the field, and
    * folded again by the host — the filter only ever compares canonical forms.
@@ -194,6 +201,12 @@ export function StartEpicModal({
   // Folded by default keeps the footer on screen; the header still reports
   // ` · n filled` while closed, so folding can never hide a value that is set.
   const [capsOpen, setCapsOpen] = useState(false);
+  // The same inputs as one free JSON object. Switching to it seeds the text
+  // from the fields; switching back hands string values to their fields and
+  // keeps every other key in `extraInputs`, so neither view drops a value.
+  const [inputsMode, setInputsMode] = useState<'form' | 'json'>('form');
+  const [inputsJson, setInputsJson] = useState('');
+  const [extraInputs, setExtraInputs] = useState<Record<string, unknown>>({});
   const [strictMode, setStrictMode] = useState(true);
   const idInputRef = useRef<HTMLInputElement>(null);
   // Extra projects (GH-67)
@@ -617,11 +630,34 @@ export function StartEpicModal({
     return out;
   }, [selectedAgents, agentMeta]);
 
-  // Shown in the collapsed header so folding never hides that values are set.
-  const filledCapCount = useMemo(
-    () => capabilities.filter((c) => (inputs[c] ?? '').trim()).length,
-    [capabilities, inputs],
+  const parsedInputsJson = useMemo(
+    () => (inputsMode === 'json' ? parseInputsJson(inputsJson, capabilities) : null),
+    [inputsMode, inputsJson, capabilities],
   );
+  const inputsJsonError = parsedInputsJson && !parsedInputsJson.ok ? parsedInputsJson.error : null;
+
+  // Shown in the collapsed header so folding never hides that values are set.
+  const filledCapCount = useMemo(() => {
+    if (parsedInputsJson?.ok) {
+      const v = parsedInputsJson.value;
+      return Object.values(v.fields).filter((x) => x.trim()).length + Object.keys(v.extra).length;
+    }
+    return capabilities.filter((c) => (inputs[c] ?? '').trim()).length + Object.keys(extraInputs).length;
+  }, [parsedInputsJson, capabilities, inputs, extraInputs]);
+
+  const switchInputsMode = (next: 'form' | 'json') => {
+    if (next === inputsMode) { return; }
+    if (next === 'json') {
+      setInputsJson(inputsToJson(inputs, extraInputs, capabilities));
+      setInputsMode('json');
+      return;
+    }
+    // Invalid JSON stays on screen with its error rather than being thrown away.
+    if (!parsedInputsJson?.ok) { return; }
+    setInputs(parsedInputsJson.value.fields);
+    setExtraInputs(parsedInputsJson.value.extra);
+    setInputsMode('form');
+  };
 
   // Empty field falls back to the suggested next id (shown as placeholder).
   const effectiveId = epicId.trim() || nextEpicId;
@@ -641,13 +677,16 @@ export function StartEpicModal({
   const projectError = !hasFolder && extraProjects.length === 0
     ? 'Add at least one project to start an epic'
     : null;
-  const error = idError || targetError || projectError;
+  const error = idError || targetError || projectError || (inputsJsonError ? `Inputs JSON: ${inputsJsonError}` : null);
 
   const submit = () => {
     if (error) { return; }
+    const { fields, extra } = parsedInputsJson?.ok
+      ? parsedInputsJson.value
+      : { fields: inputs, extra: extraInputs };
     const cleanInputs: Record<string, string> = {};
     for (const cap of capabilities) {
-      const v = (inputs[cap] ?? '').trim();
+      const v = (fields[cap] ?? '').trim();
       if (v) { cleanInputs[cap] = v; }
     }
     const target = selected.kind === 'pipeline'
@@ -660,6 +699,7 @@ export function StartEpicModal({
       description: description.trim(),
       tags,
       inputs: cleanInputs,
+      ...(Object.keys(extra).length > 0 ? { extraInputs: extra } : {}),
       extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
       strictMode,
       ...(followUp ? { followUp: { parentEpicId: followUp.parentEpicId, ...(alsoFrom.length > 0 ? { alsoFrom } : {}) } } : {}),
@@ -1263,14 +1303,14 @@ export function StartEpicModal({
           />
         </div>
 
-        {capabilities.length > 0 && (
-          <div>
+        <div>
+          <div className="mb-1 flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => setCapsOpen((v) => !v)}
               aria-expanded={capsOpen}
-              className="mb-1 flex w-full items-baseline gap-1.5 text-left"
-              title={capsOpen ? 'Collapse capability inputs' : 'Expand capability inputs'}
+              className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left"
+              title={capsOpen ? 'Collapse inputs' : 'Expand inputs'}
             >
               <ChevronRight
                 className={cn(
@@ -1279,37 +1319,96 @@ export function StartEpicModal({
                 )}
               />
               <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-                Capability inputs
+                Inputs
               </span>
               <span className="text-[10px] text-muted-foreground">
-                ({capabilities.length} from {selected.kind}
+                ({capabilities.length > 0 ? `${capabilities.length} from ${selected.kind}` : 'inputs.json'}
                 {!capsOpen && filledCapCount > 0 ? ` · ${filledCapCount} filled` : ''})
               </span>
             </button>
-            <div className={cn('space-y-2', !capsOpen && 'hidden')}>
-              {capabilities.map((cap) => {
-                const meta = CAPABILITY_PROMPTS[cap];
-                return (
-                  <div key={cap}>
-                    <div className="mb-0.5 flex items-baseline gap-1.5">
-                      <span className="font-mono text-[10.5px] font-medium text-primary">{cap}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {meta?.prompt ?? `Value for capability \`${cap}\``}
-                      </span>
-                    </div>
-                    <input
-                      type="text"
-                      value={inputs[cap] ?? ''}
-                      onChange={(e) => setInputs((cur) => ({ ...cur, [cap]: e.target.value }))}
-                      placeholder={meta?.placeholder ?? 'Value, or leave blank to skip'}
-                      className="w-full rounded-md border border-border bg-input/50 px-2.5 py-1.5 font-mono text-[11px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            {capsOpen && (
+              <div className="flex shrink-0 overflow-hidden rounded border border-border text-[10px]" role="tablist">
+                {(['form', 'json'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="tab"
+                    aria-selected={inputsMode === m}
+                    onClick={() => switchInputsMode(m)}
+                    disabled={m === 'form' && inputsMode === 'json' && !!inputsJsonError}
+                    title={m === 'form'
+                      ? (inputsJsonError ? 'Fix the JSON first' : 'One field per capability')
+                      : 'Edit the whole inputs.json — filled fields come along'}
+                    className={cn(
+                      'px-2 py-0.5 font-medium disabled:cursor-not-allowed disabled:opacity-50',
+                      inputsMode === m ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {m === 'form' ? 'Form' : 'JSON'}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+          <div className={cn('space-y-2', !capsOpen && 'hidden')}>
+            {inputsMode === 'form' ? (
+              <>
+                {capabilities.length === 0 && (
+                  <p className="text-[10.5px] text-muted-foreground">
+                    No capability fields for this {selected.kind}. Switch to JSON to write inputs.json yourself.
+                  </p>
+                )}
+                {capabilities.map((cap) => {
+                  const meta = CAPABILITY_PROMPTS[cap];
+                  return (
+                    <div key={cap}>
+                      <div className="mb-0.5 flex items-baseline gap-1.5">
+                        <span className="font-mono text-[10.5px] font-medium text-primary">{cap}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {meta?.prompt ?? `Value for capability \`${cap}\``}
+                        </span>
+                      </div>
+                      <input
+                        type="text"
+                        value={inputs[cap] ?? ''}
+                        onChange={(e) => setInputs((cur) => ({ ...cur, [cap]: e.target.value }))}
+                        placeholder={meta?.placeholder ?? 'Value, or leave blank to skip'}
+                        className="w-full rounded-md border border-border bg-input/50 px-2.5 py-1.5 font-mono text-[11px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+                      />
+                    </div>
+                  );
+                })}
+                {Object.keys(extraInputs).length > 0 && (
+                  <p className="text-[10.5px] text-muted-foreground">
+                    Also from JSON:{' '}
+                    <span className="font-mono text-foreground">{Object.keys(extraInputs).join(', ')}</span>
+                    {' '}— edit them in the JSON view.
+                  </p>
+                )}
+              </>
+            ) : (
+              <div>
+                <textarea
+                  value={inputsJson}
+                  onChange={(e) => setInputsJson(e.target.value)}
+                  spellCheck={false}
+                  rows={Math.min(16, Math.max(6, inputsJson.split('\n').length + 1))}
+                  placeholder={'{\n  "legacy_source": { "kind": "none", "note": "…" }\n}'}
+                  aria-invalid={!!inputsJsonError}
+                  className={cn(
+                    'w-full resize-y rounded-md border bg-input/50 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1',
+                    inputsJsonError
+                      ? 'border-destructive focus:border-destructive focus:ring-destructive/40'
+                      : 'border-border focus:border-primary focus:ring-primary/40',
+                  )}
+                />
+                <p className={cn('mt-0.5 text-[10px]', inputsJsonError ? 'text-destructive' : 'text-muted-foreground')}>
+                  {inputsJsonError ?? 'Written to inputs.json as is. String values of capability keys go back to their fields in Form view.'}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <ModalFooter>

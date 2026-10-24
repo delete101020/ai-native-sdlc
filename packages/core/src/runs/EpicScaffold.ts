@@ -46,6 +46,52 @@ export class EpicScaffoldError extends Error {
 }
 
 /**
+ * `inputs.json` keys written by AIDLC itself: the follow-up edge
+ * (`from_epic`, `follow_up_key`, `also_from`) and the attached projects.
+ * Extra inputs may not set them — a hand-typed `from_epic` would be a link the
+ * parent never made.
+ */
+export const RESERVED_INPUT_KEYS: readonly string[] = ['from_epic', 'follow_up_key', 'also_from', 'extra_projects'];
+
+/**
+ * Parse the free-form "extra inputs" text both front doors accept (the Start
+ * Epic modal's JSON field, `aidlc epic start --inputs-json`). Blank text is no
+ * extra inputs. Anything else must be a JSON object without reserved keys;
+ * throws {@link EpicScaffoldError} with a message fit for the user otherwise.
+ */
+export function parseExtraInputs(text: string | undefined): Record<string, unknown> {
+  if (!text || !text.trim()) { return {}; }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new EpicScaffoldError(`Extra inputs are not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return asExtraInputs(parsed);
+}
+
+/**
+ * Check an already-parsed extra-inputs value — what the webview posts, where
+ * the JSON was parsed on the other side of the bridge. `undefined` / `null` is
+ * no extra inputs.
+ */
+export function asExtraInputs(value: unknown): Record<string, unknown> {
+  if (value === undefined || value === null) { return {}; }
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new EpicScaffoldError('Extra inputs must be a JSON object, e.g. {"legacy_source": {"kind": "none"}}.');
+  }
+  assertNoReservedInputs(value as Record<string, unknown>);
+  return value as Record<string, unknown>;
+}
+
+function assertNoReservedInputs(extra: Record<string, unknown>): void {
+  const clash = Object.keys(extra).filter((k) => RESERVED_INPUT_KEYS.includes(k));
+  if (clash.length > 0) {
+    throw new EpicScaffoldError(`Extra inputs cannot set ${clash.map((k) => `"${k}"`).join(', ')} — AIDLC writes ${clash.length > 1 ? 'those' : 'that'} itself.`);
+  }
+}
+
+/**
  * Resolve the absolute epics directory from a workspace root + doc.
  * Reads `state.root` (default `docs/epics`). Accepts any object with an
  * optional `state` so both the raw YAML doc and a validated config work.
@@ -156,6 +202,13 @@ export interface ScaffoldEpicArgs {
   /** Resolved agent ids (pipeline step agents, or `[agentId]`). */
   agents: string[];
   inputs: Record<string, string>;
+  /**
+   * Structured `inputs.json` entries beside the capability strings — a value no
+   * capability field can hold, such as `legacy_source: { kind, root, entry[] }`.
+   * A capability input of the same key wins. Keys the scaffold writes itself
+   * ({@link RESERVED_INPUT_KEYS}) are refused. See {@link parseExtraInputs}.
+   */
+  extraInputs?: Record<string, unknown>;
   /** Extra projects attached to the epic (local folders / GitHub repos). */
   extraProjects?: Array<{ type: 'local' | 'github'; ref: string; label: string; mode?: string }>;
   /** Required when `target.kind === 'pipeline'` — used to start the run. */
@@ -244,7 +297,7 @@ export function lockedEpicDirError(
  */
 export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   const {
-    workspaceRoot, doc, epicId, title, description, target, agents, inputs, extraProjects, pipeline,
+    workspaceRoot, doc, epicId, title, description, target, agents, inputs, extraInputs, extraProjects, pipeline,
     seedArtifacts, enableAutopilot = false, strictMode = true, tags,
   } = args;
 
@@ -252,6 +305,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   if (agents.length === 0) {
     throw new EpicScaffoldError(`Target "${target.id}" has no agents.`);
   }
+  if (extraInputs) { assertNoReservedInputs(extraInputs); }
 
   const epicDir = path.join(epicsRoot(workspaceRoot, doc), epicId);
   // The guard is against scaffolding over an epic that already exists, and
@@ -357,7 +411,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     (description ? `\n${description}\n` : '');
   fs.writeFileSync(path.join(epicDir, `${epicId}.md`), epicDoc, 'utf8');
 
-  const persistedInputs: Record<string, unknown> = { ...inputs };
+  const persistedInputs: Record<string, unknown> = { ...extraInputs, ...inputs };
   if (extraProjects && extraProjects.length > 0) {
     persistedInputs.extra_projects = extraProjects;
   }

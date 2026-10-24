@@ -86,6 +86,9 @@ export {
   epicsRoot,
   EpicScaffoldError,
   lockedEpicDirError,
+  parseExtraInputs,
+  asExtraInputs,
+  RESERVED_INPUT_KEYS,
 } from './runs/EpicScaffold';
 export type {
   EpicStatus,
