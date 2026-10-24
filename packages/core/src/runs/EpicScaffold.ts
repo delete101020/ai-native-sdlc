@@ -18,6 +18,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
+import { normalizeStep } from '../schema/WorkspaceSchema';
 import type { RunState, StepStatus } from './RunState';
 import { startRun } from './PipelineRunner';
 import { deriveRunProgress } from './runProgress';
@@ -29,6 +30,13 @@ import { generatePlan, renderPlanMarkdown } from '../epics/PlanGenerator';
 
 /** Epic-level status as persisted in `<epic>/state.json`. */
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
+
+/**
+ * A step's status in `<epic>/state.json` `stepStates[]`: the epic statuses,
+ * plus `skipped` for a step the pipeline has disabled — it is not part of the
+ * run, and readers treat it as a step the pipeline does not have.
+ */
+export type EpicStepStatus = EpicStatus | 'skipped';
 
 export class EpicScaffoldError extends Error {
   constructor(message: string) {
@@ -51,10 +59,12 @@ export function epicsRoot(workspaceRoot: string, doc: { state?: unknown } | null
 }
 
 /** Map a run-step status onto the coarser epic-step status. */
-export function mapStepStatusToEpic(status: StepStatus): EpicStatus {
+export function mapStepStatusToEpic(status: StepStatus): EpicStepStatus {
   switch (status) {
     case 'approved':
       return 'done';
+    case 'skipped':
+      return 'skipped';
     case 'rejected':
       return 'failed';
     case 'awaiting_work':
@@ -319,9 +329,13 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     // is there is a key someone can find and fill in by hand.
     [EPIC_TAGS_KEY]: normalizeTags(tags),
     createdAt: new Date().toISOString(),
-    stepStates: agents.map((a) => ({
+    // A disabled step is `skipped` from the first byte, not only once the
+    // run below mirrors over this — an agent-mode epic, or a run that fails
+    // to start, still says which steps are not part of it.
+    stepStates: agents.map((a, i) => ({
       agent: a,
-      status: 'pending' as const,
+      status: (target.kind === 'pipeline' && pipeline?.steps?.[i] !== undefined
+        && !normalizeStep(pipeline.steps[i]).enabled ? 'skipped' : 'pending') as EpicStepStatus,
       startedAt: null,
       finishedAt: null,
     })),

@@ -280,6 +280,39 @@ file is left out of what the step recorded, so `produces_contains` and
 `aidlc run verify` never look for it. A recipe that borrows the step keeps the
 flag.
 
+## Switching a step off — `enabled: false`
+
+A step can be disabled for one epic without removing it from the pipeline:
+
+```yaml
+steps:
+  - { name: cr-build-spec, agent: dev, depends_on: [cr-intake] }
+  - { name: cr-build,      agent: dev, depends_on: [cr-build-spec], enabled: false }
+  - { name: cr-review,     agent: rev, depends_on: [cr-build],      enabled: false }
+  - { name: cr-close,      agent: pm,  depends_on: [cr-review] }
+```
+
+A disabled step never opens. The run records it as `skipped` in
+`.aidlc/runs/<epic>.json` and in the epic's `state.json`, and a step that
+depends on it waits on what *it* waited on instead, recursively. Here
+`cr-close` opens as soon as `cr-build-spec` is approved. On a pipeline with no
+`depends_on`, a disabled step is simply passed over.
+
+To switch a step on or off on an epic that is already running, use the step
+config modal or the CLI. Both update the pipeline and both state files:
+
+```bash
+aidlc epic step disable EPIC-001 cr-build   # pending/untouched → skipped
+aidlc epic step enable  EPIC-001 cr-build   # skipped → pending
+```
+
+A step that has already done work cannot be disabled (use `aidlc step skip`).
+A step cannot be re-enabled once something after it has started. An
+`on_reject.send_back_to` that points at a disabled step stops the run with a
+reason instead of sending the work back. `aidlc doctor` reports a `requires`
+that only disabled steps produce, an enabled step with no path to a root, and a
+send-back into a disabled step.
+
 ## `produces_contains` — gating on what is *in* the artifact
 
 `produces` says which files must exist. `produces_contains` says what must be

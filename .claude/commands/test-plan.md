@@ -13,8 +13,9 @@ procedure exactly as `/aidlc <epic> test-plan` would:
 2. In `.aidlc/workspace.yaml`, find that pipeline and its `test-plan` step
    (`name`/`agent` === `test-plan`). Use that step's `agent` + `skills` —
    never assume; two pipelines can wire `test-plan` differently.
-3. **If the pipeline has no `test-plan` step**, tell the user this epic's
-   pipeline (`<pipelineId>`) has no `test-plan` phase, suggest
+3. **If the pipeline has no `test-plan` step, or `state.json` lists it as
+   `skipped`** (disabled for this epic — the same as not having it), tell
+   the user this epic's pipeline (`<pipelineId>`) has no `test-plan` phase, suggest
    `/aidlc <epic>` to run the next eligible phase, and stop.
 4. Otherwise load the persona (`.claude/agents/<agent>.md`) + skill(s)
    (`.claude/skills/<skill>.md`), adopt them (unless the active standard is

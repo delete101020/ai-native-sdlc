@@ -12,11 +12,14 @@ The first token is the **epic id**; an optional second token is the **phase**.
 1. Read `docs/epics/<epic>/state.json`. Note `pipelineId` (the pipeline this
    epic is bound to) and the per-step `status` list. If the file is missing,
    tell the user the epic isn't started and stop.
+2. A step whose `status` is `skipped` is disabled for this epic: treat it
+   exactly as a step the pipeline does not have. Never run or pick it, and
+   read a `depends_on` that names it as naming what *it* depends on.
 
 ## 2. Choose the phase
 
 - **If a phase was given**, use it. Validate it is a step in the epic's
-  pipeline (see step 3). If it isn't, tell the user which phases the pipeline
+  pipeline (see step 3) and not `skipped`. If it isn't, tell the user which phases the pipeline
   *does* have and stop.
 - **If no phase was given**, pick the **next eligible phase**: the first step
   that is `awaiting_work`, else the first `rejected` step, else the first

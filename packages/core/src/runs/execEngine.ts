@@ -426,7 +426,7 @@ async function execLoop(
     // Cursor on a finished step. Reachable once a rejection can be carried
     // past: the run is not `completed` (something was skipped), so say where
     // it actually stands instead of reporting a broken state machine.
-    if (step.status === 'approved') {
+    if (step.status === 'approved' || step.status === 'skipped') {
       const openElsewhere = state.steps.findIndex((s) => isActiveStatus(s.status));
       if (openElsewhere >= 0) {
         persist(root, { ...state, currentStepIdx: openElsewhere });

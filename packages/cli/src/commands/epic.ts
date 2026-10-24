@@ -46,6 +46,7 @@ import {
   planAddEpicStep,
   planRemoveEpicStep,
   planSetEpicStepGates,
+  planSetEpicStepEnabled,
   describeGateEffect,
   commitEpicStepEdit,
   EpicStepEditError,
@@ -53,11 +54,12 @@ import {
   type PipelineConfig,
   type EpicStepEditPlan,
   type EpicStepGatePlan,
+  type EpicStepEnabledPlan,
   type RunState,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { readYaml, requireYaml, writeYaml, existingIds } from '../yamlIO';
-import { epicProgress, listEpics, loadEpic, type EpicStatus, type EpicSummary } from '../epicsList';
+import { epicProgress, listEpics, loadEpic, type EpicStepStatus, type EpicSummary } from '../epicsList';
 import { classifyWithLlm } from './pipeline';
 
 export function registerEpic(program: Command): void {
@@ -114,7 +116,8 @@ export function registerEpic(program: Command): void {
       });
 
       for (const epic of epics) {
-        const total = epic.stepDetails.length;
+        // A skipped step is not part of the run, so it is not counted at all.
+        const total = epic.stepDetails.filter(s => s.status !== 'skipped').length;
         const done  = epic.stepDetails.filter(s => s.status === 'done').length;
         // Counted in stages, so a fan-out does not inflate the percentage —
         // the steps either side of it stay the same fraction of the work.
@@ -860,9 +863,10 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
   const stepCmd = cmd
     .command('step')
     .description(
-      'Add, remove or re-gate a step on a running epic. add/remove update the\n' +
-      '  pipeline, the run state and the epic\'s state.json together; set changes\n' +
-      '  only the pipeline, because the runner reads gates from it as it goes.\n' +
+      'Add, remove, re-gate, enable or disable a step on a running epic.\n' +
+      '  add/remove/enable/disable update the pipeline, the run state and the\n' +
+      '  epic\'s state.json together; set changes only the pipeline, because the\n' +
+      '  runner reads gates from it as it goes.\n' +
       '  <step> can be a step name ("spec"), an agent id, or a 0-based index.',
     );
 
@@ -976,6 +980,39 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
         console.log(chalk.yellow(`  The step is ${plan.stepStatus}. `) + chalk.dim(note));
       }
     });
+
+  // Unlike a gate, `enabled` lives in the run too: a disabled step is recorded
+  // `skipped`, and what waited on it now waits on what it waited on. So this
+  // writes all three stores, like add/remove.
+  for (const enabled of [true, false]) {
+    stepCmd
+      .command(`${enabled ? 'enable' : 'disable'} <epicId> <step>`)
+      .description(enabled
+        ? 'Switch a skipped step back on (refused once anything after it has started)'
+        : 'Switch a step off on a running epic — it is skipped, and what depends on it moves on without it')
+      .action((epicId: string, step: string, _opts: unknown, actionCmd: Command) => {
+        const root = resolveWorkspaceRoot(actionCmd);
+        const doc  = requireYaml(root);
+        const { runState, pipelineCfg } = requireEditableEpic(root, doc, epicId);
+
+        const plan = runEdit(() => planSetEpicStepEnabled({
+          runState, pipeline: pipelineCfg, step, enabled,
+        })) as EpicStepEnabledPlan;
+
+        if (!plan.changed) {
+          console.log(chalk.dim(`Step ${plan.stepId} is already ${enabled ? 'enabled' : 'disabled'} — nothing written.`));
+          return;
+        }
+
+        writeEdit(root, doc, plan);
+        console.log(chalk.green('✔') + ` Step ${chalk.bold(plan.stepId)} of ${chalk.bold(pipelineCfg.id)} ` +
+          (enabled ? chalk.green('enabled') : chalk.dim('disabled → skipped')));
+        printSteps(plan);
+        if (plan.opened.length > 0) {
+          console.log(chalk.dim(`  Now open: ${plan.opened.join(', ')}`));
+        }
+      });
+  }
 }
 
 /**
@@ -1232,9 +1269,10 @@ function printEpicDetail(epic: EpicSummary): void {
   }
 }
 
-function colorEpicStatus(status: EpicStatus): string {
+function colorEpicStatus(status: EpicStepStatus): string {
   switch (status) {
     case 'done':        return chalk.green(status);
+    case 'skipped':     return chalk.dim.strikethrough(status);
     case 'in_progress': return chalk.yellow(status.replace('_', ' '));
     case 'failed':      return chalk.red(status);
     case 'pending':

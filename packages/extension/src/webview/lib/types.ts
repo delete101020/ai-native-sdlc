@@ -25,7 +25,9 @@ export type StepStatus =
   | 'awaiting_auto_review'
   | 'awaiting_review'
   | 'approved'
-  | 'rejected';
+  | 'rejected'
+  /** `enabled: false` in the pipeline — never opens, not part of the run. */
+  | 'skipped';
 
 export type RunStatus = 'running' | 'completed' | 'failed';
 
@@ -39,7 +41,9 @@ export type UiStatus =
   | 'awaiting_work'
   /** Step was previously approved but a downstream `requestStepUpdate`
    * reset it to pending — its history is intact, just needs to be redone. */
-  | 'awaiting_update';
+  | 'awaiting_update'
+  /** Disabled in the pipeline — the run passes over it. */
+  | 'skipped';
 
 export interface ArtifactPath {
   path: string;
@@ -793,7 +797,8 @@ export interface EpicStepDetailFull {
   /** The step's `requires` (upstream inputs), checked on disk host-side.
    *  `optional` ones never block *Mark step done*. */
   requires?: StepArtifact[];
-  status: 'pending' | 'in_progress' | 'done' | 'failed';
+  /** `skipped` — disabled in the pipeline; left out of every count. */
+  status: 'pending' | 'in_progress' | 'done' | 'failed' | 'skipped';
   runStatus: StepStatus | null;
   isCurrentRunStep: boolean;
   rejectReason?: string;

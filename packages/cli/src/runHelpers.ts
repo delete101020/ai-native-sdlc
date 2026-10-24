@@ -235,6 +235,7 @@ const STATUS_COLOR: Record<string, (s: string) => string> = {
   awaiting_review:   chalk.cyan,
   approved:          chalk.green,
   rejected:          chalk.red,
+  skipped:           chalk.dim.strikethrough,
 };
 
 export function colorStatus(status: string): string {

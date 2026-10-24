@@ -184,7 +184,7 @@ export function autopilotPreflight(args: {
 
   const claudeSteps = new Set(
     state.steps
-      .filter((s) => s.status !== 'approved')
+      .filter((s) => s.status !== 'approved' && s.status !== 'skipped')
       .map((s) => config.agents.find((a) => a.id === s.agent))
       .filter((a) => a?.runner === 'default')
       .map((a) => a!.id),
@@ -199,6 +199,7 @@ export function autopilotPreflight(args: {
   args.pipeline.steps.forEach((s, i) => {
     if (state.steps[i]?.status === 'approved') { return; }
     const norm = normalizeStep(s);
+    if (!norm.enabled) { return; }
     const runner = norm.auto_review ? norm.auto_review_runner : undefined;
     if (runner && hasEmptyCiChecks(root, runner)) {
       problems.push(emptyCiChecksMessage(runner, norm.name ?? norm.agent));

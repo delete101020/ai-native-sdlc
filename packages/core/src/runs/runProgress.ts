@@ -22,6 +22,7 @@
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep } from '../schema/WorkspaceSchema';
 import type { RunState, StepStatus } from './RunState';
+import { isStepEnabled, effectiveDepsOf } from './enabledSteps';
 
 /** Statuses that mean "open work" — someone can pick this step up now. */
 const ACTIVE: ReadonlySet<StepStatus> = new Set<StepStatus>([
@@ -90,6 +91,7 @@ export function deriveRunProgress(
     });
   }
 
+  const effDeps = pipeline && dag ? effectiveDepsOf(pipeline.steps.map(normalizeStep)) : [];
   const actionable: number[] = [];
   const rejected: number[] = [];
   const blocking: number[] = [];
@@ -108,8 +110,8 @@ export function deriveRunProgress(
     // deps may have cleared in a branch that has since been rejected — then
     // nobody is going to open it but the next approval, and it is work the
     // user can start now.
-    if (s.status === 'pending' && pipeline && dag) {
-      const deps = normalizeStep(pipeline.steps[i] ?? { agent: s.agent }).depends_on;
+    if (s.status === 'pending' && pipeline && dag && isStepEnabled(pipeline, i)) {
+      const deps = effDeps[i] ?? [];
       if (deps.length > 0 && deps.every((d) => approvedDagIds.has(d))) {
         actionable.push(i);
       }
@@ -146,12 +148,16 @@ export function deriveRunProgress(
  * after `cr-close` was approved. A peer something does wait on is never
  * excused: its dependent has not run against its current output.
  *
+ * A `skipped` step is settled, and so is any step the pipeline has disabled
+ * that never got going — the run was never going to open it.
+ *
  * Anything else still owes the run something.
  */
 export function isRunComplete(state: RunState, pipeline: PipelineConfig): boolean {
   const excused = usesDag(pipeline) ? deadEndPeersOfApproved(state, pipeline) : new Set<number>();
   return state.steps.every((s, i) => {
-    if (s.status === 'approved') { return true; }
+    if (s.status === 'approved' || s.status === 'skipped') { return true; }
+    if (!isStepEnabled(pipeline, i) && !isActiveStatus(s.status)) { return true; }
     if (excused.has(i)) { return true; }
     if (!isStepOptional(pipeline, i)) { return false; }
     return s.status === 'rejected' || s.status === 'pending';
@@ -202,11 +208,12 @@ function ancestorsOf(pipeline: PipelineConfig, idx: number): Set<number> {
   const normalized = pipeline.steps.map(normalizeStep);
   const idxByDagId = new Map<string, number>();
   normalized.forEach((s, i) => { idxByDagId.set(s.name ?? s.agent, i); });
+  const effDeps = effectiveDepsOf(normalized);
   const found = new Set<number>();
   const queue = [idx];
   while (queue.length > 0) {
     const cur = queue.pop() as number;
-    for (const dep of normalized[cur]?.depends_on ?? []) {
+    for (const dep of effDeps[cur] ?? []) {
       const di = idxByDagId.get(dep);
       if (di === undefined || found.has(di) || di === idx) { continue; }
       found.add(di);
@@ -228,17 +235,24 @@ function deadEndPeersOfApproved(state: RunState, pipeline: PipelineConfig): Set<
     id: ids[i],
     dependsOn: n.depends_on,
     done: state.steps[i].status === 'approved',
+    skipped: !n.enabled,
   })));
 
+  // What enabled steps actually wait on — a step only a disabled one names
+  // is not waited on by anything that runs.
+  const effDeps = effectiveDepsOf(normalized);
   const dependedOn = new Set<string>();
-  for (const n of normalized) { for (const d of n.depends_on) { dependedOn.add(d); } }
+  normalized.forEach((n, i) => {
+    if (!n.enabled) { return; }
+    for (const d of effDeps[i]) { dependedOn.add(d); }
+  });
 
   const approvedRanks = new Set<number>();
   state.steps.forEach((s, i) => { if (s.status === 'approved') { approvedRanks.add(ranks[i]); } });
 
   const excused = new Set<number>();
   state.steps.forEach((s, i) => {
-    if (s.status === 'approved') { return; }
+    if (s.status === 'approved' || ranks[i] < 0) { return; }
     if (dependedOn.has(ids[i])) { return; }
     if (approvedRanks.has(ranks[i])) { excused.add(i); }
   });
@@ -253,13 +267,18 @@ export interface ProgressStep {
   dependsOn?: readonly string[];
   /** Whether this step is finished, however the caller defines finished. */
   done: boolean;
+  /**
+   * The step is disabled — not part of the run at all. It takes no rank and
+   * no share, and a step that depends on it is ranked by what it depended on.
+   */
+  skipped?: boolean;
 }
 
 /** How far along a run is, counting parallel steps as one unit of work. */
 export interface ProgressWeighting {
-  /** Longest-path depth per step — steps sharing one are peers. */
+  /** Longest-path depth per step — steps sharing one are peers. -1 for a skipped step. */
   ranks: number[];
-  /** Each step's share of the run, in [0, 1]. Peers split their rank's unit. */
+  /** Each step's share of the run, in [0, 1]. Peers split their rank's unit; skipped steps get 0. */
   weights: number[];
   /** Number of distinct ranks: the units the run is measured in. */
   stages: number;
@@ -302,43 +321,50 @@ export function weighStepProgress(steps: ReadonlyArray<ProgressStep>): ProgressW
 
   // No step declares a dependency: index order is the chain, exactly as
   // `startRun` reads it. Every step is then its own stage, which is the plain
-  // step count — a sequential pipeline's percentage does not move.
+  // step count — a sequential pipeline's percentage does not move. A skipped
+  // step is not a link of the chain at all.
   if (!steps.some((s) => (s.dependsOn?.length ?? 0) > 0)) {
-    const ranks = steps.map((_, i) => i);
-    const weights = steps.map(() => 1);
-    const stagesDone = steps.reduce((sum, s) => (s.done ? sum + 1 : sum), 0);
-    return { ranks, weights, stages: n, stagesDone, percent: Math.round((stagesDone / n) * 100) };
+    let next = 0;
+    const ranks = steps.map((s) => (s.skipped ? -1 : next++));
+    const weights = steps.map((s) => (s.skipped ? 0 : 1));
+    const stagesDone = steps.reduce((sum, s) => (s.done && !s.skipped ? sum + 1 : sum), 0);
+    return { ranks, weights, stages: next, stagesDone, percent: next > 0 ? Math.round((stagesDone / next) * 100) : 0 };
   }
 
+  // `after[i]` is the lowest rank a dependent of step i can have: one past
+  // its own rank, or — for a skipped step — whatever its own dependencies
+  // already push a dependent to, so the skipped step adds no stage.
   const ranks = new Array<number>(n).fill(-1);
+  const after = new Array<number>(n).fill(-1);
   const visiting = new Array<boolean>(n).fill(false);
-  const rankOf = (i: number): number => {
-    if (ranks[i] >= 0) { return ranks[i]; }
+  const afterOf = (i: number): number => {
+    if (after[i] >= 0) { return after[i]; }
     // A cycle is a broken pipeline, not a reason to hang: treat the step we
     // re-entered as a root and let the rest of the graph resolve around it.
-    if (visiting[i]) { return 0; }
+    if (visiting[i]) { return steps[i].skipped ? 0 : 1; }
     visiting[i] = true;
     let rank = 0;
     for (const dep of steps[i].dependsOn ?? []) {
       const j = idxById.get(dep);
       if (j === undefined || j === i) { continue; }
-      rank = Math.max(rank, rankOf(j) + 1);
+      rank = Math.max(rank, afterOf(j));
     }
     visiting[i] = false;
-    ranks[i] = rank;
-    return rank;
+    if (!steps[i].skipped) { ranks[i] = rank; }
+    after[i] = steps[i].skipped ? rank : rank + 1;
+    return after[i];
   };
-  for (let i = 0; i < n; i++) { rankOf(i); }
+  for (let i = 0; i < n; i++) { afterOf(i); }
 
   const sizeByRank = new Map<number, number>();
-  for (const r of ranks) { sizeByRank.set(r, (sizeByRank.get(r) ?? 0) + 1); }
+  for (const r of ranks) { if (r >= 0) { sizeByRank.set(r, (sizeByRank.get(r) ?? 0) + 1); } }
 
-  const weights = ranks.map((r) => 1 / (sizeByRank.get(r) ?? 1));
+  const weights = ranks.map((r) => (r < 0 ? 0 : 1 / (sizeByRank.get(r) ?? 1)));
   const stages = sizeByRank.size;
   // One finished peer settles its rank: the round has produced what the next
   // stage reads, and the peers still open do not hold the epic back.
   const doneRanks = new Set<number>();
-  steps.forEach((s, i) => { if (s.done) { doneRanks.add(ranks[i]); } });
+  steps.forEach((s, i) => { if (s.done && ranks[i] >= 0) { doneRanks.add(ranks[i]); } });
   const stagesDone = doneRanks.size;
 
   return {

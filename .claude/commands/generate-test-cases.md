@@ -13,8 +13,9 @@ procedure exactly as `/aidlc <epic> generate-test-cases` would:
 2. In `.aidlc/workspace.yaml`, find that pipeline and its `generate-test-cases` step
    (`name`/`agent` === `generate-test-cases`). Use that step's `agent` + `skills` —
    never assume; two pipelines can wire `generate-test-cases` differently.
-3. **If the pipeline has no `generate-test-cases` step**, tell the user this epic's
-   pipeline (`<pipelineId>`) has no `generate-test-cases` phase, suggest
+3. **If the pipeline has no `generate-test-cases` step, or `state.json` lists it as
+   `skipped`** (disabled for this epic — the same as not having it), tell
+   the user this epic's pipeline (`<pipelineId>`) has no `generate-test-cases` phase, suggest
    `/aidlc <epic>` to run the next eligible phase, and stop.
 4. Otherwise load the persona (`.claude/agents/<agent>.md`) + skill(s)
    (`.claude/skills/<skill>.md`), adopt them (unless the active standard is

@@ -59,6 +59,8 @@ import { stepIdentity, RUN_STATE_SCHEMA_VERSION } from './RunState';
 import { reconcileRunSteps, describeDrift } from './reconcileRun';
 import { RunStateStore } from './RunStateStore';
 import { mirrorRunStateToEpic } from './EpicScaffold';
+import { descendantsOf, openReadySteps } from './PipelineRunner';
+import { nextEnabledIdx } from './enabledSteps';
 
 export class EpicStepEditError extends Error {
   constructor(message: string) {
@@ -176,7 +178,7 @@ function pipelineSteps(pipeline: PipelineConfig): PipelineStepConfig[] {
 function lastSettledIdx(state: RunState): number {
   let last = -1;
   state.steps.forEach((s, i) => {
-    if (s.status !== 'pending') { last = i; }
+    if (s.status !== 'pending' && s.status !== 'skipped') { last = i; }
   });
   return last;
 }
@@ -208,7 +210,7 @@ function reindex(
   // A finished run that gains a step has work to do again, and one whose last
   // outstanding step was removed is finished. Anything else keeps the status it
   // had — an edit is not an opinion about a run that `failed`.
-  const allApproved = renumbered.every((s) => s.status === 'approved');
+  const allApproved = renumbered.every((s) => s.status === 'approved' || s.status === 'skipped');
   const status = allApproved
     ? 'completed'
     : state.status === 'completed'
@@ -267,7 +269,7 @@ export function planRemoveEpicStep(args: {
     );
   }
 
-  if (record.status !== 'pending') {
+  if (record.status !== 'pending' && record.status !== 'skipped') {
     throw new EpicStepEditError(
       `Step "${id}" is ${record.status}, not pending — removing it would delete the ` +
       'record of work that already happened. ' +
@@ -295,7 +297,7 @@ export function planRemoveEpicStep(args: {
 
   // If the pointer was on the removed step, land on the first step still to
   // be done rather than an arbitrary neighbour.
-  const firstOpen = nextSteps.findIndex((s) => s.status !== 'approved');
+  const firstOpen = nextSteps.findIndex((s) => s.status !== 'approved' && s.status !== 'skipped');
 
   return {
     pipeline: { ...pipeline, steps: raw.filter((_, i) => i !== idx) },
@@ -421,7 +423,9 @@ export function planAddEpicStep(args: {
   const nextRun = reindex(runState, nextSteps, oldToNew, runState.currentStepIdx);
   // The pointer follows the new step only when nothing else is in flight — a
   // DAG sibling mid-review is still the thing the user is looking at.
-  const othersActive = runState.steps.some((s) => s.status !== 'approved' && s.status !== 'pending');
+  const othersActive = runState.steps.some(
+    (s) => s.status !== 'approved' && s.status !== 'pending' && s.status !== 'skipped',
+  );
   if (gateClear && !othersActive) { nextRun.currentStepIdx = at; }
 
   return {
@@ -618,6 +622,126 @@ export function planSetEpicStepGates(args: {
     previousCurrentStepIdx: runState.currentStepIdx,
     changes,
     stepStatus: runState.steps[idx].status,
+  };
+}
+
+// ── Enabled ──────────────────────────────────────────────────────────────────
+
+export interface EpicStepEnabledPlan extends EpicStepEditPlan {
+  /** False when the pipeline and the run both already had this setting — nothing to write. */
+  changed: boolean;
+  enabled: boolean;
+  /** Identities of the steps this edit opened (now `awaiting_work`). */
+  opened: string[];
+}
+
+/**
+ * Plan switching one step of a running epic on or off.
+ *
+ * Unlike a gate, `enabled` is reflected in the run: a disabled step is
+ * recorded as `skipped`, and what depends on it waits on what it waited on
+ * instead (see `enabledSteps.ts`). So both stores change together, and the
+ * run is settled against the new pipeline — a step that only waited on the
+ * one just disabled opens now, rather than on an approval that already
+ * happened.
+ *
+ * Refused, with a reason:
+ *   - disabling a step that has done work — anything past an untouched
+ *     `awaiting_work` is a record, and `aidlc step skip` is the way past it;
+ *   - disabling the last enabled step;
+ *   - re-enabling a step when something downstream of it has already started,
+ *     since that work was done without it. Downstream steps that were opened
+ *     but never touched simply close again.
+ */
+export function planSetEpicStepEnabled(args: {
+  runState: RunState;
+  pipeline: PipelineConfig;
+  step: string;
+  enabled: boolean;
+}): EpicStepEnabledPlan {
+  const { runState, pipeline, enabled } = args;
+  requireAligned(runState, pipeline);
+
+  const idx = resolveStepRef(runState, args.step);
+  const raw = pipelineSteps(pipeline);
+  const current = raw[idx];
+  const id = stepDagId(current);
+  const record = runState.steps[idx];
+  const base = {
+    stepId: id,
+    index: idx,
+    previousCurrentStepIdx: runState.currentStepIdx,
+    enabled,
+  };
+
+  // Already set in the pipeline *and* already reflected in the run: nothing
+  // to do. A pipeline edited by hand — `enabled: false` typed into
+  // pipeline.yaml under a run that still has the step `pending` — falls
+  // through, so the same command brings the run in line.
+  const recordOff = record.status === 'skipped';
+  if (normalizeStep(current).enabled === enabled && recordOff === !enabled) {
+    return { ...base, pipeline, runState, changed: false, opened: [] };
+  }
+
+  // Absent means enabled, so switching a step back on drops the key — the
+  // same "read like it was written by hand" rule the gates follow.
+  const nextStep: Record<string, unknown> =
+    typeof current === 'object' && current !== null
+      ? { ...(current as unknown as Record<string, unknown>) }
+      : { agent: normalizeStep(current).agent };
+  if (enabled) { delete nextStep.enabled; } else { nextStep.enabled = false; }
+  const nextRaw = [...raw];
+  nextRaw[idx] = nextStep as unknown as PipelineStepConfig;
+  const nextPipeline: PipelineConfig = { ...pipeline, steps: nextRaw };
+
+  const untouched = (s: StepRecord): boolean =>
+    s.status === 'awaiting_work' && s.artifactsProduced.length === 0 && (s.history?.length ?? 0) === 0;
+  const steps = runState.steps.map((s) => ({ ...s }));
+
+  if (!enabled) {
+    if (record.status !== 'pending' && record.status !== 'skipped' && !untouched(record)) {
+      throw new EpicStepEditError(
+        `Step "${id}" is ${record.status} — disabling it would unwrite work that already happened. ` +
+        `Use \`aidlc step skip ${runState.runId} ${id}\` to jump over it instead.`,
+      );
+    }
+    if (nextEnabledIdx(nextPipeline, 0) < 0) {
+      throw new EpicStepEditError(
+        `Cannot disable "${id}" — it is the last enabled step of pipeline "${pipeline.id}", ` +
+        'and a run with every step disabled has nothing to open.',
+      );
+    }
+    steps[idx] = { ...steps[idx], status: 'skipped', startedAt: undefined, finishedAt: undefined };
+  } else {
+    for (const i of descendantsOf(nextPipeline, idx)) {
+      const d = steps[i];
+      if (d.status === 'pending' || d.status === 'skipped') { continue; }
+      if (untouched(d)) {
+        steps[i] = { ...d, status: 'pending', startedAt: undefined };
+        continue;
+      }
+      throw new EpicStepEditError(
+        `Cannot enable "${id}" — step ${i + 1} ("${stepIdentity(d)}") comes after it and is ` +
+        `already ${d.status}, so it ran without "${id}". Enabling it now would put a step ` +
+        'behind work that has already gone past it. Request an update on an earlier step to redo that stretch.',
+      );
+    }
+    if (record.status === 'skipped') {
+      steps[idx] = { ...steps[idx], status: 'pending', startedAt: undefined, finishedAt: undefined };
+    }
+  }
+
+  const settled = openReadySteps({ ...runState, steps }, nextPipeline);
+  const opened = settled.steps
+    .map((s, i) => (s.status === 'awaiting_work' && steps[i].status !== 'awaiting_work' ? stepIdentity(s) : null))
+    .filter((x): x is string => x !== null);
+
+  return {
+    ...base,
+    pipeline: nextPipeline,
+    runState: { ...settled, schemaVersion: RUN_STATE_SCHEMA_VERSION },
+    changed: true,
+    opened,
   };
 }
 

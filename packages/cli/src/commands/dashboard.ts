@@ -318,6 +318,7 @@ const HTML = `<!doctype html>
   .s-approved, .s-done { background: rgba(63,185,80,0.2); color: var(--green); }
   .s-rejected, .s-failed { background: rgba(248,81,73,0.2); color: var(--red); }
   .s-in_progress { background: rgba(210,153,34,0.2); color: var(--yellow); }
+  .s-skipped { background: transparent; color: var(--muted); text-decoration: line-through; }
 
   .actions { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
     padding: 20px; margin-top: 24px; }
@@ -456,7 +457,7 @@ let epics = [];
 const STATUS_LABEL = {
   pending: 'pending', awaiting_work: 'awaiting work',
   awaiting_review: 'awaiting review', approved: 'approved', rejected: 'rejected',
-  in_progress: 'in progress', done: 'done', failed: 'failed',
+  in_progress: 'in progress', done: 'done', failed: 'failed', skipped: 'skipped',
 };
 
 // ── Top tab navigation ──────────────────────────────────────────────────────
@@ -493,7 +494,7 @@ function renderRunsSidebar() {
   }
   el.innerHTML = runs.map(r => {
     const done = r.steps.filter(s => s.status === 'approved').length;
-    const total = r.steps.length;
+    const total = r.steps.filter(s => s.status !== 'skipped').length;
     const pct = total ? Math.round((done / total) * 100) : 0;
     const cls = activeRunId === r.runId ? 'run-card active' : 'run-card';
     return \`<div class="\${cls}" onclick="selectRun('\${r.runId}')">
@@ -723,7 +724,7 @@ function renderEpicsList() {
     return;
   }
   el.innerHTML = filtered.map(e => {
-    const total = (e.stepDetails || []).length;
+    const total = (e.stepDetails || []).filter(s => s.status !== 'skipped').length;
     const done  = (e.stepDetails || []).filter(s => s.status === 'done').length;
     // Server-computed: stages, not steps. Falls back to the plain count only
     // when talking to an older server that sends no progress field.

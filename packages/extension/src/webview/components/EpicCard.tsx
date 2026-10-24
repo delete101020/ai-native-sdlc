@@ -6,6 +6,7 @@ import {
   CornerDownRight,
   GitBranchPlus,
   Check,
+  CircleSlash,
   X,
   Inbox,
   Outdent,
@@ -105,6 +106,7 @@ const STEP_LABEL: Record<EpicStepDetailFull['status'], string> = {
   in_progress: 'in progress',
   done: 'done',
   failed: 'failed',
+  skipped: 'skipped — disabled in the pipeline',
 };
 
 interface Props {
@@ -153,7 +155,8 @@ interface Props {
  * to 33% needs to say where the 33% came from.
  */
 function progressTitle(epic: EpicSummary): string {
-  const total = epic.stepDetails.length;
+  // A skipped step is not part of the run, so it is not one of the steps.
+  const total = epic.stepDetails.filter((s) => s.status !== 'skipped').length;
   const done = epic.stepDetails.filter((s) => s.status === 'done').length;
   if (typeof epic.stages !== 'number' || epic.stages === 0) {
     return `${done} of ${total} steps done`;
@@ -1227,7 +1230,9 @@ function StepperNode({
       ? <Check className="h-3.5 w-3.5" />
       : step.status === 'failed'
         ? <X className="h-3.5 w-3.5" />
-        : (label ?? String(idx + 1));
+        : step.status === 'skipped'
+          ? <CircleSlash className="h-3.5 w-3.5" />
+          : (label ?? String(idx + 1));
   return (
     <button
       type="button"
@@ -1242,6 +1247,7 @@ function StepperNode({
           step.status === 'in_progress' &&
             'bg-warning text-warning-foreground shadow-[0_0_14px_color-mix(in_oklab,var(--color-warning)_40%,transparent)]',
           step.status === 'failed' && 'bg-destructive text-destructive-foreground',
+          step.status === 'skipped' && 'border-2 border-dashed border-border bg-transparent text-muted-foreground opacity-60',
           step.status === 'pending' && !isAwaitingUpdate &&
             'border-2 border-border bg-card text-muted-foreground',
           isAwaitingUpdate &&
@@ -1268,6 +1274,7 @@ function StepperNode({
             : step.status === 'done' || step.status === 'in_progress'
               ? 'text-foreground'
               : 'text-muted-foreground',
+          step.status === 'skipped' && 'line-through opacity-60',
         )}
       >
         {step.stepName ?? step.agent}
@@ -1303,6 +1310,7 @@ function StepDetail({
     if (focused.status === 'done') { return 'done' as const; }
     if (focused.status === 'in_progress') { return 'in_progress' as const; }
     if (focused.status === 'failed') { return 'rejected' as const; }
+    if (focused.status === 'skipped') { return 'skipped' as const; }
     // Pending step that carries history was previously approved and got
     // reset by a downstream Request-Update — flag it so the user can tell
     // it apart from a never-touched step.
@@ -1362,6 +1370,8 @@ function StepDetail({
         return 'border-l-success';
       case 'failed':
         return 'border-l-destructive';
+      case 'skipped':
+        return 'border-l-border border-dashed opacity-80';
       default:
         return 'border-l-border';
     }
@@ -1376,6 +1386,17 @@ function StepDetail({
         <span className="flex-1 truncate text-sm font-bold text-foreground">{focused.stepName ?? m.name}</span>
         <StatusBadge status={ui} />
       </div>
+
+      {/* A disabled step has nothing to run and no buttons; say why, and how
+          to get it back, instead of leaving an empty panel to puzzle over. */}
+      {focused.status === 'skipped' && (
+        <div className="mt-2 rounded border border-dashed border-border bg-muted/40 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+          <span className="font-semibold text-foreground">Disabled in this epic's pipeline</span>
+          {' — '}the run passes over it, and steps that depend on it wait on what it depended on.
+          Re-enable it from the step's config in the pipeline builder, or
+          {' '}<code className="font-mono">aidlc epic step enable {epic.id} {focused.stepName ?? focused.agent}</code>.
+        </div>
+      )}
 
       {/* One agent can back several steps, so a step's own description
           (or its only skill's) beats the agent's. */}
@@ -1633,7 +1654,7 @@ function StepDetail({
           </>
         )}
 
-        {slashCommand && (
+        {slashCommand && focused.status !== 'skipped' && (
           <>
             <DetailLabel icon={<Terminal className="h-3 w-3" />} text="Command" />
             <button

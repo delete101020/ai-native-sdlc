@@ -13,8 +13,9 @@ procedure exactly as `/aidlc <epic> intent` would:
 2. In `.aidlc/workspace.yaml`, find that pipeline and its `intent` step
    (`name`/`agent` === `intent`). Use that step's `agent` + `skills` —
    never assume; two pipelines can wire `intent` differently.
-3. **If the pipeline has no `intent` step**, tell the user this epic's
-   pipeline (`<pipelineId>`) has no `intent` phase, suggest
+3. **If the pipeline has no `intent` step, or `state.json` lists it as
+   `skipped`** (disabled for this epic — the same as not having it), tell
+   the user this epic's pipeline (`<pipelineId>`) has no `intent` phase, suggest
    `/aidlc <epic>` to run the next eligible phase, and stop.
 4. Otherwise load the persona (`.claude/agents/<agent>.md`) + skill(s)
    (`.claude/skills/<skill>.md`), adopt them (unless the active standard is

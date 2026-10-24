@@ -89,6 +89,7 @@ export {
 } from './runs/EpicScaffold';
 export type {
   EpicStatus,
+  EpicStepStatus,
   ScaffoldEpicArgs,
   ScaffoldEpicResult,
 } from './runs/EpicScaffold';
@@ -120,6 +121,7 @@ export {
   planAddEpicStep,
   planRemoveEpicStep,
   planSetEpicStepGates,
+  planSetEpicStepEnabled,
   commitEpicStepEdit,
   describeGateEffect,
   resolveStepRef,
@@ -132,6 +134,7 @@ export type {
   EpicStepGateSpec,
   EpicStepGateChange,
   EpicStepGatePlan,
+  EpicStepEnabledPlan,
   CommitEpicStepEditArgs,
 } from './runs/EpicStepEdit';
 
@@ -462,8 +465,17 @@ export {
   dirtyUpstreamOf,
   submitAutoReviewVerdict,
   retryAutoReview,
+  openReadySteps,
+  skipDisabledSteps,
   PipelineRunError,
 } from './runs/PipelineRunner';
+export {
+  isStepEnabled,
+  effectiveDependsOn,
+  nextEnabledIdx,
+  disabledStepIssues,
+} from './runs/enabledSteps';
+export type { DisabledStepIssue } from './runs/enabledSteps';
 export {
   deriveRunProgress,
   isRunComplete,

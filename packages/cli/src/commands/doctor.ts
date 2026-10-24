@@ -34,6 +34,7 @@ import {
   emptyCiChecksMessage,
   assemblePipeline,
   normalizeStep,
+  disabledStepIssues,
   type HarnessCapabilities,
   type PipelineConfig,
 } from '@aidlc/core';
@@ -335,6 +336,30 @@ function providerChecks(
  * every AI-Native workspace has `native-autopilot`, so what it is missing is
  * a warning, not a failure — `run exec` still refuses the run itself.
  */
+/**
+ * What `enabled: false` breaks, per pipeline. A disabled step is skipped and
+ * what depends on it waits on what it waited on — so the failures left are a
+ * `requires` nothing enabled writes, a step that can never open, and a
+ * send-back into a step that is not running. Silent for pipelines that
+ * disable nothing, which is most of them.
+ */
+function disabledStepChecks(ws: ReturnType<typeof WorkspaceLoader.load>): Check[] {
+  const checks: Check[] = [];
+  for (const p of ws.config.pipelines) {
+    const issues = disabledStepIssues(p);
+    for (const issue of issues) {
+      checks.push(issue.severity === 'error'
+        ? fail(`"${p.id}"`, issue.message)
+        : warn(`"${p.id}"`, issue.message));
+    }
+    const off = p.steps.filter((s) => !normalizeStep(s).enabled).length;
+    if (off > 0 && issues.length === 0) {
+      checks.push(ok(`"${p.id}"`, `${off} step${off !== 1 ? 's' : ''} disabled — the rest still connect`));
+    }
+  }
+  return checks;
+}
+
 function autopilotChecks(root: string, ws: ReturnType<typeof WorkspaceLoader.load>): Check[] {
   const checks: Check[] = [];
   const autopilot = ws.config.pipelines.filter((p) => p.autopilot).map((p) => p.id);
@@ -555,6 +580,8 @@ export function registerDoctor(program: Command): void {
         emitSection('Harness parity', parityChecks(root, ws));
         emitSection('Providers', providerChecks(ws));
         emitSection('Unattended runs', autopilotChecks(root, ws));
+        const disabled = disabledStepChecks(ws);
+        if (disabled.length > 0) { emitSection('Disabled steps', disabled); }
       }
 
       // ── Run state ────────────────────────────────────────────────────────

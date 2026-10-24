@@ -47,6 +47,13 @@ import {
 
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
 
+/**
+ * A step's status: the epic statuses, plus `skipped` for a step the pipeline
+ * has disabled — not part of the run, shown struck through and left out of
+ * every count.
+ */
+export type EpicStepStatus = EpicStatus | 'skipped';
+
 /** One entry of a step's `produces` list, resolved for the panel to open. */
 export interface StepArtifact {
   /** Workspace-relative (or absolute) path, run-context resolved. */
@@ -88,7 +95,7 @@ export interface EpicSummary {
   agent: string | null;
   agents: string[];
   currentStep: number;
-  stepStatuses: EpicStatus[];
+  stepStatuses: EpicStepStatus[];
   /** Per-step detail (timing, future fields). Same length as agents. */
   stepDetails: Array<{
     agent: string;
@@ -155,7 +162,7 @@ export interface EpicSummary {
     /** The step's `requires`, resolved and checked on disk; `optional` marks
      *  an entry whose absence does not block *Mark step done*. */
     requires?: StepArtifact[];
-    status: EpicStatus;
+    status: EpicStepStatus;
     startedAt: string | null;
     finishedAt: string | null;
     /**
@@ -249,6 +256,10 @@ const STATUS_VALUES: ReadonlyArray<EpicStatus> = ['pending', 'in_progress', 'don
 
 function asStatus(v: unknown): EpicStatus {
   return STATUS_VALUES.includes(v as EpicStatus) ? (v as EpicStatus) : 'pending';
+}
+
+function asStepStatus(v: unknown): EpicStepStatus {
+  return v === 'skipped' ? 'skipped' : asStatus(v);
 }
 
 /**
@@ -1016,6 +1027,8 @@ function readEpicSummary(
     : undefined;
   const runCurrentStepIdx = displayCursor;
   const stepGateByIdx = new Map<number, { auto: boolean; human: boolean }>();
+  /** Steps the pipeline has `enabled: false` — see `runStatus` below. */
+  const stepDisabledIdx = new Set<number>();
   const stepDependsByIdx = new Map<number, string[]>();
   const stepNameByIdx = new Map<number, string>();
   const stepSkillsByIdx = new Map<number, string[]>();
@@ -1038,6 +1051,7 @@ function readEpicSummary(
     pipelineCfg.steps.forEach((raw, i) => {
       const norm = normalizeStep(raw as PipelineStepConfig);
       stepGateByIdx.set(i, { auto: norm.auto_review, human: norm.human_review });
+      if (!norm.enabled) { stepDisabledIdx.add(i); }
       stepDependsByIdx.set(i, norm.depends_on);
       if (norm.name) { stepNameByIdx.set(i, norm.name); }
       if (norm.skills && norm.skills.length > 0) { stepSkillsByIdx.set(i, norm.skills); }
@@ -1180,7 +1194,14 @@ function readEpicSummary(
   const stepDetails = stepStatesRaw.map((s, i) => {
     const agent = typeof s.agent === 'string' ? s.agent : '';
     const gate = stepGateByIdx.get(i) ?? { auto: false, human: false };
-    const runStatus = runStepByIdx.get(i) ?? null;
+    // A step disabled in the pipeline under a run that still has it `pending`
+    // — typed into pipeline.yaml by hand, or a run started before the runner
+    // knew the flag — is skipped all the same: the runner will never open it
+    // and records it so on its next advance. Read it that way now rather
+    // than show a disabled step as work still to come.
+    const recorded = runStepByIdx.get(i) ?? null;
+    const runStatus: StepStatus | null =
+      stepDisabledIdx.has(i) && (recorded === null || recorded === 'pending') ? 'skipped' : recorded;
     const artifactForStep = stepArtifactByIdx.get(i);
     const history = mergeHistory(
       runHistoryByIdx.get(i),
@@ -1195,9 +1216,12 @@ function readEpicSummary(
     //   rejected                                  → failed
     //   awaiting_work | awaiting_auto_review |
     //   awaiting_review                           → in_progress
+    //   skipped                                   → skipped
     //   pending / no run                          → fall back to state.json
-    const displayStatus =
-      runStatus === 'approved'
+    const displayStatus: EpicStepStatus =
+      runStatus === 'skipped'
+        ? 'skipped'
+        : runStatus === 'approved'
         ? ('done' as const)
         : runStatus === 'rejected'
         ? ('failed' as const)
@@ -1205,7 +1229,7 @@ function readEpicSummary(
         || runStatus === 'awaiting_auto_review'
         || runStatus === 'awaiting_review'
         ? ('in_progress' as const)
-        : asStatus(s.status);
+        : asStepStatus(s.status);
 
     // Existence is checked against the workspace root, not the epic folder:
     // `produces` may name any path in the repo and the runner resolves it
@@ -1606,9 +1630,11 @@ function backfillRunStateFromEpic(
   const steps = pipelineCfg.steps.map((raw, i) => {
     const norm = normalizeStep(raw as PipelineStepConfig);
     const legacy = stepStatesRaw[i] ?? {};
-    const legacyStatus = asStatus(legacy.status);
+    const legacyStatus = asStepStatus(legacy.status);
     const status: StepStatus =
-      legacyStatus === 'done'
+      legacyStatus === 'skipped' || !norm.enabled
+        ? 'skipped'
+        : legacyStatus === 'done'
         ? 'approved'
         : legacyStatus === 'in_progress'
         ? 'awaiting_work'
@@ -1638,7 +1664,7 @@ function backfillRunStateFromEpic(
   });
 
   const runStatus: RunState['status'] =
-    epicStatus === 'done' && steps.every((s) => s.status === 'approved')
+    epicStatus === 'done' && steps.every((s) => s.status === 'approved' || s.status === 'skipped')
       ? 'completed'
       : 'running';
 

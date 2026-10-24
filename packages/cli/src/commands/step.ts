@@ -12,7 +12,7 @@ import {
 } from '../runHelpers';
 
 const VALID_STATUSES: StepStatus[] = [
-  'pending', 'awaiting_work', 'awaiting_auto_review', 'awaiting_review', 'approved', 'rejected',
+  'pending', 'awaiting_work', 'awaiting_auto_review', 'awaiting_review', 'approved', 'rejected', 'skipped',
 ];
 
 export function registerStep(program: Command): void {
@@ -86,7 +86,7 @@ export function registerStep(program: Command): void {
       // Only advance the pointer if we touched the CURRENT step. Marking an
       // earlier step done shouldn't drag the pointer backward.
       if (idx === state.currentStepIdx) {
-        const nextIdx = state.steps.findIndex((s, i) => i > idx && s.status !== 'approved');
+        const nextIdx = state.steps.findIndex((s, i) => i > idx && s.status !== 'approved' && s.status !== 'skipped');
         if (nextIdx >= 0) {
           state.currentStepIdx = nextIdx;
           state.status = 'running';
@@ -123,7 +123,7 @@ export function registerStep(program: Command): void {
 
       // Only advance the pointer if we touched the CURRENT step.
       if (idx === state.currentStepIdx) {
-        const nextIdx = state.steps.findIndex((s, i) => i > idx && s.status !== 'approved');
+        const nextIdx = state.steps.findIndex((s, i) => i > idx && s.status !== 'approved' && s.status !== 'skipped');
         if (nextIdx >= 0) {
           state.currentStepIdx = nextIdx;
         }
@@ -244,5 +244,5 @@ function runIsComplete(root: string, state: RunState): boolean {
   const pipeline = findPipelineForRun(root, state);
   return pipeline
     ? isRunComplete(state, pipeline)
-    : state.steps.every(s => s.status === 'approved');
+    : state.steps.every(s => s.status === 'approved' || s.status === 'skipped');
 }

@@ -12,6 +12,8 @@ export function mapStepStatus(status: StepStatus | string): UiStatus {
       return 'done';
     case 'rejected':
       return 'rejected';
+    case 'skipped':
+      return 'skipped';
     case 'pending':
     default:
       return 'pending';

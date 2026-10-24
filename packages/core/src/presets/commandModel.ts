@@ -35,6 +35,7 @@ import type { PipelineConfig, WorkspaceConfig } from '../schema/WorkspaceSchema'
 import { normalizeStep, resolveStepSkills, stepDagId } from '../schema/WorkspaceSchema';
 import type { RunState } from '../runs/RunState';
 import { isStepOptional } from '../runs/runProgress';
+import { isStepEnabled, effectiveDependsOn } from '../runs/enabledSteps';
 
 // ── Canonical phase set (the fixed shortcut layer) ─────────────────
 
@@ -213,11 +214,12 @@ export function nextEligiblePhase(state: RunState, pipeline: PipelineConfig): El
   const blocked = state.steps.findIndex((s, i) => s.status === 'rejected' && !optional(i));
   if (blocked >= 0) { return { index: blocked, phaseId: dagId(blocked), reason: 'rejected' }; }
 
-  // 3: first pending step whose deps are all approved.
+  // 3: first pending step whose deps are all approved. A disabled step is
+  // never next, and a dependency on one reads as one on what it waited on.
+  const effDeps = effectiveDependsOn(pipeline);
   for (let i = 0; i < state.steps.length; i++) {
-    if (state.steps[i].status !== 'pending') { continue; }
-    const cfg = pipeline.steps[i];
-    const deps = cfg ? normalizeStep(cfg).depends_on : [];
+    if (state.steps[i].status !== 'pending' || !isStepEnabled(pipeline, i)) { continue; }
+    const deps = effDeps[i] ?? [];
     const ready = deps.every((d) => statusByDagId.get(d) === 'approved');
     if (ready) { return { index: i, phaseId: dagId(i), reason: 'unblocked' }; }
   }
@@ -280,11 +282,14 @@ The first token is the **epic id**; an optional second token is the **phase**.
 1. Read \`${epicRoot}/<epic>/state.json\`. Note \`pipelineId\` (the pipeline this
    epic is bound to) and the per-step \`status\` list. If the file is missing,
    tell the user the epic isn't started and stop.
+2. A step whose \`status\` is \`skipped\` is disabled for this epic: treat it
+   exactly as a step the pipeline does not have. Never run or pick it, and
+   read a \`depends_on\` that names it as naming what *it* depends on.
 
 ## 2. Choose the phase
 
 - **If a phase was given**, use it. Validate it is a step in the epic's
-  pipeline (see step 3). If it isn't, tell the user which phases the pipeline
+  pipeline (see step 3) and not \`skipped\`. If it isn't, tell the user which phases the pipeline
   *does* have and stop.
 - **If no phase was given**, pick the **next eligible phase**, checking each
   rule against every step before moving to the next rule: any step that is
@@ -354,8 +359,9 @@ procedure exactly as \`/aidlc <epic> ${phase.id}\` would:
 2. In \`.aidlc/workspace.yaml\`, find that pipeline and its \`${phase.id}\` step
    (\`name\`/\`agent\` === \`${phase.id}\`). Use that step's \`agent\` + \`skills\` —
    never assume; two pipelines can wire \`${phase.id}\` differently.
-3. **If the pipeline has no \`${phase.id}\` step**, tell the user this epic's
-   pipeline (\`<pipelineId>\`) has no \`${phase.id}\` phase, suggest
+3. **If the pipeline has no \`${phase.id}\` step, or \`state.json\` lists it as
+   \`skipped\`** (disabled for this epic — the same as not having it), tell
+   the user this epic's pipeline (\`<pipelineId>\`) has no \`${phase.id}\` phase, suggest
    \`/aidlc <epic>\` to run the next eligible phase, and stop.
 4. Load the persona and skill(s) that step names. Resolve each from
    \`workspace.yaml\` first — a \`skills[]\` / \`agents[]\` entry may

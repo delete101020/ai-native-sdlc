@@ -33,6 +33,7 @@ import type { RunState, StepRecord, StepStatus, AutoReviewVerdict, StepHistoryEn
 import { resolvePath, stepIdentity, RUN_STATE_SCHEMA_VERSION } from './RunState';
 import { isActiveStatus, isRunComplete, isStepOptional } from './runProgress';
 import { reconcileRunSteps, describeDrift, withBackfilledStepNames } from './reconcileRun';
+import { isStepEnabled, effectiveDependsOn, nextEnabledIdx } from './enabledSteps';
 
 export class PipelineRunError extends Error {
   constructor(message: string, public readonly missing?: string[]) {
@@ -86,16 +87,23 @@ export function startRun(args: {
   if (pipeline.steps.length === 0) {
     throw new PipelineRunError(`Pipeline "${pipeline.id}" has no steps`);
   }
+  const firstEnabled = nextEnabledIdx(pipeline, 0);
+  if (firstEnabled < 0) {
+    throw new PipelineRunError(`Pipeline "${pipeline.id}" has every step disabled — there is nothing to run`);
+  }
   const now = new Date().toISOString();
 
   // DAG roots: every step without a `depends_on` opens up at start time.
   // Pipelines without any depends_on declarations fall back to the legacy
-  // sequential behavior (only step 0 starts) so existing workspace.yamls
-  // keep their old semantics.
+  // sequential behavior (only the first step starts) so existing
+  // workspace.yamls keep their old semantics. Disabled steps are `skipped`
+  // from the start, and edges through them resolve to what they waited on —
+  // see `enabledSteps.ts`.
   const usesDag = pipeline.steps.some((s) => normalizeStep(s).depends_on.length > 0);
+  const effDeps = effectiveDependsOn(pipeline);
   const steps: StepRecord[] = pipeline.steps.map((s, idx) => {
     const norm = normalizeStep(s);
-    const isRoot = usesDag ? norm.depends_on.length === 0 : idx === 0;
+    const isRoot = norm.enabled && (usesDag ? effDeps[idx].length === 0 : idx === firstEnabled);
     return {
       stepIdx: idx,
       agent: norm.agent,
@@ -104,7 +112,7 @@ export function startRun(args: {
       // which `stepIdentity` reads as "identified by agent alone".
       ...(norm.name === undefined ? {} : { name: norm.name }),
       revision: 1,
-      status: isRoot ? 'awaiting_work' : 'pending',
+      status: !norm.enabled ? 'skipped' : isRoot ? 'awaiting_work' : 'pending',
       startedAt: isRoot ? now : undefined,
       artifactsProduced: [],
     };
@@ -307,13 +315,15 @@ function followersOf(pipeline: PipelineConfig, idx: number): number[] {
   const normalized = pipeline.steps.map(normalizeStep);
   const usesDag = normalized.some((s) => s.depends_on.length > 0);
   if (!usesDag) {
-    return idx + 1 < normalized.length ? [idx + 1] : [];
+    const nextIdx = nextEnabledIdx(pipeline, idx + 1);
+    return nextIdx >= 0 ? [nextIdx] : [];
   }
   const dagId = normalized[idx] ? (normalized[idx].name ?? normalized[idx].agent) : undefined;
   if (dagId === undefined) { return []; }
+  const effDeps = effectiveDependsOn(pipeline);
   const out: number[] = [];
   normalized.forEach((s, i) => {
-    if (s.depends_on.includes(dagId)) { out.push(i); }
+    if (s.enabled && effDeps[i].includes(dagId)) { out.push(i); }
   });
   return out;
 }
@@ -554,6 +564,15 @@ function autoRejectRoute(
   if (configured && !(cfgIdx >= 0 && cfgIdx < idx)) {
     return { note: `\`on_reject.send_back_to\` "${configured}" is not a step before this one — fix the pipeline.` };
   }
+  // A send-back into a disabled step would reopen a step the run is not
+  // running — and, on a DAG, leave everything after it waiting on a step
+  // that never finishes. Stop here and say so instead of stalling.
+  if (configured && !isStepEnabled(pipeline, cfgIdx)) {
+    return {
+      note: `\`on_reject.send_back_to\` "${configured}" is disabled in this pipeline — ` +
+        'enable it, or point the route at a step that runs.',
+    };
+  }
 
   if (verdict.sendBackTo === undefined) {
     return cfgIdx >= 0 ? { targetIdx: cfgIdx, source: 'config' } : {};
@@ -564,6 +583,9 @@ function autoRejectRoute(
   if (v === idx) { return {}; }
   if (v < 0 || v > idx) {
     return { note: `The validator asked to send this back to "${asked}", which is not a step before this one.` };
+  }
+  if (!isStepEnabled(pipeline, v)) {
+    return { note: `The validator asked to send this back to "${asked}", which is disabled in this pipeline.` };
   }
   return { targetIdx: v, source: v === cfgIdx ? 'verdict' : 'handoff' };
 }
@@ -708,6 +730,13 @@ export function rejectStep(args: {
   }
 
   if (isCascade) {
+    if (pipeline && !isStepEnabled(pipeline, targetIdx as number)) {
+      throw new PipelineRunError(
+        `Cannot send step "${step.agent}" back to step ${(targetIdx as number) + 1} ` +
+        `("${stepIdentity(state.steps[targetIdx as number])}") — it is disabled in pipeline "${pipeline.id}". ` +
+        'Enable it first, or send the work back to a step that runs.',
+      );
+    }
     const next = clone(state);
     sendBack(next, { idx, targetIdx: targetIdx as number, reason, at: now, pipeline });
     delete next.sendBacks; // a person acted — see RunState.sendBacks
@@ -930,6 +959,8 @@ export function requestStepUpdate(args: {
 
   for (const i of indices) {
     const s = next.steps[i];
+    // A disabled step in the range never ran and is not about to.
+    if (s.status === 'skipped') { continue; }
     if (i === stepIdx) {
       const newRev = s.revision + 1;
       next.steps[i] = {
@@ -979,7 +1010,7 @@ export function requestStepUpdate(args: {
  *
  * Excludes `idx` itself.
  */
-function descendantsOf(pipeline: PipelineConfig, idx: number): number[] {
+export function descendantsOf(pipeline: PipelineConfig, idx: number): number[] {
   const normalized = pipeline.steps.map(normalizeStep);
   const usesDag = normalized.some((s) => s.depends_on.length > 0);
   if (!usesDag) {
@@ -987,6 +1018,7 @@ function descendantsOf(pipeline: PipelineConfig, idx: number): number[] {
   }
   const idxByDagId = new Map<string, number>();
   normalized.forEach((s, i) => { idxByDagId.set(s.name ?? s.agent, i); });
+  const effDeps = effectiveDependsOn(pipeline);
   const found = new Set<number>([idx]);
   // Fixed point: a step joins the set once any of its deps is in it. O(n²)
   // at worst, which is nothing at the size real pipelines run to.
@@ -995,7 +1027,7 @@ function descendantsOf(pipeline: PipelineConfig, idx: number): number[] {
     changed = false;
     normalized.forEach((s, i) => {
       if (found.has(i)) { return; }
-      if (s.depends_on.some((dep) => {
+      if (effDeps[i].some((dep) => {
         const di = idxByDagId.get(dep);
         return di !== undefined && found.has(di);
       })) {
@@ -1020,11 +1052,12 @@ function ancestorsOf(pipeline: PipelineConfig, idx: number): number[] {
   }
   const idxByDagId = new Map<string, number>();
   normalized.forEach((s, i) => { idxByDagId.set(s.name ?? s.agent, i); });
+  const effDeps = effectiveDependsOn(pipeline);
   const found = new Set<number>();
   const queue = [idx];
   while (queue.length > 0) {
     const cur = queue.pop() as number;
-    for (const dep of normalized[cur]?.depends_on ?? []) {
+    for (const dep of effDeps[cur] ?? []) {
       const di = idxByDagId.get(dep);
       if (di === undefined || found.has(di) || di === idx) { continue; }
       found.add(di);
@@ -1223,13 +1256,15 @@ function advance(next: RunState, idx: number, pipeline: PipelineConfig, auto?: b
     }),
   };
 
+  skipDisabledSteps(next, pipeline);
   const normalized = pipeline.steps.map(normalizeStep);
   const usesDag = normalized.some((s) => s.depends_on.length > 0);
 
   if (!usesDag) {
-    // Legacy sequential pipeline: open the immediately-following step.
-    const nextIdx = idx + 1;
-    if (nextIdx >= pipeline.steps.length) {
+    // Legacy sequential pipeline: open the next step — the next *enabled*
+    // one, since a disabled step is passed over rather than waited on.
+    const nextIdx = nextEnabledIdx(pipeline, idx + 1);
+    if (nextIdx < 0) {
       next.status = 'completed';
       return next;
     }
@@ -1243,12 +1278,42 @@ function advance(next: RunState, idx: number, pipeline: PipelineConfig, auto?: b
     return next;
   }
 
-  // DAG: open every pending step whose deps are now all approved.
-  // Match deps against the step's `name` (phase id) when present and fall
-  // back to `agent` (persona id) — this lets multiple steps sharing a
-  // persona stay distinct in the dependency graph (e.g. `test-plan` ⤴
-  // from `plan`, `test-cases` ⤴ from `test-plan`, both backed by the
-  // `aidlc-qa` persona).
+  const opened = openReadyDagSteps(next, pipeline, finishedAt, false);
+
+  if (isRunComplete(next, pipeline)) {
+    next.status = 'completed';
+    return next;
+  }
+
+  refocusCursor(next, opened);
+  next.status = 'running';
+  return next;
+}
+
+/**
+ * Open every enabled `pending` step on a DAG whose effective dependencies are
+ * all approved, and return the indices opened.
+ *
+ * Match deps against the step's `name` (phase id) when present and fall back
+ * to `agent` (persona id) — this lets multiple steps sharing a persona stay
+ * distinct in the dependency graph (e.g. `test-plan` ⤴ from `plan`,
+ * `test-cases` ⤴ from `test-plan`, both backed by the `aidlc-qa` persona).
+ * A dependency on a disabled step reads as one on what that step waited on
+ * ({@link effectiveDependsOn}).
+ *
+ * `includeRoots` opens steps with nothing to wait on as well. An approval
+ * leaves them alone — they were opened at start, and one still pending was
+ * put back there on purpose — but a step that *became* a root because what it
+ * waited on was just disabled has no approval coming to open it.
+ */
+function openReadyDagSteps(
+  next: RunState,
+  pipeline: PipelineConfig,
+  at: string,
+  includeRoots: boolean,
+): number[] {
+  const normalized = pipeline.steps.map(normalizeStep);
+  const effDeps = effectiveDependsOn(pipeline);
   const dagId = (i: number): string => normalized[i].name ?? normalized[i].agent;
   const approvedDagIds = new Set(
     next.steps
@@ -1258,26 +1323,86 @@ function advance(next: RunState, idx: number, pipeline: PipelineConfig, auto?: b
   const opened: number[] = [];
   for (let i = 0; i < normalized.length; i++) {
     const sStep = next.steps[i];
-    if (sStep.status !== 'pending') { continue; }
-    const deps = normalized[i].depends_on;
-    if (deps.length === 0) { continue; }
+    if (!sStep || sStep.status !== 'pending' || !normalized[i].enabled) { continue; }
+    const deps = effDeps[i];
+    if (deps.length === 0 && !includeRoots) { continue; }
     const ready = deps.every((dep) => approvedDagIds.has(dep));
     if (!ready) { continue; }
     next.steps[i] = {
       ...sStep,
       status: 'awaiting_work',
-      startedAt: finishedAt,
+      startedAt: at,
     };
     opened.push(i);
+  }
+  return opened;
+}
+
+/**
+ * Bring a run's records in line with which steps the pipeline has enabled,
+ * in place: a `pending` step that is disabled becomes `skipped`, and a
+ * `skipped` step that is enabled again goes back to `pending`.
+ *
+ * Only those two statuses move. A step that has started is a record of work,
+ * and disabling it under the run does not unwrite that — the toggle refuses
+ * it ({@link planSetEpicStepEnabled}), and a hand edit leaves it as it was.
+ */
+export function skipDisabledSteps(next: RunState, pipeline: PipelineConfig): void {
+  next.steps.forEach((s, i) => {
+    const enabled = isStepEnabled(pipeline, i);
+    if (!enabled && s.status === 'pending') {
+      next.steps[i] = { ...s, status: 'skipped', startedAt: undefined, finishedAt: undefined };
+    } else if (enabled && s.status === 'skipped') {
+      next.steps[i] = { ...s, status: 'pending', startedAt: undefined, finishedAt: undefined };
+    }
+  });
+}
+
+/**
+ * Settle a run after the pipeline's enabled steps changed under it: sync the
+ * `skipped` records, open whatever can now start, point the cursor at it and
+ * re-judge completion.
+ *
+ * What can now start is what {@link advance} would have opened had the
+ * pipeline been this way all along — on a DAG, every enabled step whose
+ * effective dependencies are approved; on a sequential pipeline, the first
+ * enabled step that is not done, once every enabled step before it is.
+ */
+export function openReadySteps(state: RunState, pipeline: PipelineConfig): RunState {
+  const next = clone(state);
+  const now = new Date().toISOString();
+  skipDisabledSteps(next, pipeline);
+  const usesDag = pipeline.steps.some((s) => normalizeStep(s).depends_on.length > 0);
+
+  let opened: number[] = [];
+  if (usesDag) {
+    opened = openReadyDagSteps(next, pipeline, now, true);
+  } else {
+    const settled = (i: number): boolean => {
+      const st = next.steps[i]?.status;
+      return st === 'approved' || st === 'skipped' || (st === 'rejected' && isStepOptional(pipeline, i));
+    };
+    const first = next.steps.findIndex((_, i) => !settled(i));
+    if (first >= 0 && next.steps[first].status === 'pending' && isStepEnabled(pipeline, first)) {
+      next.steps[first] = { ...next.steps[first], status: 'awaiting_work', startedAt: now };
+      opened = [first];
+    }
   }
 
   if (isRunComplete(next, pipeline)) {
     next.status = 'completed';
-    return next;
+  } else {
+    next.status = 'running';
+    // Unlike an approval, this can close the step the cursor is on — a step
+    // opened behind one just re-enabled goes back to `pending` — so anything
+    // that is not open work moves it, not only a settled step.
+    const cur = next.steps[next.currentStepIdx];
+    const target = opened.length > 0
+      ? Math.min(...opened)
+      : next.steps.findIndex((s) => isActiveStatus(s.status));
+    if ((!cur || !isActiveStatus(cur.status)) && target >= 0) { next.currentStepIdx = target; }
   }
-
-  refocusCursor(next, opened);
-  next.status = 'running';
+  next.updatedAt = now;
   return next;
 }
 
@@ -1298,7 +1423,7 @@ function advance(next: RunState, idx: number, pipeline: PipelineConfig, auto?: b
  */
 function refocusCursor(next: RunState, opened: number[]): void {
   const cur = next.steps[next.currentStepIdx];
-  if (cur && cur.status !== 'approved' && cur.status !== 'rejected') { return; }
+  if (cur && cur.status !== 'approved' && cur.status !== 'rejected' && cur.status !== 'skipped') { return; }
   const target = opened.length > 0
     ? Math.min(...opened)
     : next.steps.findIndex((s) => isActiveStatus(s.status));
@@ -1326,9 +1451,10 @@ function settleOptionalRejection(next: RunState, idx: number, pipeline: Pipeline
   const normalized = pipeline.steps.map(normalizeStep);
   const usesDag = normalized.some((s) => s.depends_on.length > 0);
   if (!usesDag) {
-    const follower = next.steps[idx + 1];
+    const followerIdx = nextEnabledIdx(pipeline, idx + 1);
+    const follower = next.steps[followerIdx];
     if (follower && follower.status === 'pending') {
-      next.steps[idx + 1] = {
+      next.steps[followerIdx] = {
         ...follower,
         status: 'awaiting_work',
         startedAt: new Date().toISOString(),
@@ -1381,6 +1507,8 @@ function sendBack(next: RunState, args: {
 
   for (const i of resetIndices) {
     const s = next.steps[i];
+    // A disabled step between the two never ran and is not about to.
+    if (s.status === 'skipped') { continue; }
     if (i === targetIdx) {
       // Target step: bump revision + reset to awaiting_work. Record the
       // cascade-rerun on its own history.
@@ -1467,6 +1595,7 @@ function collectDagResetSet(
   // carry a separate name.
   const idxByDagId = new Map<string, number>();
   normalized.forEach((s, i) => { idxByDagId.set(s.name ?? s.agent, i); });
+  const effDeps = effectiveDependsOn(pipeline);
 
   const toReset = new Set<number>([targetIdx, fromIdx]);
   // Iteratively expand: a step is in the reset set if any of its deps is in
@@ -1477,9 +1606,11 @@ function collectDagResetSet(
     changed = false;
     normalized.forEach((s, i) => {
       if (toReset.has(i)) { return; }
-      // Only consider steps that actually ran; pending ones don't need reset.
-      if (state.steps[i]?.status === 'pending') { return; }
-      const depsHit = s.depends_on.some((dep) => {
+      // Only consider steps that actually ran; pending ones don't need reset,
+      // and skipped ones never run.
+      const status = state.steps[i]?.status;
+      if (status === 'pending' || status === 'skipped') { return; }
+      const depsHit = effDeps[i].some((dep) => {
         const di = idxByDagId.get(dep);
         return di !== undefined && toReset.has(di);
       });

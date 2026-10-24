@@ -28,7 +28,8 @@ export type StepStatus =
   | 'awaiting_auto_review'   // produces validated, auto-reviewer pending (auto_review=true)
   | 'awaiting_review'        // auto-review passed (or skipped), paused for human approve/reject
   | 'approved'               // human approved (or auto-approved when human_review=false)
-  | 'rejected';              // human or auto-reviewer rejected; can rerun
+  | 'rejected'               // human or auto-reviewer rejected; can rerun
+  | 'skipped';               // `enabled: false` in the pipeline — never opens, satisfies what depends on it
 
 export type RunStatus =
   | 'running'           // a step is awaiting_work or awaiting_review

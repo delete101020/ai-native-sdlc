@@ -13,8 +13,9 @@ procedure exactly as `/aidlc <epic> unit-test` would:
 2. In `.aidlc/workspace.yaml`, find that pipeline and its `unit-test` step
    (`name`/`agent` === `unit-test`). Use that step's `agent` + `skills` —
    never assume; two pipelines can wire `unit-test` differently.
-3. **If the pipeline has no `unit-test` step**, tell the user this epic's
-   pipeline (`<pipelineId>`) has no `unit-test` phase, suggest
+3. **If the pipeline has no `unit-test` step, or `state.json` lists it as
+   `skipped`** (disabled for this epic — the same as not having it), tell
+   the user this epic's pipeline (`<pipelineId>`) has no `unit-test` phase, suggest
    `/aidlc <epic>` to run the next eligible phase, and stop.
 4. Otherwise load the persona (`.claude/agents/<agent>.md`) + skill(s)
    (`.claude/skills/<skill>.md`), adopt them (unless the active standard is

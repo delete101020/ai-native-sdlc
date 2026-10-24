@@ -179,6 +179,9 @@ import {
   discoverAssets,
   RunStateStore,
   describeGateEffect,
+  planSetEpicStepEnabled,
+  openReadySteps,
+  EpicStepEditError,
   type EpicStepGateChange,
   startRun,
   targetPath,
@@ -277,6 +280,7 @@ import type {
   DiscoveredAsset,
   PipelineConfig,
   RecipeConfig,
+  RunState,
   StepStatus,
   AutoReviewVerdict,
   StepHistoryEntry,
@@ -490,7 +494,7 @@ interface EpicStepDetailFull {
   /** Step's artifact filename (basename of `produces[0]`). Empty when the
    *  step's output is a non-file artifact (branch / tag). */
   artifact?: string;
-  status: 'pending' | 'in_progress' | 'done' | 'failed';
+  status: 'pending' | 'in_progress' | 'done' | 'failed' | 'skipped';
   runStatus: StepStatus | null;
   isCurrentRunStep: boolean;
   rejectReason?: string;
@@ -680,7 +684,7 @@ const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
 // ── State builders ────────────────────────────────────────────────────────
 
 /** Identity of a recipe row — an id alone is not unique across pipelines. */
-const recipeKey = (id: string, from: string): string => `${id} ${from}`;
+const recipeKey = (id: string, from: string): string => `${id}\u0000${from}`;
 
 /**
  * Every recipe AIDLC ships, keyed by (id, source pipeline). A recipe the user
@@ -1182,6 +1186,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
       id: s.name ?? s.agent,
       dependsOn: s.dependsOn,
       done: s.status === 'done',
+      skipped: s.status === 'skipped',
     })),
   );
   const progress = weighted.percent;
@@ -3710,6 +3715,30 @@ export class WorkspaceWebview {
       if (!result) { return; }
       draft = result;
     }
+    // `enabled` is not a gate: a disabled step is `skipped` in the run, and
+    // what waited on it moves on without it. So every epic running this
+    // pipeline has its run settled too — planned before anything is written,
+    // so a refusal (the step already did work, or something after it has)
+    // leaves the pipeline as it was.
+    const runEdits: RunState[] = [];
+    if (draft.enabled !== norm.enabled) {
+      const owners = listEpics(root, doc).filter((e) => e.pipeline === pipelineId && e.artifactsOnly !== true);
+      for (const owner of owners) {
+        const run = RunStateStore.load(root, owner.id);
+        if (!run || run.pipelineId !== pipelineId) { continue; }
+        try {
+          const plan = planSetEpicStepEnabled({
+            runState: run, pipeline: pipeline as unknown as PipelineConfig, step: String(idx), enabled: draft.enabled,
+          });
+          if (plan.changed) { runEdits.push(plan.runState); }
+        } catch (err) {
+          if (!(err instanceof EpicStepEditError)) { throw err; }
+          void vscode.window.showWarningMessage(`Step #${idx + 1} of \`${pipelineId}\` not saved — ${owner.id}: ${err.message}`);
+          return;
+        }
+      }
+    }
+
     // Set when the edit would leave an `on_reject` pointing nowhere valid.
     let refused = null as string | null;
     this.mutateYaml((d) => {
@@ -3804,6 +3833,18 @@ export class WorkspaceWebview {
     if (refused) {
       void vscode.window.showWarningMessage(`Step #${idx + 1} of \`${pipelineId}\` not saved: ${refused}`);
       return;
+    }
+
+    if (runEdits.length > 0) {
+      // Settled once more against the pipeline as saved: the same modal save
+      // can move `depends_on` too, and the plan only knew about `enabled`.
+      const saved = readYaml(root);
+      const savedPipeline = saved?.pipelines.find((x) => x.id === pipelineId) as PipelineConfig | undefined;
+      for (const run of runEdits) {
+        const next = savedPipeline ? openReadySteps(run, savedPipeline) : run;
+        RunStateStore.save(root, next);
+        mirrorRunStateToEpic(root, next, saved);
+      }
     }
 
     this.reportGateEffect(root, pipelineId, idx, norm, draft);

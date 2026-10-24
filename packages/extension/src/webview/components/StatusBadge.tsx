@@ -2,6 +2,7 @@ import {
   Circle,
   CircleCheck,
   CircleDot,
+  CircleSlash,
   CircleX,
   Eye,
   Hourglass,
@@ -46,6 +47,11 @@ const statusConfig: Record<UiStatus, { label: string; className: string; icon: L
     label: 'AWAITING UPDATE',
     className: 'bg-warning/15 text-warning border-warning/30',
     icon: RefreshCw,
+  },
+  skipped: {
+    label: 'SKIPPED',
+    className: 'bg-transparent text-muted-foreground border-dashed border-border line-through',
+    icon: CircleSlash,
   },
 };
 

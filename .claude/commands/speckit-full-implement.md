@@ -87,6 +87,7 @@ The user invoked you with epic id `$ARGUMENTS`.
 1. Read `docs/epics/$ARGUMENTS/state.json` to understand the current run state.
    - If the step has `feedback` from a prior rejection, address it explicitly in this revision.
    - Check `history` entries for rejection reasons and context.
+   - A step whose `status` is `skipped` is disabled for this epic — treat it as not part of the pipeline. If that is this step, say so and stop.
 2. Read `docs/epics/$ARGUMENTS/inputs.json` for capability inputs (Jira ticket, Figma URL, files glob, GitHub repo, etc.).
 3. Complete the work (feature/<EPIC>-<slug>), then write a summary to `docs/epics/$ARGUMENTS/artifacts/IMPLEMENT-SUMMARY.md` so the AIDLC validator has a file to check.
 4. When finished, summarize what you produced and tell the user to click **"Mark step done"** in the AIDLC panel to advance the pipeline.

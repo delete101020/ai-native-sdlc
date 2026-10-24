@@ -14,11 +14,15 @@ import type { YamlDocument } from './yamlIO';
 
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
 
+/** A step's status: the epic statuses, plus `skipped` for a disabled step. */
+export type EpicStepStatus = EpicStatus | 'skipped';
+
 export interface EpicStepDetail {
   agent: string;
   /** The step's `name`, when its pipeline entry has one. */
   name?: string;
-  status: EpicStatus;
+  /** `skipped` — the step is disabled, and reads as not part of the pipeline. */
+  status: EpicStepStatus;
   startedAt: string | null;
   finishedAt: string | null;
   /**
@@ -54,6 +58,10 @@ function asStatus(v: unknown): EpicStatus {
   return STATUS_VALUES.includes(v as EpicStatus) ? (v as EpicStatus) : 'pending';
 }
 
+function asStepStatus(v: unknown): EpicStepStatus {
+  return v === 'skipped' ? 'skipped' : asStatus(v);
+}
+
 /** Resolve epic root directory. Honours workspace.yaml `state.root`, falls back to `docs/epics`. */
 export function epicsRoot(workspaceRoot: string, doc: YamlDocument | null): string {
   const stateRoot = doc?.state && typeof (doc.state as Record<string, unknown>).root === 'string'
@@ -70,7 +78,7 @@ export function epicsRoot(workspaceRoot: string, doc: YamlDocument | null): stri
 function pipelineStepsOf(
   doc: YamlDocument | null,
   pipelineId: string,
-): Array<{ name?: string; depends_on: string[] }> {
+): Array<{ name?: string; depends_on: string[]; enabled: boolean }> {
   const pipelines = Array.isArray(doc?.pipelines) ? (doc.pipelines as unknown[]) : [];
   const match = pipelines.find(
     (p): p is Record<string, unknown> =>
@@ -80,9 +88,9 @@ function pipelineStepsOf(
   return steps.map((raw) => {
     try {
       const n = normalizeStep(raw as never);
-      return { name: n.name, depends_on: n.depends_on };
+      return { name: n.name, depends_on: n.depends_on, enabled: n.enabled };
     } catch {
-      return { depends_on: [] };
+      return { depends_on: [], enabled: true };
     }
   });
 }
@@ -120,7 +128,11 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       return {
         agent: typeof s.agent === 'string' ? s.agent : '',
         name: typeof s.name === 'string' ? s.name : cfg?.name,
-        status: asStatus(s.status),
+        // Disabled in the pipeline but still `pending` in an older run: the
+        // runner will never open it, so it reads as skipped already.
+        status: cfg && !cfg.enabled && (s.status === 'pending' || s.status === undefined)
+          ? 'skipped'
+          : asStepStatus(s.status),
         startedAt:  typeof s.startedAt  === 'string' ? s.startedAt  : null,
         finishedAt: typeof s.finishedAt === 'string' ? s.finishedAt : null,
         dependsOn: cfg?.depends_on ?? [],
@@ -185,6 +197,7 @@ export function epicProgress(epic: Pick<EpicSummary, 'stepDetails'>): ProgressWe
       id: s.name ?? s.agent,
       dependsOn: s.dependsOn,
       done: s.status === 'done',
+      skipped: s.status === 'skipped',
     })),
   );
 }
