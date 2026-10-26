@@ -828,15 +828,17 @@ async function execStep(
       });
       return 'failed';
     }
-    if (read.status === 'continue') {
-      if (codeUnchanged) {
-        hooks.onStalled?.({
-          stepIdx, agent: agentId, label: stepLabel(stepRec), revision: stepRec.revision, runId,
-          reason: `Batch ${batchNo} of "${agentId}" asked for another session but changed no code — the working ` +
-            'tree is what it was before it ran (its report aside). Stopping rather than start the same batch again.',
-        });
-        return 'stalled';
-      }
+    if (read.status === 'continue' && codeUnchanged) {
+      hooks.onStalled?.({
+        stepIdx, agent: agentId, label: stepLabel(stepRec), revision: stepRec.revision, runId,
+        reason: `Batch ${batchNo} of "${agentId}" asked for another session but changed no code — the working ` +
+          'tree is what it was before it ran (its report aside). Stopping rather than start the same batch again.',
+      });
+      return 'stalled';
+    }
+    // `blocked` is a batch too: its session was paid for, so it is recorded
+    // like `continue` and counts toward the budget.
+    if (read.status === 'continue' || read.status === 'blocked') {
       const fresh = RunStateStore.load(root, runId);
       const rec = fresh?.steps[stepIdx];
       if (!fresh || !rec) {
@@ -851,6 +853,17 @@ async function execStep(
         ...(cost !== undefined ? { costUsd: cost } : {}),
       }];
       persist(root, fresh);
+      if (read.status === 'blocked') {
+        // The session stopped on purpose to ask a person — not a failure. The
+        // step stays awaiting work; answer, then run again.
+        hooks.onStalled?.({
+          stepIdx, agent: agentId, label: stepLabel(stepRec), revision: stepRec.revision, runId,
+          reason: `Batch ${batchNo} of "${agentId}" is waiting on an answer` +
+            (read.question ? `: ${read.question}` : ` — see ${report}.`) +
+            ' Answer it, then run again.',
+        });
+        return 'stalled';
+      }
       hooks.onBatchDone?.({
         stepIdx, agent: agentId, label: stepLabel(stepRec), revision: rec.revision, batch: batchNo,
         costUsd: cost, costEstimated: rec.costEstimated, runId,

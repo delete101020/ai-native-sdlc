@@ -4,7 +4,8 @@
  * A step with `batches: true` runs as a series of fresh agent sessions, each
  * doing one slice of the plan. The session says which it was in its report:
  * the last `Status:` line of the step's first `produces` file reads
- * `Status: continue` or `Status: done`. The loop reads nothing else — not the
+ * `Status: continue` or `Status: done` — or `Status: blocked — <question>`
+ * when the session stopped to ask a person. The loop reads nothing else — not the
  * plan, not the progress table — so how the work is sliced stays the skill's
  * business.
  *
@@ -17,7 +18,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export type BatchStatus = 'continue' | 'done';
+export type BatchStatus = 'continue' | 'done' | 'blocked';
 
 // `Status: done`, `**Status:** continue`, `## Status: **done**`, `> Status: done`
 const LINE = /^[\s>#*_-]*status[\s*_]*:[\s*_`]*([a-z]+)[*_`]*(.*)$/i;
@@ -25,7 +26,9 @@ const LINE = /^[\s>#*_-]*status[\s*_]*:[\s*_`]*([a-z]+)[*_`]*(.*)$/i;
 const TAIL = /^\s*(?:$|[—–-]\s|[(.,;])/;
 
 /** The status `text` ends on, or why it cannot be read. */
-export function readBatchStatus(text: string, file = 'the report'): { status: BatchStatus } | { error: string } {
+export function readBatchStatus(
+  text: string, file = 'the report',
+): { status: BatchStatus; question?: string } | { error: string } {
   let last: { word: string; tail: string } | null = null;
   for (const line of text.split(/\r?\n/)) {
     const m = LINE.exec(line);
@@ -37,6 +40,10 @@ export function readBatchStatus(text: string, file = 'the report'): { status: Ba
   if ((last.word === 'continue' || last.word === 'done') && TAIL.test(last.tail)) {
     return { status: last.word };
   }
+  if (last.word === 'blocked' && TAIL.test(last.tail)) {
+    const question = last.tail.replace(/^\s*[—–-]?\s*/, '').trim();
+    return question ? { status: 'blocked', question } : { status: 'blocked' };
+  }
   return {
     error: `The last Status line in ${file} reads "${last.word}${last.tail}", not \`Status: continue\` or ` +
       '`Status: done`.',
@@ -44,7 +51,9 @@ export function readBatchStatus(text: string, file = 'the report'): { status: Ba
 }
 
 /** {@link readBatchStatus} on a file under `root`. */
-export function readBatchStatusFile(root: string, rel: string): { status: BatchStatus } | { error: string } {
+export function readBatchStatusFile(
+  root: string, rel: string,
+): { status: BatchStatus; question?: string } | { error: string } {
   const abs = path.isAbsolute(rel) ? rel : path.join(root, rel);
   let text: string;
   try {

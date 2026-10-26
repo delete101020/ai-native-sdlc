@@ -31,6 +31,12 @@ describe('readBatchStatus', () => {
     expect(readBatchStatus('> status: DONE.\n')).toEqual({ status: 'done' });
   });
 
+  it('reads a blocked line and the question after it', () => {
+    expect(readBatchStatus('Status: blocked — T08: bỏ phần đó (A) hay (B)?\n'))
+      .toEqual({ status: 'blocked', question: 'T08: bỏ phần đó (A) hay (B)?' });
+    expect(readBatchStatus('**Status:** blocked\n')).toEqual({ status: 'blocked' });
+  });
+
   it('fails closed on a missing line, a placeholder, or the template header', () => {
     expect(readBatchStatus('# Report\n', 'implement.md')).toEqual({
       error: 'implement.md has no `Status: continue` or `Status: done` line.',
@@ -170,6 +176,23 @@ describe('a batched step in the exec loop', () => {
       `${REPORT} reads "draft", not \`Status: continue\` or \`Status: done\`. Add the line, then run exec again.`,
     );
     expect(RunStateStore.load(root, 'R-1')!.steps[0].status).toBe('awaiting_work');
+  });
+
+  it('stops on blocked with the question, keeping its cost, and carries on after', async () => {
+    const root = workspace(['continue', 'blocked — pick A or B?', 'done']);
+    let stalled = '';
+    expect(await runExecLoop(root, 'R-1', {}, { onStalled: (e) => { stalled = e.reason; } }))
+      .toEqual({ kind: 'stalled' });
+    expect(stalled).toBe('Batch 2 of "dev" is waiting on an answer: pick A or B? Answer it, then run again.');
+    let step = RunStateStore.load(root, 'R-1')!.steps[0];
+    expect(step.status).toBe('awaiting_work');
+    expect(step.costUsd).toBeCloseTo(0.2);
+    expect(step.history!.filter((h) => h.kind === 'batch')).toMatchObject([{ batch: 1 }, { batch: 2, costUsd: 0.1 }]);
+
+    expect(await runExecLoop(root, 'R-1', {}, {})).toEqual({ kind: 'completed' });
+    expect(messages(root)[2]).toContain('this is batch 3 of revision 1');
+    step = RunStateStore.load(root, 'R-1')!.steps[0];
+    expect(step.costUsd).toBeCloseTo(0.3);
   });
 
   it('stops at max_batches, and a second exec allows as many more', async () => {
