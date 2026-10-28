@@ -22,6 +22,7 @@ import {
   planEpicPipelineExtraction,
   epicPipelineReport,
   epicPipelinePath,
+  markEpicPipelineAutopilot,
 } from '../src';
 
 let root: string;
@@ -230,5 +231,18 @@ describe('writeEpicPipelines', () => {
 
     const onDisk = yaml.load(fs.readFileSync(file, 'utf8')) as { id: string };
     expect(onDisk.id).toBe('EPIC-001');
+  });
+});
+
+describe('markEpicPipelineAutopilot', () => {
+  it('turns autopilot on in the epic\'s own file, and refuses a pipeline it does not own', () => {
+    writeEpic('EPIC-001', { 'pipeline.yaml': yaml.dump({ id: 'EPIC-001', steps: [STEP] }) });
+
+    expect(markEpicPipelineAutopilot(root, null, 'EPIC-001', 'EPIC-001')).toBe(true);
+    const file = epicPipelinePath(root, null, 'EPIC-001');
+    expect((yaml.load(fs.readFileSync(file, 'utf8')) as { autopilot?: boolean }).autopilot).toBe(true);
+
+    expect(markEpicPipelineAutopilot(root, null, 'EPIC-001', 'cr-squad')).toBe(false);
+    expect(markEpicPipelineAutopilot(root, null, 'EPIC-404', 'EPIC-404')).toBe(false);
   });
 });

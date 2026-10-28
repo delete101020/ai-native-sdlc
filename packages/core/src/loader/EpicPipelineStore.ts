@@ -330,3 +330,23 @@ export function planEpicPipelineExtraction(
   }
   return out;
 }
+
+/**
+ * Turn on `autopilot` in the pipeline `epicId` owns, so Run to completion
+ * tells its agents nobody is watching. False when the epic does not own
+ * `pipelineId` — a shared pipeline is team config, edited in `workspace.yaml`.
+ */
+export function markEpicPipelineAutopilot(
+  workspaceRoot: string,
+  doc: { state?: unknown } | null,
+  epicId: string,
+  pipelineId: string,
+): boolean {
+  const file = epicPipelinePath(workspaceRoot, doc, epicId);
+  if (!fs.existsSync(file)) { return false; }
+  const pipeline = yaml.load(fs.readFileSync(file, 'utf8')) as Record<string, unknown> | null;
+  if (!pipeline || (pipeline.id ?? epicId) !== pipelineId) { return false; }
+  pipeline.autopilot = true;
+  writeEpicPipelines([{ epicId, pipelineId, file, pipeline }]);
+  return true;
+}

@@ -273,6 +273,7 @@ export {
   mergeEpicPipelines,
   splitEpicPipelines,
   writeEpicPipelines,
+  markEpicPipelineAutopilot,
   stageEpicPipeline,
   unstageEpicPipeline,
   epicOwningPipeline,

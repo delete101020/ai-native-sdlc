@@ -124,6 +124,12 @@ reads it: input it cannot evaluate, which it allows when someone is watching,
 is blocked. The gate is a Claude Code hook, so Codex and Copilot steps run
 without it; `doctor` warns about each one.
 
+A pipeline without the flag still runs under **Run to completion**, but its
+agents are not told nobody is watching, so a step that would ask a question
+stops and fails. The panel asks first: **Make it autopilot** adds the flag to
+the epic's own `pipeline.yaml` (an epic assembled before its recipe's pipeline
+gained it keeps the old copy), **Run anyway** goes on without it.
+
 ### A step only a person runs — `attended: true`
 
 A step that has to ask someone (a close-out, a sign-off interview) gets

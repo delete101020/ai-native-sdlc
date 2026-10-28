@@ -14,7 +14,9 @@
  */
 
 import * as vscode from 'vscode';
-import { runExecLoop, type ExecOutcome } from '@aidlc/core';
+import {
+  runExecLoop, RunStateStore, WorkspaceLoader, markEpicPipelineAutopilot, type ExecOutcome,
+} from '@aidlc/core';
 import { agentActivity } from './agentActivity';
 import { ExecRunProgress, stepProgressMessage } from './execRunProgress';
 
@@ -79,6 +81,7 @@ export async function execRunToCompletion(
     void vscode.window.showWarningMessage(`${runId} is already running to completion.`);
     return;
   }
+  if (!opts.allowDirty && !(await confirmAutopilot(root, runId))) { return; }
   ensureRunnerPath();
   inFlight.add(runId);
 
@@ -232,6 +235,51 @@ export async function execRunToCompletion(
     return;
   }
   reportOutcome(runId, outcome, failure);
+}
+
+/**
+ * A pipeline without `autopilot: true` still runs here unattended, but its
+ * agents are not told so (no `AIDLC_AUTOPILOT`): a skill with an interactive
+ * branch stops to ask a question nobody will answer, and the step fails on
+ * an unchanged artifact. Typically an epic assembled before its recipe's
+ * pipeline became autopilot. False = the user cancelled.
+ */
+async function confirmAutopilot(root: string, runId: string): Promise<boolean> {
+  let ws;
+  let pipelineId: string;
+  try {
+    const state = RunStateStore.load(root, runId);
+    if (!state) { return true; } // runExecLoop reports it.
+    pipelineId = state.pipelineId;
+    ws = WorkspaceLoader.load(root);
+    if (ws.config.pipelines.find((p) => p.id === pipelineId)?.autopilot) { return true; }
+  } catch {
+    return true; // runExecLoop reports a broken workspace better than we can.
+  }
+  const make = 'Make it autopilot';
+  const anyway = 'Run anyway';
+  const pick = await vscode.window.showWarningMessage(
+    `Pipeline "${pipelineId}" is not marked \`autopilot: true\`.`,
+    {
+      modal: true,
+      detail: 'Run to completion runs every step with nobody watching, but its agents will not know: '
+        + 'AIDLC_AUTOPILOT is not set, so a step that asks a question stops there and fails.\n\n'
+        + 'Make it autopilot adds `autopilot: true` to this epic\'s pipeline.yaml. The run then '
+        + 'checks it is safe to leave first (its own branch, a clean working tree).',
+    },
+    make,
+    anyway,
+  );
+  if (pick === anyway) { return true; }
+  if (pick !== make) { return false; }
+  if (!markEpicPipelineAutopilot(root, ws.config, runId, pipelineId)) {
+    void vscode.window.showErrorMessage(
+      `"${pipelineId}" is a shared pipeline, not this epic's own. Add \`autopilot: true\` to it in .aidlc/workspace.yaml.`,
+    );
+    return false;
+  }
+  log(`⚙ ${runId}: set autopilot: true on pipeline "${pipelineId}"`);
+  return true;
 }
 
 /**
