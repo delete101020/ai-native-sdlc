@@ -1,5 +1,29 @@
 # Changelog
 
+## 4.0.50
+
+**Run to completion** no longer runs a pipeline whose agents don't know
+they're alone. Without `autopilot: true` the agents never got
+`AIDLC_AUTOPILOT=1`, so a step that would ask a question stopped there and
+failed on an unchanged artifact. This happened with epics created before
+their recipe's pipeline gained the flag, because each epic keeps its own copy
+in `pipeline.yaml`. A batched step that ends on `Status: blocked` now stops to
+ask instead of failing.
+
+### Added
+
+- Before it starts, Run to completion checks the run's pipeline for
+  `autopilot: true`. If it's missing, a dialog offers **Make it autopilot**
+  (adds the flag to the epic's own `pipeline.yaml`, so the safety checks
+  apply) or **Run anyway**.
+
+### Changed
+
+- A batch that writes `Status: blocked — <question>` stops the run as stalled
+  with the question in the reason, rather than failing. The step stays
+  awaiting work: answer, then run again. The session counts as a batch, for
+  the budget and the batch count.
+
 ## 4.0.49
 
 **Run to completion** says more while it runs, and gets out of the way. The

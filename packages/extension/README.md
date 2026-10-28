@@ -88,6 +88,8 @@ six sample epics) into the open folder.
   `loop 5 · step 4/7 · cr-review · rev 3 (rejected 2×)`: steps started, which step of how many, and on a
   rerun its revision. A status bar item follows the run — close the notification and reopen it from
   there, open the log, or stop. `aidlcNative.autopilot.progressLocation: statusBar` skips the notification.
+  On a pipeline without `autopilot: true` it asks first — **Make it autopilot** sets the flag in the
+  epic's `pipeline.yaml` so its agents know nobody is watching, **Run anyway** goes on without it.
 - **Autopilot** — once a person has approved intent and build-plan, a run carries on to review
   unattended (`autopilot: true` on a pipeline, the `native-autopilot` recipe, or the Builder's loop
   settings). The reviewer's findings become the next revision's feedback (`on_reject.send_back_to`,

@@ -503,6 +503,10 @@ the feedback, up to `max_send_backs` (default 3); the run stops when a
 send-back changes no code, or before a step that needs a person. `batches: true`
 runs a long step as a series of fresh sessions, and `timeout_minutes` caps any
 step. Steps approved this way, or by `--auto-approve`, are marked as such.
+A batch that writes `Status: blocked — <question>` stops the run (exit 2) with
+the question in the reason; answer it and run again. Its agents get
+`AIDLC_AUTOPILOT=1` only on an `autopilot: true` pipeline; without it a skill
+that asks a question stops there.
 
 An `autopilot: true` pipeline refuses to start on uncommitted changes, with
 one exception: when a step stopped short (a non-zero exit such as the account
