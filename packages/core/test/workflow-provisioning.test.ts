@@ -149,6 +149,13 @@ describe('provisionDeclaredWorkflows', () => {
     const again = provisionDeclaredWorkflows(templatesRoot, root, [NATIVE.pipelineId]);
     expect(again.commands).toEqual([]);
     expect(again.templates).toEqual([]);
+    expect(again.approvalGate).toEqual([]);
+  });
+
+  it('drops the approval-gate script for a workflow that can run on autopilot', () => {
+    // native-autopilot will not start without it, and nothing else writes it.
+    provisionDeclaredWorkflows(templatesRoot, root, [NATIVE.pipelineId]);
+    expect(fs.existsSync(path.join(root, '.claude', 'hooks', 'aidlc-approval-gate.py'))).toBe(true);
   });
 });
 

@@ -1,7 +1,8 @@
 /**
  * Provisioning the *project* files a built-in workflow needs: the slash
- * commands under `.claude/commands/` and the artifact templates under
- * `.aidlc/aidlc-templates/<pipelineId>/`.
+ * commands under `.claude/commands/`, the artifact templates under
+ * `.aidlc/aidlc-templates/<pipelineId>/` and, for a workflow that can run on
+ * autopilot, the approval gate.
  *
  * These used to live only in the extension — `writeBuiltinClaudeCommands` in
  * `presetWizards.ts` and `ensureWorkflowTemplates` on the workspace webview —
@@ -21,6 +22,7 @@ import * as path from 'path';
 
 import { commandBodyIsStale } from './commandBodyFreshness';
 import { WORKSPACE_DIR } from '../loader/WorkspaceLoader';
+import { installApprovalGate } from '../runs/approvalGateInstall';
 import {
   type ArtifactTemplateOptions,
   type BuiltinWorkflow,
@@ -57,6 +59,8 @@ export interface ProvisionResult {
   commands: string[];
   /** Absolute paths of artifact templates written this call. */
   templates: string[];
+  /** Approval-gate files written this call: the hook script and/or the settings file registering it. */
+  approvalGate: string[];
 }
 
 /**
@@ -136,7 +140,11 @@ export function writeWorkflowArtifactTemplates(
   return written;
 }
 
-/** Both halves for one workflow. */
+/**
+ * Everything one workflow needs. A workflow with an `autopilot` recipe also
+ * gets the approval gate: an autopilot run refuses to start without it, and
+ * its registration lives in a per-clone settings file nothing else creates.
+ */
 export function provisionWorkflowFiles(
   templatesRoot: string,
   root: string,
@@ -144,9 +152,13 @@ export function provisionWorkflowFiles(
   preset: WorkspacePreset,
   opts: ProvisionOptions = {},
 ): ProvisionResult {
+  const gate = (workflow.recipes ?? []).some((r) => r.autopilot)
+    ? installApprovalGate(templatesRoot, root)
+    : {};
   return {
     commands: writeWorkflowCommands(root, workflow, preset, opts),
     templates: writeWorkflowArtifactTemplates(templatesRoot, root, workflow, opts),
+    approvalGate: [gate.script, gate.registered].filter((f): f is string => !!f),
   };
 }
 
@@ -166,7 +178,7 @@ export function provisionDeclaredWorkflows(
   pipelineIds: readonly string[],
   opts: ProvisionOptions = {},
 ): ProvisionResult {
-  const result: ProvisionResult = { commands: [], templates: [] };
+  const result: ProvisionResult = { commands: [], templates: [], approvalGate: [] };
   const seen = new Set<string>();
   for (const id of pipelineIds) {
     const workflow = getBuiltinWorkflowByPipelineId(id);
@@ -181,6 +193,7 @@ export function provisionDeclaredWorkflows(
     );
     result.commands.push(...one.commands);
     result.templates.push(...one.templates);
+    result.approvalGate.push(...one.approvalGate);
   }
   return result;
 }

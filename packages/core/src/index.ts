@@ -405,6 +405,8 @@ export {
   autopilotPreflight, findApprovalGate, hasEmptyCiChecks, emptyCiChecksMessage, APPROVAL_GATE_SCRIPT, AUTOPILOT_ENV,
 } from './runs/autopilotPreflight';
 export type { ApprovalGate } from './runs/autopilotPreflight';
+export { installApprovalGate } from './runs/approvalGateInstall';
+export type { ApprovalGateInstall } from './runs/approvalGateInstall';
 export type { DefaultRunnerOptions } from './runner/DefaultRunner';
 export { CodexRunner } from './runner/CodexRunner';
 export type { CodexRunnerOptions } from './runner/CodexRunner';

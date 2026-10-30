@@ -94,6 +94,13 @@ echo '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"
   | python3 .claude/hooks/aidlc-approval-gate.py; echo "exit=$?"   # exit=2
 ```
 
+That is for this repo. In a project set up with a workflow that has an autopilot
+recipe (`ai-native`), setup does it for you: it copies the script to
+`.claude/hooks/` (commit it) and registers it in `.claude/settings.local.json`
+with this machine's Python (`py -3` on Windows, where `python3` is usually the
+Microsoft Store stub), keeping that file out of git through `.git/info/exclude`.
+Opening the panel does the same for a project set up before this existed.
+
 ## 5. Set up a project
 
 In the project you want to run the playbook on:
