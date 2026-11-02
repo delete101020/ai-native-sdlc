@@ -1,5 +1,47 @@
 # Changelog
 
+## 4.0.51
+
+Epic ids are yours to name, a project that moved its epic folder now works from
+end to end, and the extension does far less work while you aren't looking at it.
+On a project with 106 epics, the token scan went from about 2.7 s of CPU a
+minute at month end to a few milliseconds, and a panel refresh from about 40 ms
+to 15 ms.
+
+### Added
+
+- `epic_id_prefix: false` in `.aidlc/user.yaml` means "no prefix, on purpose":
+  the sidebar warning stops, ids stay plain, and it outranks a shared prefix in
+  `workspace.yaml`.
+- `epic_id_label` in `workspace.yaml` replaces the `EPIC` word, as in `TASK-001`.
+  Existing epics keep their ids, the counter is per label, and **My epics** still
+  recognises ids under an old label.
+- `{epic_root}` for `produces` and `requires` paths, now what the built-in
+  pipelines use.
+
+### Changed
+
+- The token status bar reads only what was appended to a transcript since the
+  last scan, instead of the whole month every minute. A new day, month or
+  account starts over.
+- A hidden panel or sidebar no longer rebuilds on each refresh and catches up
+  when shown. The sidebar badge still updates.
+- Refreshes reuse the parsed workspace until `workspace.yaml` or an epic's
+  `pipeline.yaml` changes, and no longer ask git for your name several times over. A
+  changed git name can take up to 5 minutes to reach the prefix suggestion.
+
+### Fixed
+
+- A project that moved `state.root` no longer gets `docs/epics/...` from the
+  bundled personas and skills, and built-in pipelines no longer fail **Mark step
+  done** on paths under the default folder. Installed `docs/epics/{epic}/` paths
+  follow `state.root` too, so existing pipelines need no edit. `aidlc dashboard`
+  watches the configured root.
+- `{{EPIC_PREFIX}}`, `{{EPIC_KEY}}`, `{{EPIC_ID}}`, `{{WORKER_AGENT}}`, `$EPIC_ID`
+  and `$DATE` no longer reach agents as literal text.
+- The month's token total no longer counts messages from before the 1st when a
+  session ran across the boundary.
+
 ## 4.0.50
 
 **Run to completion** no longer runs a pipeline whose agents don't know

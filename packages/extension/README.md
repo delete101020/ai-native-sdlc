@@ -106,6 +106,11 @@ six sample epics) into the open folder.
 - **An Epics panel that scales** — search by ID or name, a flat or grouped view, tags and filters,
   **Go to Epic** (`Ctrl+Alt+E`), an active epic that follows your git branch, and **My epics**, which
   says which agent just stopped and is waiting on you.
+- **Epic ids your way** — `epic_id_prefix` files epics under your initials and a date, or set it to `false`
+  in `.aidlc/user.yaml` to decline one and stop the sidebar warning. `epic_id_label` in `workspace.yaml`
+  replaces the `EPIC` word, as in `TASK-001`.
+- **An epic folder of your choice** — set `state.root` in `workspace.yaml`, and the bundled personas, skills
+  and built-in `produces` gates follow it. `{epic_root}` names it in `produces` and `requires` paths.
 - **Incident loop** — **Report a Signal** turns a production signal into an incident epic;
   `aidlc maintain --signal` does the same from a webhook or a cron job.
 - **Artifact review in the browser** — open any artifact in the bundled
