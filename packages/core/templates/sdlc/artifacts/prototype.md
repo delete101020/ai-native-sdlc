@@ -1,9 +1,9 @@
 # UI Prototype — [Epic Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Designer:** Designer Agent
 **Status:** Draft → Awaiting Review
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 
 ---
 
@@ -138,4 +138,4 @@
 
 ---
 
-**Next phase:** /design $EPIC_ID — Design phase reads this prototype and writes TECH-DESIGN.md
+**Next phase:** /design <epic-id> — Design phase reads this prototype and writes TECH-DESIGN.md

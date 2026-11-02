@@ -1,7 +1,7 @@
 ---
 name: aidlc-native-maintain
 description: Turn a production signal into a diagnosis, and — when the fix is real work — into the intent.md of a new epic. Stage 6 of the AI-Native SDLC, the return path to stage 1.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX> [path to signal.json]"
+argument-hint: "<epic-id> [path to signal.json]"
 ---
 
 # Maintain Epic $0

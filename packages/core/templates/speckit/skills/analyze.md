@@ -1,7 +1,7 @@
 ---
 name: analyze
 description: Cross-check spec ↔ plan ↔ tasks for coverage, gaps, and contradictions before implementation, and issue a go/no-go verdict (ANALYSIS.md).
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Analyze for Epic $0

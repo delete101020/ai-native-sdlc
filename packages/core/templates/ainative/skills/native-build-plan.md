@@ -1,7 +1,7 @@
 ---
 name: aidlc-native-build-plan
 description: Plan mode as the default starting point — produce plan.md naming the files, the order, the risks and the proofs before any code is written. Stage 3a of the AI-Native SDLC.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Build Plan for Epic $0

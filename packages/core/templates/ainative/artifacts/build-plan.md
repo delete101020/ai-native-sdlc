@@ -1,9 +1,9 @@
 # Implementation Plan — [Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Author:** Engineer
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 **Traces to:** `spec.md`
 
 ---
@@ -46,7 +46,7 @@
 
 | Criterion | Proof | How it is run |
 |---|---|---|
-| `$EPIC_ID-AC01` |  |  |
+| `<epic-id>-AC01` |  |  |
 
 ## 6. Feedback loop
 

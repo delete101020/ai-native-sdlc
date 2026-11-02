@@ -1,9 +1,9 @@
 # Implementation Summary — [Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Author:** Engineer
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 **Traces to:** `plan.md`
 
 ---
@@ -37,7 +37,7 @@
 > *The real command and its real output, per acceptance criterion. Never a claim
 > without output.*
 
-### `$EPIC_ID-AC01`
+### `<epic-id>-AC01`
 
 ```
 $ <command>

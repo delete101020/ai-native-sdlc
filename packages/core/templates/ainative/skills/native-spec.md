@@ -1,7 +1,7 @@
 ---
 name: aidlc-native-spec
 description: Collapse requirements and design into a single spec.md — testable requirements, acceptance criteria, and explicitly flagged concerns. Stage 2 of the AI-Native SDLC.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Spec for Epic $0

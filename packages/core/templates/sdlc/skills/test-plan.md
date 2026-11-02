@@ -1,7 +1,7 @@
 ---
 name: test-plan
 description: Generate a test plan for an epic. Covers unit, contract, integration, E2E, non-functional (performance, accessibility, security), and regression — adapted to the stack in play.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Test Plan for Epic $0

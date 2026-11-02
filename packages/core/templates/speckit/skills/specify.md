@@ -1,7 +1,7 @@
 ---
 name: specify
 description: Turn a feature description into a structured, testable specification (SPEC.md) — user scenarios, functional and non-functional requirements, measurable acceptance criteria. No implementation detail.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX> [feature description]"
+argument-hint: "<epic-id> [feature description]"
 ---
 
 # Specify for Epic $0

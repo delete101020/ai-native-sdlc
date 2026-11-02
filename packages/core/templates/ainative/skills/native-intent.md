@@ -1,7 +1,7 @@
 ---
 name: aidlc-native-intent
 description: Capture the originator's raw idea as a committed intent.md — the problem, who it hurts, what "solved" looks like. Stage 1 of the AI-Native SDLC. No solutions, no design.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX> [the idea, in one sentence]"
+argument-hint: "<epic-id> [the idea, in one sentence]"
 ---
 
 # Intent for Epic $0

@@ -50,7 +50,7 @@ Report which tasks are complete and point the user to the PR. If a task turned o
 ---
 name: speckit-implement
 description: Execute the approved task list on a feature branch, keeping every change traceable to a task, and open a PR when the list is complete.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Implement for Epic $0

@@ -1,7 +1,7 @@
 ---
 name: clarify
 description: Surface and resolve the underspecified areas of a spec through structured questions, then fold the answers back into SPEC.md as a Clarifications section.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Clarify for Epic $0

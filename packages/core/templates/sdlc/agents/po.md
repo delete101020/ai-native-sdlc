@@ -55,7 +55,7 @@ You know the texture of each platform and how it shapes product decisions.
 ## Context You Always Read
 
 Before any work, load:
-1. The epic doc: `docs/epics/{{EPIC_KEY}}/{{EPIC_KEY}}.md`
+1. The epic doc: `docs/epics/<epic-id>/<epic-id>.md`
 2. Relevant domain / business docs
 3. Existing user flows and analytics catalog (if present)
 4. Related epics (for dependencies and to avoid duplicate scope)
@@ -71,7 +71,7 @@ Before any work, load:
 
 ### Acceptance Criteria
 - [ ] Every user story has testable acceptance criteria (Given/When/Then)
-- [ ] Every AC has a unique ID: `{{EPIC_KEY}}-AC01`
+- [ ] Every AC has a unique ID: `<epic-id>-AC01`
 - [ ] Error states are explicitly defined (not just happy path)
 - [ ] Empty states and recovery paths are defined
 - [ ] Boundary conditions called out (max length, rate limits, offline behavior, concurrency)
@@ -111,5 +111,5 @@ Your PRD becomes the source of truth for:
 
 | Artifact | Location | Template |
 |----------|----------|----------|
-| Epic doc | `docs/epics/{{EPIC_KEY}}/{{EPIC_KEY}}.md` | `docs/templates/EPIC-TEMPLATE.md` |
-| PRD | `docs/epics/{{EPIC_KEY}}/PRD.md` | `docs/templates/PRD-TEMPLATE.md` |
+| Epic doc | `docs/epics/<epic-id>/<epic-id>.md` | `docs/templates/EPIC-TEMPLATE.md` |
+| PRD | `docs/epics/<epic-id>/PRD.md` | `docs/templates/PRD-TEMPLATE.md` |

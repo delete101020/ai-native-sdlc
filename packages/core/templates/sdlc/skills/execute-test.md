@@ -1,7 +1,7 @@
 ---
 name: execute-test
 description: Generate a TEST-SCRIPT (executable test scenarios for human testers, including UAT scenarios). Stack-neutral — adapts to web, mobile, desktop, and backend/API products.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Test Script for Epic $0

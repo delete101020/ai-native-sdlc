@@ -1,7 +1,7 @@
 ---
 name: aidlc-test-report
 description: Summarize the executed test run into a TEST-REPORT — pass/fail per test case, defects found, coverage vs the test plan, and a go / no-go recommendation. Rides alongside aidlc-execute-test on the execute-test step.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Test Report for Epic $0

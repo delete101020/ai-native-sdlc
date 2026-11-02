@@ -1,9 +1,9 @@
 # Review Report — [Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Reviewer:** Reviewer (policy)
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 **Reviewed against:** `CLAUDE.md`, loaded skills, workspace SDLC standard
 
 ---

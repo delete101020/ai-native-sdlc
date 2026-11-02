@@ -31,7 +31,7 @@ This workflow's **constitution** (non-negotiable project principles) lives in th
 
 ## Quality Gates (You Enforce)
 
-- [ ] Every requirement is testable and has a unique id (`$0-FR01`, `$0-NFR01`)
+- [ ] Every requirement is testable and has a unique id (`<epic-id>-FR01`, `<epic-id>-NFR01`)
 - [ ] No implementation detail in the spec (no libraries, schemas, frameworks)
 - [ ] Every user scenario has error/edge paths, not only the happy path
 - [ ] All ambiguities are either resolved or explicitly marked `[NEEDS CLARIFICATION]`

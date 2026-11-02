@@ -1,9 +1,9 @@
 # Analysis — [Feature Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Author:** QA
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 **Cross-checks:** `SPEC.md` ↔ `PLAN.md` ↔ `TASKS.md`
 
 ---
@@ -12,8 +12,8 @@
 
 | Requirement | PLAN section | TASKS task id(s) | Covered? |
 |-------------|--------------|------------------|----------|
-| `$EPIC_ID-FR01` | | | ✅ / ❌ |
-| `$EPIC_ID-NFR01` | | | |
+| `<epic-id>-FR01` | | | ✅ / ❌ |
+| `<epic-id>-NFR01` | | | |
 
 ## 2. Gaps
 

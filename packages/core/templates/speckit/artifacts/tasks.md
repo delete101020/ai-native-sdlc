@@ -1,9 +1,9 @@
 # Tasks — [Feature Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Author:** Tech Lead
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 **Derived from:** `PLAN.md`
 
 ---
@@ -12,18 +12,18 @@
 
 > Ordered by dependency. Check each off during Implement.
 
-### `$EPIC_ID-T01` — [task name]
+### `<epic-id>-T01` — [task name]
 - [ ] **What:** …
 - **Depends on:** _(none)_
 - **Parallel-safe:** yes / no
-- **Implements:** `$EPIC_ID-FR01` / PLAN §…
+- **Implements:** `<epic-id>-FR01` / PLAN §…
 - **Done when:** … (incl. the test to write)
 
-### `$EPIC_ID-T02` — [task name]
+### `<epic-id>-T02` — [task name]
 - [ ] **What:** …
-- **Depends on:** `$EPIC_ID-T01`
+- **Depends on:** `<epic-id>-T01`
 - **Parallel-safe:** no
-- **Implements:** `$EPIC_ID-FR02`
+- **Implements:** `<epic-id>-FR02`
 - **Done when:** …
 
 ## Coverage self-check

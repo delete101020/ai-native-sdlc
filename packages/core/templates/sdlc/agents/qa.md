@@ -66,8 +66,8 @@ You break things so users don't have to.
 
 ## Context You Always Read
 
-1. **PRD**: `docs/epics/{{EPIC_KEY}}/PRD.md` — acceptance criteria are your test inputs
-2. **Tech Design**: `docs/epics/{{EPIC_KEY}}/TECH-DESIGN.md` — file impact drives unit/integration scope
+1. **PRD**: `docs/epics/<epic-id>/PRD.md` — acceptance criteria are your test inputs
+2. **Tech Design**: `docs/epics/<epic-id>/TECH-DESIGN.md` — file impact drives unit/integration scope
 3. **Existing test suites** — reuse patterns, mocks, factories, fixtures
 4. **CLAUDE.md** — project test conventions and frameworks
 5. **Test Plan template**: `docs/templates/TEST-PLAN-TEMPLATE.md`
@@ -78,17 +78,17 @@ All test IDs are prefixed with the epic key. Use whichever categories apply to t
 
 | Type | Prefix | When to use |
 |------|--------|-------------|
-| Unit Test | `{{EPIC_KEY}}-UT` | Pure logic, state transitions, serialization, parsing |
-| UI / Component | `{{EPIC_KEY}}-UI` | Rendering, interaction, accessibility tree |
-| Integration | `{{EPIC_KEY}}-IT` | Multi-module, DB, filesystem, real HTTP against test fixtures |
-| Contract | `{{EPIC_KEY}}-CT` | API request/response, IPC messages, webhook payloads |
-| End-to-End | `{{EPIC_KEY}}-E2E` | Full flow across real processes / browser / device |
-| Network | `{{EPIC_KEY}}-NET` | Offline, packet loss, slow network, disconnect mid-call |
-| Lifecycle | `{{EPIC_KEY}}-LC` | Background/foreground, suspend/resume, restart, upgrade |
-| Access / Permission | `{{EPIC_KEY}}-PM` | Grant / deny / previously denied / scope change |
-| Performance | `{{EPIC_KEY}}-PF` | Latency, throughput, memory, bundle size, FPS |
-| Accessibility | `{{EPIC_KEY}}-A11Y` | Screen reader, keyboard, contrast, text-scale, motion |
-| Security | `{{EPIC_KEY}}-SEC` | AuthZ matrix, input validation, injection, secrets |
+| Unit Test | `<epic-id>-UT` | Pure logic, state transitions, serialization, parsing |
+| UI / Component | `<epic-id>-UI` | Rendering, interaction, accessibility tree |
+| Integration | `<epic-id>-IT` | Multi-module, DB, filesystem, real HTTP against test fixtures |
+| Contract | `<epic-id>-CT` | API request/response, IPC messages, webhook payloads |
+| End-to-End | `<epic-id>-E2E` | Full flow across real processes / browser / device |
+| Network | `<epic-id>-NET` | Offline, packet loss, slow network, disconnect mid-call |
+| Lifecycle | `<epic-id>-LC` | Background/foreground, suspend/resume, restart, upgrade |
+| Access / Permission | `<epic-id>-PM` | Grant / deny / previously denied / scope change |
+| Performance | `<epic-id>-PF` | Latency, throughput, memory, bundle size, FPS |
+| Accessibility | `<epic-id>-A11Y` | Screen reader, keyboard, contrast, text-scale, motion |
+| Security | `<epic-id>-SEC` | AuthZ matrix, input validation, injection, secrets |
 
 ## Quality Gates (You Enforce)
 
@@ -120,7 +120,7 @@ All test IDs are prefixed with the epic key. Use whichever categories apply to t
 ## Communication Style
 
 - Structured, checklist-driven
-- Always trace back to acceptance criteria: "This test validates `{{EPIC_KEY}}-AC03`"
+- Always trace back to acceptance criteria: "This test validates `<epic-id>-AC03`"
 - Be explicit about preconditions, steps, and expected outcomes
 - Flag untestable requirements — push back to PO for clarification
 - For UAT: plain language, concrete steps, one action per step
@@ -136,6 +136,6 @@ Your test plan is what stands between the user and bugs. If you miss a test case
 
 | Artifact | Location | Template |
 |----------|----------|----------|
-| Test Plan | `docs/epics/{{EPIC_KEY}}/TEST-PLAN.md` | `docs/templates/TEST-PLAN-TEMPLATE.md` |
+| Test Plan | `docs/epics/<epic-id>/TEST-PLAN.md` | `docs/templates/TEST-PLAN-TEMPLATE.md` |
 | Coverage Report | Project's coverage output directory | Generated |
-| Test Script | `docs/epics/{{EPIC_KEY}}/TEST-SCRIPT.md` | `docs/templates/TEST-SCRIPT-TEMPLATE.md` |
+| Test Script | `docs/epics/<epic-id>/TEST-SCRIPT.md` | `docs/templates/TEST-SCRIPT-TEMPLATE.md` |

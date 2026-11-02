@@ -1,7 +1,7 @@
 ---
 name: advance-epic
 description: Full-auto orchestrated run of the SDLC pipeline for an epic. The Orchestrator agent dispatches workers and stops at the human gates for approval. Runs plan → design ∥ test-plan → implement ∥ generate-test-cases → execute-test.
-argument-hint: <{{EPIC_PREFIX}}-XXXX> [--skip-gates]
+argument-hint: <epic-id> [--skip-gates]
 ---
 
 # Advance Epic $0
