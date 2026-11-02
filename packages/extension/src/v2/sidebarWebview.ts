@@ -28,10 +28,10 @@ import {
   WORKSPACE_FILENAME,
   RunStateStore,
   normalizeStep,
-  resolvePath,
-  discoverAssets,
-  provisionDeclaredWorkflows,
+  resolveArtifactPath,
   relativeEpicRoot,
+  discoverAssets,
+  refreshWorkspaceCommands,
   resolveArtifactLanguage,
   DEFAULT_EPIC_ID_LABEL,
   EPIC_ID_LABEL_PATTERN,
@@ -44,7 +44,6 @@ import {
   readEpicFocus,
   USER_CONFIG_RELPATH,
   EPIC_ID_PREFIX_PATTERN,
-  writeTwoLayerCommands,
   isActiveStatus,
 } from '@aidlc/core';
 import type { PipelineConfig, DiscoveredAsset, EpicIdPrefixSource } from '@aidlc/core';
@@ -508,6 +507,7 @@ function listActiveRuns(root: string, epicIds: ReadonlySet<string>): ActiveRun[]
       }
     }
 
+    const epicRoot = relativeEpicRoot(doc);
     return RunStateStore.list(root)
       .filter((r) => r.status === 'running')
       .map((r) => {
@@ -539,12 +539,12 @@ function listActiveRuns(root: string, epicIds: ReadonlySet<string>): ActiveRun[]
           feedback: step?.feedback,
           produces: norm
             ? norm.produces.map((p) => {
-                const a = resolveArtifact(root, p, r.context);
+                const a = resolveArtifact(root, p, r.context, epicRoot);
                 return norm.produces_optional.includes(p) ? { ...a, optional: true } : a;
               })
             : [],
           requires: norm
-            ? norm.requires.map((p) => resolveArtifact(root, p, r.context))
+            ? norm.requires.map((p) => resolveArtifact(root, p, r.context, epicRoot))
             : [],
           currentSlashCommand: agent ? slashByAgent.get(agent) : undefined,
         };
@@ -558,8 +558,9 @@ function resolveArtifact(
   root: string,
   template: string,
   context: Record<string, string>,
+  epicRoot: string,
 ): ArtifactPath {
-  const resolved = resolvePath(template, context);
+  const resolved = resolveArtifactPath(template, context, epicRoot);
   const abs = path.isAbsolute(resolved) ? resolved : path.join(root, resolved);
   return { path: resolved, exists: fs.existsSync(abs) };
 }
@@ -817,11 +818,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         // that predates `artifact_language` has bodies that never look. This
         // refreshes exactly those; see `commandBodyPredatesArtifactLanguage`.
         try {
-          const pipelineIds = (doc.pipelines ?? []).map((p) => String(p.id ?? '')).filter(Boolean);
-          writeTwoLayerCommands(root, { epicRoot: relativeEpicRoot(doc) });
-          provisionDeclaredWorkflows(this.extensionUri.fsPath, root, pipelineIds, {
-            epicRoot: relativeEpicRoot(doc),
-          });
+          refreshWorkspaceCommands(this.extensionUri.fsPath, root, doc);
         } catch (err) {
           // A refresh that fails leaves the setting written and the old bodies
           // in place — worth logging, not worth failing the edit over.

@@ -730,7 +730,7 @@ export async function promptStepConfig(
 
   const requires = await vscode.window.showInputBox({
     prompt: `[${agentId}] requires — comma-separated upstream artifact paths (use {epic} for run context)`,
-    placeHolder: 'e.g. docs/epics/{epic}/PRD.md',
+    placeHolder: 'e.g. {epic_root}/{epic}/PRD.md',
     ignoreFocusOut: true,
     value: defaults?.requires ? defaults.requires.join(', ') : '',
   });
@@ -738,7 +738,7 @@ export async function promptStepConfig(
 
   const produces = await vscode.window.showInputBox({
     prompt: `[${agentId}] produces — comma-separated output artifact paths`,
-    placeHolder: 'e.g. docs/epics/{epic}/TECH-DESIGN.md',
+    placeHolder: 'e.g. {epic_root}/{epic}/TECH-DESIGN.md',
     ignoreFocusOut: true,
     value: defaults?.produces ? defaults.produces.join(', ') : '',
   });

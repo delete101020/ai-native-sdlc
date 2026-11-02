@@ -19,6 +19,7 @@ import type { ProjectInstructions } from './projectInstructions';
 import type { HarnessCapabilities } from '../runner/types';
 import { artifactLanguageSection } from './artifactLanguage';
 import { strictModeSection } from './strictMode';
+import { epicRootSection, localizeEpicRoot } from './epicRootText';
 
 /**
  * The persona used to arrive as an instruction to go and read a file. Once the
@@ -33,6 +34,8 @@ export function stripPersonaDirectives(skillText: string): string {
 }
 
 export interface ComposeInput {
+  /** The project's `state.root`, relative to its root. Absent means the default. */
+  epicRoot?: string | null;
   /** Concatenated skill markdown — the "what to do" layer. Always included. */
   skills: string;
   /** Resolved persona, or null when the agent has none. */
@@ -70,7 +73,8 @@ export interface ComposedPrompt {
 }
 
 export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
-  const { skills, persona, instructions, harness, artifactLanguage } = input;
+  const { persona, instructions, harness, artifactLanguage, epicRoot } = input;
+  const skills = localizeEpicRoot(input.skills, epicRoot);
 
   const inlinePersona = !!persona && !harness.persona;
   const inlineInstructions = !!instructions && !harness.projectInstructions;
@@ -78,13 +82,14 @@ export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
   // `strictModeSection` returns null for strict, which is the prompt as it has
   // always been — so a strict epic adds nothing and takes the fast path below.
   const depth = strictModeSection(input.strictMode === false ? false : true);
+  const rootSection = epicRootSection(epicRoot);
   const history = input.runHistory
     ? `## Prior revisions\n\nEarlier rejections and feedback for this step: \`${input.runHistory.file}\` → \`steps[${input.runHistory.stepIdx}].history\`. Do not bring back what they rejected.`
     : null;
 
   // Nothing to add ⇒ hand the skills through untouched. A workspace whose
   // agents have no persona file must see the exact prompt it saw before.
-  if (!inlinePersona && !inlineInstructions && !language && !depth && !history) {
+  if (!inlinePersona && !inlineInstructions && !language && !depth && !rootSection && !history) {
     return {
       text: skills,
       included: { persona: false, instructions: false, language: false, depth: false },
@@ -94,7 +99,7 @@ export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
   const parts: string[] = [];
 
   if (inlinePersona && persona) {
-    parts.push(['## Persona', '', persona.content].join('\n'));
+    parts.push(['## Persona', '', localizeEpicRoot(persona.content, epicRoot)].join('\n'));
   }
 
   if (inlineInstructions && instructions) {
@@ -119,6 +124,11 @@ export function composeAgentPrompt(input: ComposeInput): ComposedPrompt {
   // behaviour than above the persona.
   if (depth) {
     parts.push(depth);
+  }
+
+  // Covers the persona a harness loads on its own, which this text never sees.
+  if (rootSection) {
+    parts.push(rootSection);
   }
 
   // Last before the skills: it is about this run of the phase, not the phase.

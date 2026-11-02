@@ -192,7 +192,7 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
             ref={firstInputRef}
             value={requires}
             onChange={(e) => setRequires(e.target.value)}
-            placeholder="e.g. docs/epics/{epic}/PRD.md"
+            placeholder="e.g. {epic_root}/{epic}/PRD.md"
             rows={2}
             spellCheck={false}
             className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
@@ -210,7 +210,7 @@ export function StepConfigModal({ pipelineId, idx, step, agents, siblingNodeIds 
           <textarea
             value={produces}
             onChange={(e) => setProduces(e.target.value)}
-            placeholder="e.g. docs/epics/{epic}/TECH-DESIGN.md"
+            placeholder="e.g. {epic_root}/{epic}/TECH-DESIGN.md"
             rows={2}
             spellCheck={false}
             className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[11.5px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"

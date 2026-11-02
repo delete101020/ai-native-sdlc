@@ -74,4 +74,18 @@ describe('producesWatchGlobs', () => {
 
     expect(producesWatchGlobs(asDoc([{ id: 'many', steps }]))).toHaveLength(12);
   });
+
+  it('watches the moved epic root for {epic_root} and for the older spelling', () => {
+    const doc = {
+      state: { root: 'work/items' },
+      pipelines: [{
+        id: 'a',
+        steps: [
+          { agent: 'x', produces: ['{epic_root}/{epic}/artifacts/spec.md'] },
+          { agent: 'y', produces: ['docs/epics/{epic}/artifacts/prd.md'] },
+        ],
+      }],
+    } as never;
+    expect(producesWatchGlobs(doc)).toEqual(['work/items/**']);
+  });
 });

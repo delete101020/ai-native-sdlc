@@ -30,6 +30,7 @@ import * as path from 'path';
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, stepSkillAlternatives, findStepIndex, DEFAULT_MAX_SEND_BACKS } from '../schema/WorkspaceSchema';
 import type { RunState, StepRecord, StepStatus, AutoReviewVerdict, StepHistoryEntry, StepDirtyMark } from './RunState';
+import { readEpicRoot, resolveArtifactPath } from '../loader/epicRootText';
 import { resolvePath, stepIdentity, RUN_STATE_SCHEMA_VERSION } from './RunState';
 import { isActiveStatus, isRunComplete, isStepOptional } from './runProgress';
 import { reconcileRunSteps, describeDrift, withBackfilledStepNames } from './reconcileRun';
@@ -164,7 +165,8 @@ export function canStartStep(args: {
   }
   const norm = normalizeStep(stepConfig);
   const missing: string[] = [];
-  for (const rel of requiredPaths(norm).map((p) => resolvePath(p, state.context))) {
+  const epicRoot = readEpicRoot(workspaceRoot);
+  for (const rel of requiredPaths(norm).map((p) => resolveArtifactPath(p, state.context, epicRoot))) {
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
     if (!fs.existsSync(abs)) { missing.push(rel); }
   }
@@ -224,7 +226,8 @@ export function markStepDone(args: {
   const norm = normalizeStep(stepConfig);
 
   // Hard gate-check on requires (separate from the soft check at start time).
-  const resolvedRequires = requiredPaths(norm).map((p) => resolvePath(p, state.context));
+  const epicRoot = readEpicRoot(workspaceRoot);
+  const resolvedRequires = requiredPaths(norm).map((p) => resolveArtifactPath(p, state.context, epicRoot));
   const missingRequires: string[] = [];
   for (const rel of resolvedRequires) {
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
@@ -244,7 +247,7 @@ export function markStepDone(args: {
   const resolvedProduces: string[] = [];
   const missing: string[] = [];
   for (const p of norm.produces) {
-    const rel = resolvePath(p, state.context);
+    const rel = resolveArtifactPath(p, state.context, epicRoot);
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
     if (fs.existsSync(abs)) { resolvedProduces.push(rel); }
     else if (!optionalProduces.has(p)) { missing.push(rel); }

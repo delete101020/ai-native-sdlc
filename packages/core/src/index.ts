@@ -375,6 +375,7 @@ export {
   strictModeSection,
 } from './loader/strictMode';
 // What a follow-up inherits from the epics it follows — named in every phase prompt.
+export { expandEpicRoot, resolveArtifactPath } from './loader/epicRootText';
 export { INHERITED_CONTEXT_MARKER, inheritedContextNote } from './loader/inheritedContext';
 // Epic tags — free text in, one canonical SCREAMING-KEBAB form on disk.
 export {
@@ -609,6 +610,7 @@ export {
   writeWorkflowArtifactTemplates,
   provisionWorkflowFiles,
   provisionDeclaredWorkflows,
+  refreshWorkspaceCommands,
   relativeEpicRoot,
 } from './presets/workflowProvisioning';
 export type {

@@ -20,7 +20,9 @@ import {
   normalizeStep,
   stepSkillAlternatives,
   pickAgentModel,
-  resolvePath,
+  resolveArtifactPath,
+  relativeEpicRoot,
+  expandEpicRoot,
   expandHome,
   mirrorRunStateToEpic,
   RUN_STATE_SCHEMA_VERSION,
@@ -393,7 +395,7 @@ export function producesWatchGlobs(doc: YamlDocument | null): string[] {
       catch { continue; }
       for (const produce of produces) {
         if (typeof produce !== 'string') { continue; }
-        const glob = watchGlobFor(produce);
+        const glob = watchGlobFor(expandEpicRoot(produce, relativeEpicRoot(doc)));
         if (glob) { globs.add(glob); }
       }
     }
@@ -1047,6 +1049,7 @@ function readEpicSummary(
   // Same context the runner resolves `produces` with, so the panel and
   // `markStepDone` are looking at the same file.
   const artifactContext: Record<string, string> = runState?.context ?? { epic: epicId };
+  const epicRoot = relativeEpicRoot(doc);
   if (pipelineCfg && Array.isArray(pipelineCfg.steps)) {
     pipelineCfg.steps.forEach((raw, i) => {
       const norm = normalizeStep(raw as PipelineStepConfig);
@@ -1059,7 +1062,7 @@ function readEpicSummary(
       if (alt) { stepAltByIdx.set(i, alt); }
       if (norm.model) { stepModelByIdx.set(i, norm.model); }
       stepRequiresByIdx.set(i, norm.requires.map((p) => ({
-        path: resolvePath(p, artifactContext),
+        path: resolveArtifactPath(p, artifactContext, epicRoot),
         optional: norm.requires_optional.includes(p),
       })));
       // What the card says the step does: its own `description`, else the
@@ -1087,10 +1090,10 @@ function readEpicSummary(
       // its output `docs/snp/analysis/{topic}.md`, and the raw basename
       // would put the literal `{topic}.md` on the card.
       const declared = norm.produces.filter((p): p is string => typeof p === 'string' && p.length > 0);
-      const resolvedProduces = declared.map((p) => resolvePath(p, artifactContext));
+      const resolvedProduces = declared.map((p) => resolveArtifactPath(p, artifactContext, epicRoot));
       const optionalRaw = new Set(norm.produces_optional);
       const optionalResolved = new Set(
-        declared.filter((p) => optionalRaw.has(p)).map((p) => resolvePath(p, artifactContext)),
+        declared.filter((p) => optionalRaw.has(p)).map((p) => resolveArtifactPath(p, artifactContext, epicRoot)),
       );
       if (optionalResolved.size > 0) { stepOptionalByIdx.set(i, optionalResolved); }
       if (resolvedProduces.length > 0) {
@@ -1643,7 +1646,7 @@ function backfillRunStateFromEpic(
         : 'pending';
     // Resolve produces against the epic context, then check disk for any
     // file whose basename matches an existing artifact.
-    const produces = norm.produces.map((p) => resolvePath(p, context));
+    const produces = norm.produces.map((p) => resolveArtifactPath(p, context, relativeEpicRoot(doc)));
     const artifactsProduced = produces.filter((p) => {
       const base = path.basename(p);
       return existingArtifacts.has(base);

@@ -265,6 +265,22 @@ There is no `spec`. If an epic needs one, start it on `ai-native-full` and add
 Once you trust the validators, set `review: { human_review: false }` in the
 recipe. A `ship` then completes the run, and you only merge the PR.
 
+## Epic paths in `produces` and `requires`
+
+`{epic_root}` is the workspace's `state.root`, and `{epic}` is the epic id:
+
+```yaml
+produces:
+  - "{epic_root}/{epic}/artifacts/PRD.md"
+```
+
+Keep the quotes: YAML reads an unquoted value starting with `{` as a mapping.
+
+Built-in pipelines use this form, so they keep working when `state.root` moves.
+Pipelines written before it existed say `docs/epics/{epic}/...`. That prefix
+also follows `state.root`, so they need no edit. Any other path is used as
+written.
+
 ## Optional `produces` entries
 
 Output written only sometimes (a diagram rendered when there is something to

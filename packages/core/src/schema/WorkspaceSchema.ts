@@ -142,6 +142,7 @@ export type ProducesEntry = z.infer<typeof ProducesEntrySchema>;
  * from the run's context map at execution time — e.g.
  * `docs/epics/{epic}/PRD.md` becomes
  * `docs/epics/EPIC-2100/PRD.md` for a run with `context.epic == "EPIC-2100"`.
+ * `{epic_root}` is the workspace's `state.root`, wherever the epics live.
  */
 const PipelineStepObjectSchema = z
   .object({

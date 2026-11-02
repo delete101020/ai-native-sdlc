@@ -273,7 +273,7 @@ import {
 import { resolveTechStackForRoot } from './techStackResolver';
 import { artifactLookupKeys } from './techStackDetector';
 import { uninstallWorkflowGlobalsByIds, installWorkflowGlobalsByIds } from './globalDefaultsInstaller';
-import { provisionDeclaredWorkflows, relativeEpicRoot, resolveCommand } from '@aidlc/core';
+import { provisionDeclaredWorkflows, refreshWorkspaceCommands, relativeEpicRoot, resolveCommand } from '@aidlc/core';
 import { PresetStore } from './presetStore';
 import type {
   PipelineStepConfig,
@@ -2839,6 +2839,7 @@ export class WorkspaceWebview {
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (!wsRoot) { return; }
         writeEpicsDirToYaml(wsRoot, newDir);
+        this.refreshCommandsForEpicRoot(wsRoot);
         // Also update the VS Code setting so the bidirectional sync stays consistent.
         const EPICS_DIR_KEY = 'aidlcNative.workspace.epicsDirectory';
         void vscode.workspace.getConfiguration()
@@ -2860,6 +2861,7 @@ export class WorkspaceWebview {
         const rel = path.relative(wsRoot, abs);
         const dir = rel.startsWith('..') || path.isAbsolute(rel) ? abs : rel;
         writeEpicsDirToYaml(wsRoot, dir);
+        this.refreshCommandsForEpicRoot(wsRoot);
         const EPICS_DIR_KEY = 'aidlcNative.workspace.epicsDirectory';
         void vscode.workspace.getConfiguration()
           .update(EPICS_DIR_KEY, dir, vscode.ConfigurationTarget.Workspace);
@@ -4290,6 +4292,16 @@ export class WorkspaceWebview {
     this.ensureWorkflowProjectFiles(root);
   }
 
+  /** Generated commands name `state.root`, so moving it has to rewrite them. */
+  private refreshCommandsForEpicRoot(root: string): void {
+    try {
+      refreshWorkspaceCommands(this.extensionUri.fsPath, root, readYaml(root));
+    } catch (err) {
+      // The new root is already saved. Stale bodies get flagged on the epic.
+      console.warn('[refreshCommandsForEpicRoot]', err);
+    }
+  }
+
   /**
    * Ensure every built-in pipeline this workspace declares has its project
    * files on disk: the artifact templates under
@@ -4863,6 +4875,7 @@ export class WorkspaceWebview {
     if (!pipeline) { return []; }
     const steps = Array.isArray(state.stepStates) ? (state.stepStates as Array<Record<string, unknown>>) : [];
     const commandsDir = path.join(root, '.claude', 'commands');
+    const epicRoot = relativeEpicRoot(readYaml(root));
     const stale = new Set<string>();
     for (const step of steps) {
       const phase = typeof step.name === 'string' && step.name
@@ -4874,7 +4887,7 @@ export class WorkspaceWebview {
         // A command that was never written is not stale — it is absent, and
         // the headless runner composes that prompt itself.
         const body = fs.readFileSync(path.join(commandsDir, `${id}.md`), 'utf8');
-        if (commandBodyIsStale(body)) { stale.add(`/${id}`); }
+        if (commandBodyIsStale(body, epicRoot)) { stale.add(`/${id}`); }
       } catch { /* absent — see above */ }
     }
     return [...stale];

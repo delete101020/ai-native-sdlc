@@ -20,8 +20,7 @@ import {
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
   stepAgentId,
-  writeTwoLayerCommands,
-  provisionDeclaredWorkflows,
+  refreshWorkspaceCommands,
 } from '@aidlc/core';
 
 import {
@@ -413,15 +412,10 @@ export function registerV2WorkspaceCommands(
    */
   function ensureCommandFiles(root: string): void {
     try {
-      const doc = readYaml(root);
-      const pipelineIds = (doc?.pipelines ?? [])
-        .map((p) => String((p as { id?: unknown }).id ?? ''))
-        .filter(Boolean);
-      // Always emit the two-layer set, even for a workspace whose pipelines are
+      // Always emits the two-layer set, even for a workspace whose pipelines are
       // all hand-authored: the backbone dispatcher is what makes an unknown
       // pipeline runnable at all.
-      writeTwoLayerCommands(root);
-      provisionDeclaredWorkflows(context.extensionPath, root, pipelineIds);
+      refreshWorkspaceCommands(context.extensionPath, root, readYaml(root));
     } catch (err) {
       // Log but don't fail — command files might already exist or permission
       // issues are rare in a workspace root.

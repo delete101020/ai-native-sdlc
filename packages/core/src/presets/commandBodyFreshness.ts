@@ -15,9 +15,12 @@
 import { commandBodyPredatesArtifactLanguage } from '../loader/artifactLanguage';
 import { commandBodyPredatesStrictMode } from '../loader/strictMode';
 import { commandBodyPredatesInheritedContext } from '../loader/inheritedContext';
+import { commandBodyPredatesEpicRoot } from '../loader/epicRootText';
 
-export function commandBodyIsStale(existing: string): boolean {
+/** `epicRoot`, when given, also marks a body written for another `state.root`. */
+export function commandBodyIsStale(existing: string, epicRoot?: string): boolean {
   return commandBodyPredatesArtifactLanguage(existing)
     || commandBodyPredatesStrictMode(existing)
-    || commandBodyPredatesInheritedContext(existing);
+    || commandBodyPredatesInheritedContext(existing)
+    || (epicRoot !== undefined && commandBodyPredatesEpicRoot(existing, epicRoot));
 }

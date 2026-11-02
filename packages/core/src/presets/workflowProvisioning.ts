@@ -19,6 +19,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { epicRootOf } from '../loader/epicRootText';
+
 import { commandBodyIsStale } from './commandBodyFreshness';
 import { WORKSPACE_DIR } from '../loader/WorkspaceLoader';
 import {
@@ -40,9 +42,7 @@ import { writeTwoLayerCommands } from './commandModel';
  * to an absolute path for file I/O.
  */
 export function relativeEpicRoot(doc: { state?: unknown } | null | undefined): string {
-  const state = doc?.state as Record<string, unknown> | undefined;
-  const root = state?.root;
-  return typeof root === 'string' && root.trim() ? root : 'docs/epics';
+  return epicRootOf(doc);
 }
 
 export interface ProvisionOptions extends ArtifactTemplateOptions {
@@ -89,7 +89,7 @@ export function writeWorkflowCommands(
     // off: it cannot honour the setting, and the section it is missing is not
     // something a hand edit would have removed on purpose.
     if (fs.existsSync(file) && !overwrite
-      && !commandBodyIsStale(fs.readFileSync(file, 'utf8'))) { continue; }
+      && !commandBodyIsStale(fs.readFileSync(file, 'utf8'), epicRoot)) { continue; }
     const skillBody = preset.skillContents[phase.id] ?? `# ${phase.name}\n\n${phase.description}\n`;
     // The pipeline id is also the artifact-template folder name, so the
     // command body can point the agent at the blank template for its own
@@ -183,4 +183,25 @@ export function provisionDeclaredWorkflows(
     result.templates.push(...one.templates);
   }
   return result;
+}
+
+/**
+ * Bring the project's generated commands in line with its workspace doc, for
+ * when `state.root` or a setting the bodies depend on changes. Bodies that are
+ * current or hand-written stay as they are.
+ */
+export function refreshWorkspaceCommands(
+  templatesRoot: string,
+  root: string,
+  doc: { state?: unknown; pipelines?: unknown } | null | undefined,
+): void {
+  const epicRoot = relativeEpicRoot(doc);
+  const pipelines = Array.isArray(doc?.pipelines) ? doc.pipelines as Array<{ id?: unknown }> : [];
+  writeTwoLayerCommands(root, { epicRoot });
+  provisionDeclaredWorkflows(
+    templatesRoot,
+    root,
+    pipelines.map((p) => String(p.id ?? '')).filter(Boolean),
+    { epicRoot },
+  );
 }

@@ -28,6 +28,7 @@ import * as path from 'path';
 import { artifactLanguageSection } from '../loader/artifactLanguage';
 import { strictModeSection } from '../loader/strictMode';
 import { inheritedContextNote } from '../loader/inheritedContext';
+import { epicRootSection, localizeEpicRoot } from '../loader/epicRootText';
 import type { RecipeGateConfig } from '../schema/WorkspaceSchema';
 import { CODING_MODEL, PLANNING_MODEL } from './models';
 import { renderTemplate } from './templateRenderer';
@@ -725,9 +726,9 @@ function artifactPathFor(phase: PhaseDef): string | null {
   if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(artifact)) { return null; }
   // Must match the prompt convention in `builtinClaudeCommand`, which tells
   // the agent to write under `<epicRoot>/<epic>/artifacts/<file>`. Validating
-  // the bare `docs/epics/{epic}/<file>` path would never find the file the
+  // the bare `{epic_root}/{epic}/<file>` path would never find the file the
   // agent actually wrote, breaking "Mark step done" (see issue #26).
-  return `docs/epics/{epic}/artifacts/${artifact}`;
+  return `{epic_root}/{epic}/artifacts/${artifact}`;
 }
 
 /**
@@ -870,9 +871,6 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
   const pipeline = {
     id: workflow.pipelineId,
     steps: workflow.phases.map((p) => {
-      // Default artifact path uses the conventional epic root (`docs/epics`).
-      // Users who set `state.root` to something else can edit `produces:`
-      // post-install — the runner / UI both honor whatever's on the step.
       // A phase whose artifact is a branch / tag (e.g. `feature/<EPIC>-<slug>`,
       // `v<X.Y.Z> tag`) skips `produces:` because there's no file to gate on.
       const producesPath = artifactPathFor(p);
@@ -1160,13 +1158,15 @@ export function builtinClaudeCommand(
     ? `3. Write your output to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.artifact}\`.${templateHint} The AIDLC validator checks for this file when the step is marked done — the folder starts empty, so every file in it is one an agent wrote.`
     : `3. Complete the work (${phase.artifact}), then write a summary to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.id.toUpperCase()}-SUMMARY.md\` so the AIDLC validator has a file to check.`;
 
+  const rootSection = epicRootSection(epicRoot);
+
   return `---
 description: ${phase.description}
 ---
 
-${skillBody.trim()}
+${localizeEpicRoot(skillBody.trim(), epicRoot)}
 
-## Task
+${rootSection ? `${rootSection}\n\n` : ''}## Task
 
 The user invoked you with epic id \`$ARGUMENTS\`.
 

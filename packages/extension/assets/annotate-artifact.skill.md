@@ -30,7 +30,7 @@ command — its step 3 edits the render directly, the wrong layer here.
 - `[FILE.md]` — artifact to review, e.g. `PRD.md`. If omitted, list the `*.md` in the epic's
   artifacts folder and ask which one (default to `PRD.md` if it exists).
 
-Paths (relative to the open project): `ARTIFACTS = docs/epics/<epic>/artifacts`,
+Paths (relative to the open project): `ARTIFACTS = <root>/<epic>/artifacts`, with `<root>` = `state.root` in `.aidlc/workspace.yaml` (default `docs/epics`),
 `MD = $ARTIFACTS/<FILE>.md`, `HTML = $ARTIFACTS/<FILE without .md>.html`.
 Let `R = node "$HOME/.claude/tools/md-to-html.mjs"` and
 `A = node "$HOME/.claude/tools/annotron/bin/annotron"`.
@@ -114,7 +114,8 @@ By default Claude Code will ask before each file write. If you'd rather the loop
 stopping to confirm every round, add these to `.claude/settings.json` yourself (project or
 user-global) — the extension does NOT change your settings automatically:
 - `Bash(node:*)` and `Bash(curl:*)` — the renderer / annotron / poll commands.
-- `Edit(docs/epics/**)` and `Write(docs/epics/**)` — applying feedback to the `.md`.
+- `Edit(docs/epics/**)` and `Write(docs/epics/**)` — applying feedback to the `.md` (use your
+  `state.root` if it isn't `docs/epics`).
 
 Because the loop only ever edits the artifact under review (see Guardrails), scoping writes to
 `docs/epics/**` is safe: the human's real approval is the annotron review itself. Leaving the
