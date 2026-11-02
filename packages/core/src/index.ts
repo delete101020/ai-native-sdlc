@@ -337,6 +337,7 @@ export {
   USER_CONFIG_RELPATH,
   ensureUserConfigIgnored,
   readGitUserName,
+  readGitUserNameCached,
   readUserConfig,
   updateUserConfig,
   userConfigPath,

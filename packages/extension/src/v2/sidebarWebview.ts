@@ -22,11 +22,12 @@ const DEMO_DIR_NAME = 'aidlc-demo-project';
 /** How long the sidebar waits for more refresh calls before rebuilding. */
 const SIDEBAR_REFRESH_COALESCE_MS = 30;
 
-import { readYaml, writeYaml } from './yamlIO';
+import { readYaml, readYamlShared, writeYaml, type YamlDocument } from './yamlIO';
 import {
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
   RunStateStore,
+  type RunState,
   normalizeStep,
   resolveArtifactPath,
   relativeEpicRoot,
@@ -38,7 +39,7 @@ import {
   resolveEpicIdLabel,
   resolveEpicIdPrefixChain,
   readUserConfig,
-  readGitUserName,
+  readGitUserNameCached,
   writeUserEpicIdPrefix,
   ensureUserConfigIgnored,
   readEpicFocus,
@@ -273,7 +274,7 @@ function buildState(
   }
 
   const root = folder.uri.fsPath;
-  const doc = readYaml(root);
+  const doc = readYamlShared(root);
 
   // Epics live on disk independent of workspace.yaml — list them either way.
   const allEpics = listEpicsCached(root, doc);
@@ -335,8 +336,9 @@ function buildState(
 
   // Active pipeline runs live in .aidlc/runs/ and are independent of the
   // workspace doc — surface them whenever the folder is open.
-  const activeRuns = listActiveRuns(root, new Set(allEpics.map((e) => e.id)));
-  const runIds = listAllRunIds(root);
+  const allRuns = listAllRuns(root);
+  const activeRuns = listActiveRuns(root, doc, allRuns, new Set(allEpics.map((e) => e.id)));
+  const runIds = allRuns.map((r) => r.runId);
 
   if (!doc) {
     return {
@@ -466,7 +468,7 @@ function epicIdPrefixFields(root: string, doc: unknown): {
   const r = resolveEpicIdPrefixChain({
     user: readUserConfig(root),
     workspace: doc as { epic_id_prefix?: unknown },
-    gitUserName: readGitUserName(root),
+    gitUserName: readGitUserNameCached(root),
   });
   return {
     epicIdPrefix: r.prefix,
@@ -476,19 +478,21 @@ function epicIdPrefixFields(root: string, doc: unknown): {
   };
 }
 
-function listAllRunIds(root: string): string[] {
+function listAllRuns(root: string): RunState[] {
   try {
-    return RunStateStore.list(root).map((r) => r.runId);
+    return RunStateStore.list(root);
   } catch {
     return [];
   }
 }
 
-function listActiveRuns(root: string, epicIds: ReadonlySet<string>): ActiveRun[] {
+function listActiveRuns(
+  root: string,
+  doc: YamlDocument | null,
+  runs: readonly RunState[],
+  epicIds: ReadonlySet<string>,
+): ActiveRun[] {
   try {
-    // Read pipelines once so we can map runs → step config without
-    // re-parsing workspace.yaml per run.
-    const doc = readYaml(root);
     const pipelinesById = new Map<string, PipelineConfig>();
     // agent id → slash command name (including leading `/`). First wins
     // when multiple commands point at the same agent — the workspace
@@ -508,7 +512,7 @@ function listActiveRuns(root: string, epicIds: ReadonlySet<string>): ActiveRun[]
     }
 
     const epicRoot = relativeEpicRoot(doc);
-    return RunStateStore.list(root)
+    return runs
       .filter((r) => r.status === 'running')
       .map((r) => {
         // A DAG run keeps several steps open at once and `currentStepIdx` stays
@@ -649,6 +653,12 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     setTimeout(() => {
       this.refreshQueued = false;
       if (!this.view) { return; }
+      // Behind another view only the badge can be seen, and the visibility
+      // handler rebuilds the rest on the way back.
+      if (!this.view.visible) {
+        this.view.badge = stopsBadge(agentActivity.stopsSnapshot());
+        return;
+      }
       const state = buildState(this.presetStore, this.mcp);
       this.view.badge = stopsBadge(state.agentStops);
       void this.view.webview.postMessage({ type: 'state', state });

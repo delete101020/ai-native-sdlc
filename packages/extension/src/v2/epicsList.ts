@@ -761,6 +761,8 @@ interface EpicListingCache {
   dir: string;
   /** The workspace doc it was built from: pipelines decide most of a card. */
   docKey: string;
+  /** That doc as an object, so the shared one need not be serialized to compare. */
+  docRef: YamlDocument | null;
   /** Skill files the doc points at by path, which can live anywhere. */
   skillPaths: Set<string>;
   byFolder: Map<string, EpicSummary | null>;
@@ -791,16 +793,16 @@ export function listEpicsCached(workspaceRoot: string, doc: YamlDocument | null)
   const dir = epicsRoot(workspaceRoot, doc);
   if (!fs.existsSync(dir)) { listingCache = null; return []; }
 
-  const docKey = JSON.stringify(doc ?? null);
-  const now = Date.now();
   let cache = listingCache;
+  const docKey = cache && doc && cache.docRef === doc ? cache.docKey : JSON.stringify(doc ?? null);
+  const now = Date.now();
   if (!cache || cache.root !== workspaceRoot || cache.dir !== dir || cache.docKey !== docKey
     || now - cache.builtAt > EPIC_LISTING_MAX_AGE_MS) {
     const skillPaths = new Set((Array.isArray(doc?.skills) ? doc!.skills : [])
       .map((d) => (typeof d.path === 'string' && d.path ? expandHome(d.path) : ''))
       .filter(Boolean)
       .map((p) => path.resolve(workspaceRoot, p)));
-    cache = { root: workspaceRoot, dir, docKey, skillPaths, byFolder: new Map(), dirty: new Set(), builtAt: now };
+    cache = { root: workspaceRoot, dir, docKey, docRef: doc, skillPaths, byFolder: new Map(), dirty: new Set(), builtAt: now };
   }
 
   const folders = fs.readdirSync(dir, { withFileTypes: true })
@@ -813,7 +815,7 @@ export function listEpicsCached(workspaceRoot: string, doc: YamlDocument | null)
       ? cache.byFolder.get(folder) ?? null
       : readEpicSummary(workspaceRoot, doc, dir, folder, skillDescription));
   }
-  listingCache = { ...cache, byFolder, dirty: new Set(), declared: undefined };
+  listingCache = { ...cache, docRef: doc, byFolder, dirty: new Set(), declared: undefined };
 
   const epics: EpicSummary[] = [];
   for (const epic of byFolder.values()) {

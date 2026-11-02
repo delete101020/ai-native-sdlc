@@ -165,7 +165,7 @@ function describeExecError(err: unknown): string {
 }
 
 import * as jsYaml from 'js-yaml';
-import { readYaml, writeYaml, type YamlDocument } from './yamlIO';
+import { readYaml, readYamlShared, writeYaml, type YamlDocument } from './yamlIO';
 import {
   claudeConfigDir,
   claudeConfigEnv,
@@ -217,7 +217,7 @@ import {
   resolveEpicIdLabel,
   resolveEpicIdPrefixChain,
   readUserConfig,
-  readGitUserName,
+  readGitUserNameCached,
   suggestEpicId,
   EpicScaffoldError,
   asExtraInputs,
@@ -759,7 +759,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   }
 
   const root = folder.uri.fsPath;
-  const doc = readYaml(root);
+  const doc = readYamlShared(root);
   const discovered = discoverAssets(root);
 
   // agent display metadata + slash commands — only AIDLC agents have these
@@ -1071,7 +1071,7 @@ function epicIdPrefixState(root: string, doc: unknown) {
   return resolveEpicIdPrefixChain({
     user: readUserConfig(root),
     workspace: doc as { epic_id_prefix?: unknown },
-    gitUserName: readGitUserName(root),
+    gitUserName: readGitUserNameCached(root),
   });
 }
 
@@ -1087,7 +1087,7 @@ async function mergeEpicTokenUsageInto(state: WorkspaceState): Promise<void> {
   const root = folder.uri.fsPath;
   let summaries: CoreEpicSummary[];
   try {
-    summaries = listEpicsCached(root, readYaml(root));
+    summaries = listEpicsCached(root, readYamlShared(root));
   } catch { return; }
   try {
     await enrichEpicsWithUsage(root, summaries);
@@ -1825,6 +1825,7 @@ export class WorkspaceWebview {
   private producesGlobs: string[] = [];
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshQueued = false;
+  private refreshWhenVisible = false;
   private disposed = false;
   /** The state last posted, which a token walk in flight fills in. */
   private latestState: WorkspaceState | undefined;
@@ -1942,6 +1943,12 @@ export class WorkspaceWebview {
       this.disposables,
     );
     this.disposables.push(themeManager.register(this.panel.webview));
+    this.panel.onDidChangeViewState(() => {
+      if (this.panel.visible && this.refreshWhenVisible) {
+        this.refreshWhenVisible = false;
+        this.refresh();
+      }
+    }, null, this.disposables);
 
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (root) {
@@ -2030,6 +2037,9 @@ export class WorkspaceWebview {
     this.refreshQueued = true;
     setTimeout(() => {
       this.refreshQueued = false;
+      // A panel in a background tab shows nothing, so a run in flight should
+      // not rebuild it. It catches up when it comes back.
+      if (!this.panel.visible) { this.refreshWhenVisible = true; return; }
       void this.refreshAsync();
     }, REFRESH_COALESCE_MS);
   }
@@ -2041,7 +2051,7 @@ export class WorkspaceWebview {
    */
   private syncProducesWatchers(root: string): void {
     let globs: string[] = [];
-    try { globs = producesWatchGlobs(readYaml(root)); } catch { globs = []; }
+    try { globs = producesWatchGlobs(readYamlShared(root)); } catch { globs = []; }
     const unchanged = globs.length === this.producesGlobs.length
       && globs.every((g, i) => g === this.producesGlobs[i]);
     if (unchanged && this.producesWatchers.length > 0) { return; }
@@ -4316,7 +4326,7 @@ export class WorkspaceWebview {
    * overwritten, and nothing is written when everything is already there.
    */
   private ensureWorkflowProjectFiles(root: string): void {
-    const doc = readYaml(root);
+    const doc = readYamlShared(root);
     if (!doc) { return; }
     // Resolve the project's tech stack once: `stacks` drives `{{#if}}` block
     // rendering (secondary stacks survive), `lookupKeys` picks the most
@@ -4337,9 +4347,10 @@ export class WorkspaceWebview {
     // the Start-Epic "Auto" task-type suggestion has something to classify
     // against. Idempotent: planRecipeMigration returns null once recipes exist.
     const recipes = planRecipeMigration(doc as { recipes?: unknown; pipelines?: unknown });
-    if (recipes) {
-      (doc as { recipes?: unknown }).recipes = recipes;
-      writeYaml(root, doc);
+    const writable = recipes ? readYaml(root) : null;
+    if (recipes && writable) {
+      (writable as { recipes?: unknown }).recipes = recipes;
+      writeYaml(root, writable);
       rlog(`[migrate] back-filled ${recipes.length} recipe(s) from pipeline "${recipes[0].from}"`);
     }
   }

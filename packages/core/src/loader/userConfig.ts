@@ -124,6 +124,23 @@ export function readGitUserName(root: string): string | null {
   }
 }
 
+/** How long {@link readGitUserNameCached} trusts an answer. */
+const GIT_USER_NAME_MAX_AGE_MS = 5 * 60_000;
+const gitUserNames = new Map<string, { name: string | null; readAt: number }>();
+
+/**
+ * {@link readGitUserName} for code that runs on every refresh. Spawning git
+ * blocks the caller, and the answer only feeds a suggestion that can lag a
+ * changed identity by a few minutes.
+ */
+export function readGitUserNameCached(root: string, now: number = Date.now()): string | null {
+  const known = gitUserNames.get(root);
+  if (known && now - known.readAt < GIT_USER_NAME_MAX_AGE_MS) { return known.name; }
+  const name = readGitUserName(root);
+  gitUserNames.set(root, { name, readAt: now });
+  return name;
+}
+
 /**
  * Make sure `.gitignore` excludes the user config; returns true if it changed.
  *
