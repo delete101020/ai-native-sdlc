@@ -32,6 +32,7 @@ import {
   readEpicFocus,
   setActiveEpic,
   setEpicWatched,
+  resolveEpicIdLabel,
   resolveEpicIdPrefix,
   resolveEpicIdPrefixChain,
   suggestEpicId,
@@ -710,7 +711,7 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
     });
   cmd
     .command('next-id')
-    .description('Print the id to give the next epic — honours epic_id_prefix in .aidlc/user.yaml')
+    .description('Print the id to give the next epic — honours epic_id_label and epic_id_prefix')
     .action((_opts: unknown, actionCmd: Command) => {
       const root = resolveWorkspaceRoot(actionCmd);
       const doc  = requireYaml(root);
@@ -725,7 +726,8 @@ ${plan.length} pipeline(s) would move. Re-run without --dry-run.`));
         workspace: doc as { epic_id_prefix?: unknown },
         gitUserName: readGitUserName(root),
       });
-      console.log(suggestEpicId(existing, prefix));
+      const label = resolveEpicIdLabel(doc as { epic_id_label?: unknown });
+      console.log(suggestEpicId(existing, prefix, { label }));
     });
 
   // ── working set: current / use / watch / unwatch ──────────────────────────

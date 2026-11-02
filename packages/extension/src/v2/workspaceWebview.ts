@@ -214,6 +214,7 @@ import {
   setEpicDescription,
   EpicDescriptionError,
   commandBodyIsStale,
+  resolveEpicIdLabel,
   resolveEpicIdPrefixChain,
   readUserConfig,
   readGitUserName,
@@ -1053,9 +1054,12 @@ function listEpicIdsFromDir(workspaceRoot: string, epicRoot: string): string[] {
  * The id the Start-Epic modal opens with. Scoped by this checkout's
  * `epic_id_prefix` so two people on one repo are never offered the same one;
  * with no prefix declared this is the plain `EPIC-<nnn>` it always was.
+ * `epic_id_label` replaces the `EPIC` word in both.
  */
 function suggestNextEpicId(root: string, existing: string[], doc: unknown): string {
-  return suggestEpicId(existing, epicIdPrefixState(root, doc).prefix);
+  return suggestEpicId(existing, epicIdPrefixState(root, doc).prefix, {
+    label: resolveEpicIdLabel(doc as { epic_id_label?: unknown } | null),
+  });
 }
 
 /**

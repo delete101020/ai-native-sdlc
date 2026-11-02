@@ -443,6 +443,23 @@ first means sorting `docs/epics/` by name gives the team one timeline. Set it
 from the sidebar's **Epic ID prefix** box or by hand; from a terminal,
 `aidlc epic next-id` prints the next suggestion.
 
+Working alone? Pick **No prefix** in the sidebar's warning, or leave the box
+empty under **Project setup**. That writes `epic_id_prefix: false` to
+`.aidlc/user.yaml`: ids stay `EPIC-001` and the warning stops, even if
+`workspace.yaml` sets a shared prefix.
+
+The leading word is yours to change too. Set it in `workspace.yaml`, or in the
+sidebar's **Epic ID label** box under **Project setup**:
+
+```yaml
+epic_id_label: TASK
+```
+
+New epics become `TASK-001`, or `TASK-260908-NG-001` with a prefix. It is one
+word of up to 10 letters or digits, starting with a letter. It is shared with
+everyone on the repo, because it describes the project rather than the person.
+Existing epics keep their ids, and the counter for a new label starts at `001`.
+
 ## Epic depth — `strict_mode`
 
 A recipe decides *which steps* run; `strict_mode` decides *how far each one

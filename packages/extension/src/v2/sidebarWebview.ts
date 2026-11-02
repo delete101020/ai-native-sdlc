@@ -33,6 +33,9 @@ import {
   provisionDeclaredWorkflows,
   relativeEpicRoot,
   resolveArtifactLanguage,
+  DEFAULT_EPIC_ID_LABEL,
+  EPIC_ID_LABEL_PATTERN,
+  resolveEpicIdLabel,
   resolveEpicIdPrefixChain,
   readUserConfig,
   readGitUserName,
@@ -190,14 +193,16 @@ interface SidebarState {
    * `.aidlc/user.yaml` first and the shared `workspace.yaml` second — see
    * `resolveEpicIdPrefixChain`. */
   epicIdPrefix: string | null;
+  /** `epic_id_label` from workspace.yaml, or `EPIC`: the word new ids start with. */
+  epicIdLabel: string;
   /** Which file {@link epicIdPrefix} came from, so the UI can say when a
    * value inherited from the shared file is not yet this person’s own. */
   epicIdPrefixSource: EpicIdPrefixSource;
   /** Two letters derived from `git config user.name`, offered when this
    * checkout has none of its own. Never reaches an id unaccepted. */
   epicIdPrefixSuggestion: string | null;
-  /** True when `.aidlc/user.yaml` declares no prefix, whatever the shared
-   * file says — what the sidebar warning renders on. */
+  /** True when `.aidlc/user.yaml` neither names a prefix nor declines one,
+   * whatever the shared file says — what the sidebar warning renders on. */
   epicIdPrefixNeedsSetup: boolean;
   /**
    * Runs with an agent this window dispatched still working, keyed by run id.
@@ -259,6 +264,7 @@ function buildState(
       mcpError: mcp.error,
       artifactLanguage: null,
       epicIdPrefix: null,
+      epicIdLabel: DEFAULT_EPIC_ID_LABEL,
       epicIdPrefixSource: null,
       epicIdPrefixSuggestion: null,
       epicIdPrefixNeedsSetup: false,
@@ -354,6 +360,7 @@ function buildState(
       extraProjects: sidebarExtraProjects,
       artifactLanguage: null,
       epicIdPrefix: null,
+      epicIdLabel: DEFAULT_EPIC_ID_LABEL,
       epicIdPrefixSource: null,
       epicIdPrefixSuggestion: null,
       epicIdPrefixNeedsSetup: false,
@@ -405,6 +412,7 @@ function buildState(
     // free top-level string the schema knows about and this type does not.
     artifactLanguage: resolveArtifactLanguage(doc as { artifact_language?: unknown }),
     ...epicIdPrefixFields(root, doc),
+    epicIdLabel: resolveEpicIdLabel(doc as { epic_id_label?: unknown }),
     agentActivity: running,
     agentStops: stops,
   };
@@ -822,12 +830,38 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         this.refresh();
         return;
       }
+      case 'setEpicIdLabel': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) { return; }
+        const doc = readYaml(root);
+        if (!doc) { return; }
+        const next = String(msg.label ?? '').trim().toUpperCase();
+        if (next && !EPIC_ID_LABEL_PATTERN.test(next)) {
+          void vscode.window.showWarningMessage(
+            `epic_id_label must be one word of up to 10 letters or digits, starting with a letter — "${next}" was not saved.`,
+          );
+          this.refresh();
+          return;
+        }
+        // The default stays out of the file, so a workspace that never
+        // customised this has no key to explain.
+        if (next && next !== DEFAULT_EPIC_ID_LABEL) {
+          (doc as { epic_id_label?: string }).epic_id_label = next;
+        } else {
+          delete (doc as { epic_id_label?: string }).epic_id_label;
+        }
+        writeYaml(root, doc);
+        // Read when an id is suggested, so nothing regenerates, and epics
+        // already on disk keep the ids they were created with.
+        this.refresh();
+        return;
+      }
       case 'setEpicIdPrefix': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (!root) { return; }
         const next = String(msg.prefix ?? '').trim().toUpperCase();
-        // Empty removes the key rather than writing `""`: no prefix is a real
-        // choice, and it is the one every existing workspace already made.
+        // Empty is recorded as `false`, not by removing the key: no prefix is a
+        // real choice, and a missing key is what keeps the warning up.
         if (next && !EPIC_ID_PREFIX_PATTERN.test(next)) {
           void vscode.window.showWarningMessage(
             `epic_id_prefix must be exactly two letters — "${next}" was not saved.`,
@@ -835,12 +869,12 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           this.refresh();
           return;
         }
-        writeUserEpicIdPrefix(root, next || null);
+        writeUserEpicIdPrefix(root, next || false);
         // Ignore it the moment it exists, not at `init`: the workspaces that
         // most need this are the ones scaffolded before the file did.
-        if (next && ensureUserConfigIgnored(root)) {
+        if (ensureUserConfigIgnored(root)) {
           void vscode.window.showInformationMessage(
-            `Added ${USER_CONFIG_RELPATH} to .gitignore — your prefix stays yours.`,
+            `Added ${USER_CONFIG_RELPATH} to .gitignore — this setting stays yours.`,
           );
         }
         // Nothing to regenerate: the prefix is read when an id is *suggested*,

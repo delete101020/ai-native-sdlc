@@ -319,10 +319,13 @@ export {
 } from './loader/artifactLanguage';
 // Per-checkout epic id prefix, and the id suggester both front doors share.
 export {
+  DEFAULT_EPIC_ID_LABEL,
+  EPIC_ID_LABEL_PATTERN,
   EPIC_ID_PREFIX_KEY,
   EPIC_ID_PREFIX_PATTERN,
   deriveEpicIdPrefix,
   epicIdDateStamp,
+  resolveEpicIdLabel,
   resolveEpicIdPrefix,
   resolveEpicIdPrefixChain,
   suggestEpicId,

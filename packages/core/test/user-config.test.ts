@@ -61,6 +61,12 @@ describe('userConfig', () => {
     expect(readUserConfig(root)).toEqual({ keep_me: 'yes' });
   });
 
+  it('records declining a prefix instead of forgetting the question', () => {
+    writeUserEpicIdPrefix(root, 'KD');
+    writeUserEpicIdPrefix(root, false);
+    expect(readUserConfig(root)).toEqual({ epic_id_prefix: false });
+  });
+
   it('adds the ignore line once, and reports whether it changed anything', () => {
     expect(ensureUserConfigIgnored(root)).toBe(true);
     const first = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');

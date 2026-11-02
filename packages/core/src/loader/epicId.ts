@@ -34,6 +34,14 @@
  *
  * Unset means what it has always meant. With no prefix the suggestion is the
  * old `EPIC-<nnn>`, byte for byte.
+ *
+ * ## The leading word
+ *
+ * `EPIC` is only a default. `epic_id_label:` in workspace.yaml replaces it, so a
+ * project can call its work `TASK-001` or `SHOP-260908-NG-001`. It lives in the
+ * shared file, unlike the prefix, because it describes the project rather than
+ * the person: two checkouts with different labels would number separately and
+ * hand out ids that look unrelated.
  */
 
 /** The workspace.yaml key. */
@@ -71,6 +79,34 @@ export function resolveEpicIdPrefix(
   return EPIC_ID_PREFIX_PATTERN.test(upper) ? upper : null;
 }
 
+/** The leading word of an id when the workspace does not name its own. */
+export const DEFAULT_EPIC_ID_LABEL = 'EPIC';
+
+/**
+ * One uppercase word of up to ten characters.
+ *
+ * It has to start with a letter because every epic id must. No dashes, so the
+ * label stays one token and the id's fields can still be told apart. Ten is a
+ * cap for the same reason the prefix is short: this is typed as a slash-command
+ * argument and written into branch names.
+ */
+export const EPIC_ID_LABEL_PATTERN = /^[A-Z][A-Z0-9]{0,9}$/;
+
+/**
+ * The workspace's leading word, or {@link DEFAULT_EPIC_ID_LABEL}.
+ *
+ * Lenient like {@link resolveEpicIdPrefix}: lower case is upper-cased, and
+ * anything unusable falls back rather than stopping someone starting an epic.
+ */
+export function resolveEpicIdLabel(
+  doc: { epic_id_label?: unknown } | null | undefined,
+): string {
+  const raw = doc?.epic_id_label;
+  if (typeof raw !== 'string') { return DEFAULT_EPIC_ID_LABEL; }
+  const upper = raw.trim().toUpperCase();
+  return EPIC_ID_LABEL_PATTERN.test(upper) ? upper : DEFAULT_EPIC_ID_LABEL;
+}
+
 /**
  * `yymmdd` for a date, read in the machine's own timezone.
  *
@@ -96,22 +132,28 @@ function escapeRe(s: string): string {
  *
  * @param existing Directory names already under the epic root.
  * @param prefix The workspace's prefix, or `null` for the unprefixed scheme.
- * @param now Injectable for tests; defaults to right now, locally.
+ * @param options.label The id's leading word; defaults to `EPIC`.
+ * @param options.now Injectable for tests; defaults to right now, locally.
  *
  * With a prefix the counter is scoped to *this prefix on this day*, so it
  * restarts at `001` each morning. That is the point: the date already
  * separates the epics, and a number that only ever grows would say the same
  * thing twice while getting longer forever.
+ *
+ * The counter is scoped to the label too. Renaming it starts again at `001`,
+ * which cannot collide: the old epics keep their old word.
  */
 export function suggestEpicId(
   existing: readonly string[],
   prefix: string | null,
-  now: Date = new Date(),
+  options: { label?: string; now?: Date } = {},
 ): string {
-  const stamp = epicIdDateStamp(now);
+  const label = options.label ?? DEFAULT_EPIC_ID_LABEL;
+  const stamp = epicIdDateStamp(options.now ?? new Date());
+  const word = escapeRe(label);
   const pattern = prefix
-    ? new RegExp(`^EPIC-${escapeRe(stamp)}-${escapeRe(prefix)}-(\\d+)$`, 'i')
-    : /^EPIC-(\d+)$/i;
+    ? new RegExp(`^${word}-${escapeRe(stamp)}-${escapeRe(prefix)}-(\\d+)$`, 'i')
+    : new RegExp(`^${word}-(\\d+)$`, 'i');
 
   const numbered = existing
     .map((name) => name.match(pattern))
@@ -121,7 +163,7 @@ export function suggestEpicId(
 
   const next = numbered.length > 0 ? Math.max(...numbered) + 1 : 1;
   const seq = String(next).padStart(3, '0');
-  return prefix ? `EPIC-${stamp}-${prefix}-${seq}` : `EPIC-${seq}`;
+  return prefix ? `${label}-${stamp}-${prefix}-${seq}` : `${label}-${seq}`;
 }
 
 /**
@@ -170,8 +212,9 @@ export interface EpicIdPrefixResolution {
    */
   suggestion: string | null;
   /**
-   * True when `.aidlc/user.yaml` declares nothing, whatever the shared file
-   * says. This is what the sidebar and the Start Epic modal warn on.
+   * True when `.aidlc/user.yaml` neither names a prefix nor declines one,
+   * whatever the shared file says. This is what the sidebar and the Start Epic
+   * modal warn on.
    */
   needsSetup: boolean;
 }
@@ -193,6 +236,11 @@ export interface EpicIdPrefixResolution {
  * silently renumber their next epic. It keeps generating ids, `aidlc validate`
  * says it should move, and `needsSetup` stays true so the UI keeps offering to
  * move it — but nobody's ids break in the meantime.
+ *
+ * `epic_id_prefix: false` in `.aidlc/user.yaml` is the answer "none, on
+ * purpose" — the right one for a repo with one person in it. It settles the
+ * question, and it outranks the shared key for the same reason a chosen prefix
+ * does: the person at this keyboard decided.
  */
 export function resolveEpicIdPrefixChain(input: {
   /** Parsed `.aidlc/user.yaml`. */
@@ -206,12 +254,14 @@ export function resolveEpicIdPrefixChain(input: {
   const workspace = resolveEpicIdPrefix(input.workspace);
   const derived = deriveEpicIdPrefix(input.gitUserName);
 
-  const prefix = user ?? workspace;
-  const source: EpicIdPrefixSource = user ? 'user' : workspace ? 'workspace' : null;
+  const declined = input.user?.epic_id_prefix === false;
+
+  const prefix = declined ? null : user ?? workspace;
+  const source: EpicIdPrefixSource = user ? 'user' : prefix ? 'workspace' : null;
 
   // The derived value wins the suggestion slot over the shared file's: it
   // describes the person sitting here, where the shared one describes whoever
   // committed it. Falling back to the shared value keeps the offer useful on a
   // machine with no git identity configured.
-  return { prefix, source, suggestion: derived ?? workspace, needsSetup: user === null };
+  return { prefix, source, suggestion: derived ?? workspace, needsSetup: user === null && !declined };
 }

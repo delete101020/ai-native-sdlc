@@ -32,6 +32,7 @@ import {
   CircleCheck,
   BellRing,
   type LucideIcon,
+  Tag,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -121,6 +122,7 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
                 stays in view until it is dealt with. */}
             {setupNeeded && (
               <EpicIdPrefixRow
+                label={state.epicIdLabel}
                 value={state.epicIdPrefix}
                 source={state.epicIdPrefixSource}
                 suggestion={state.epicIdPrefixSuggestion}
@@ -163,8 +165,10 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
                   <span>Open workspace.yaml</span>
                 </button>
                 <ArtifactLanguageRow value={state.artifactLanguage} />
+                <EpicIdLabelRow value={state.epicIdLabel} />
                 {!setupNeeded && (
                   <EpicIdPrefixRow
+                    label={state.epicIdLabel}
                     value={state.epicIdPrefix}
                     source={state.epicIdPrefixSource}
                     suggestion={state.epicIdPrefixSuggestion}
@@ -329,10 +333,48 @@ function ArtifactLanguageRow({ value }: { value: string | null }) {
  * that already exists.
  */
 /**
+ * The word this project's epic ids start with, `EPIC` unless renamed.
+ *
+ * Emptying the box goes back to the default, which the placeholder shows.
+ */
+function EpicIdLabelRow({ value }: { value: string }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { setDraft(value); }, [value]);
+
+  const invalid = draft !== '' && !/^[A-Za-z][A-Za-z0-9]{0,9}$/.test(draft);
+  const commit = () => {
+    if (invalid) { return; }
+    const next = draft.toUpperCase();
+    if (next !== value) { postMessage({ type: 'setEpicIdLabel', label: next }); }
+  };
+
+  return (
+    <label
+      className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground"
+      title={`epic_id_label in workspace.yaml, shared with everyone on this repo — one word of up to 10 letters or digits, so new epics start ${value}-001. Epics that already exist keep their ids. Leave it empty for EPIC.`}
+    >
+      <Tag className="h-3.5 w-3.5 shrink-0" />
+      <span className="shrink-0">Epic ID label</span>
+      <input
+        value={draft}
+        maxLength={10}
+        placeholder="EPIC"
+        spellCheck={false}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
+        className={`ml-auto w-24 min-w-0 rounded border bg-surface px-1.5 py-0.5 text-center text-[11px] uppercase text-foreground ${invalid ? 'border-destructive' : 'border-border'}`}
+      />
+    </label>
+  );
+}
+
+/**
  * The two letters that scope this checkout's epic ids.
  *
- * The row has two faces. Once `.aidlc/user.yaml` names a prefix it is the
- * quiet input it always was. Until then it is a warning, because the unset
+ * The row has two faces. Once `.aidlc/user.yaml` names a prefix, or says
+ * `epic_id_prefix: false` for none, it is the quiet input it always was. Until
+ * then it is a warning, because the unset
  * state used to be an empty box with a "none" placeholder — indistinguishable
  * from a box someone had already looked at and left alone, which is how a
  * whole team ends up sharing one person's initials.
@@ -340,11 +382,12 @@ function ArtifactLanguageRow({ value }: { value: string | null }) {
  * Two things are deliberately *not* done here. A derived prefix is offered,
  * never applied: guessing someone's initials and stamping them on every epic
  * they open is the same mistake as inheriting a colleague's. And there is no
- * pop-up on activation — leaving the prefix unset is a legitimate choice for a
- * one-person repo, and nagging the people who made it correctly is worse than
- * a warning they can see when they look.
+ * pop-up on activation — nagging is worse than a warning they can see when they
+ * look. Having no prefix is a legitimate choice for a one-person repo, so the
+ * warning offers it as an answer, and giving that answer dismisses it for good.
  */
-function EpicIdPrefixRow({ value, source, suggestion, needsSetup }: {
+function EpicIdPrefixRow({ label, value, source, suggestion, needsSetup }: {
+  label: string;
   value: string | null;
   source: EpicIdPrefixSource;
   suggestion: string | null;
@@ -364,6 +407,10 @@ function EpicIdPrefixRow({ value, source, suggestion, needsSetup }: {
   const commit = () => {
     if (invalid) { return; }
     const next = draft.toUpperCase();
+    // Saving empty means "no prefix". In the settled row, clearing the box says
+    // that. In the warning it only says the field was emptied on the way to
+    // typing something else; there the answer is the "No prefix" button.
+    if (needsSetup && next === '') { return; }
     // While unset, committing the untouched suggestion is the whole point, so
     // this cannot short-circuit on "same as current" the way the settled row does.
     if (needsSetup || next !== (value ?? '')) { save(next); }
@@ -386,7 +433,7 @@ function EpicIdPrefixRow({ value, source, suggestion, needsSetup }: {
     return (
       <label
         className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground"
-        title="epic_id_prefix in .aidlc/user.yaml — two letters of your own, so a new epic is suggested as EPIC-260908-NG-001 instead of a number a colleague may already be using. This file is gitignored: your prefix stays yours. Clear it for plain EPIC-001."
+        title={`epic_id_prefix in .aidlc/user.yaml — two letters of your own, so a new epic is suggested as ${label}-260908-NG-001 instead of a number a colleague may already be using. This file is gitignored: your prefix stays yours. Leave it empty for plain ${label}-001.`}
       >
         <Fingerprint className="h-3.5 w-3.5 shrink-0" />
         <span className="shrink-0">Epic ID prefix</span>
@@ -409,7 +456,7 @@ function EpicIdPrefixRow({ value, source, suggestion, needsSetup }: {
             their epics under it. Claim two letters of your own.
           </>
         ) : (
-          <>New epics are named <code className="font-mono text-foreground">EPIC-001</code> — a
+          <>New epics are named <code className="font-mono text-foreground">{label}-001</code> — a
           number a colleague may already be using. Two letters of your own keep them apart.</>
         )}
       </p>
@@ -422,6 +469,17 @@ function EpicIdPrefixRow({ value, source, suggestion, needsSetup }: {
           className="rounded-md border border-warning/50 bg-warning/20 px-2 py-1 text-[10.5px] font-semibold text-foreground transition-colors hover:bg-warning/30 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Use {draft.toUpperCase() || '—'}
+        </button>
+        {/* preventDefault keeps focus in the field: letting it blur would save
+            the suggestion just before this click declines it. */}
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => save('')}
+          title={`Working alone? New epics stay plain ${label}-001 and this warning goes away. You can still set a prefix under Project setup.`}
+          className="rounded-md border border-border px-2 py-1 text-[10.5px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          No prefix
         </button>
         {suggestion && (
           <span className="text-[10px] text-muted-foreground">from your git user.name</span>

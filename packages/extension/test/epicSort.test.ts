@@ -95,11 +95,13 @@ describe('isOwnEpic', () => {
     expect(isOwnEpic('epic-260908-ng-001', 'NG')).toBe(true);
     expect(isOwnEpic('EPIC-NG-003', 'NG')).toBe(true);
     expect(isOwnEpic('EPIC-260908-NG-001-W2', 'NG')).toBe(true);
+    expect(isOwnEpic('TASK-260908-NG-001', 'NG')).toBe(true);
   });
 
   it('does not match other people, bare numbers, or no prefix', () => {
     expect(isOwnEpic('EPIC-260908-KD-001', 'NG')).toBe(false);
     expect(isOwnEpic('EPIC-001', 'NG')).toBe(false);
+    expect(isOwnEpic('TASK-260908-KD-001', 'NG')).toBe(false);
     expect(isOwnEpic('EPIC-260908-NG-001', null)).toBe(false);
   });
 });

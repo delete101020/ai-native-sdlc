@@ -1102,6 +1102,15 @@ export const WorkspaceSchema = z.object({
   epic_id_prefix: z.string().regex(/^[A-Za-z]{2}$/, 'epic_id_prefix must be exactly two letters').optional(),
 
   /**
+   * The word new epic ids start with, in place of `EPIC`: `TASK-001`,
+   * `SHOP-260908-NG-001`. Validated for the same reason as `epic_id_prefix`.
+   */
+  epic_id_label: z.string().regex(
+    /^[A-Za-z][A-Za-z0-9]{0,9}$/,
+    'epic_id_label must be one word of up to 10 letters or digits, starting with a letter',
+  ).optional(),
+
+  /**
    * Whether an epic's artifacts are committed to a branch of their own as each
    * step passes its human gate. See `runs/EpicArtifactCommit.ts`.
    *
