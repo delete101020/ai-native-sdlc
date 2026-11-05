@@ -1,10 +1,10 @@
 # Implementation Summary — [Epic Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Author:** Developer
-**Branch:** `feature/$EPIC_ID-<slug>`
+**Branch:** `feature/<epic-id>-<slug>`
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 
 ---
 
@@ -12,7 +12,7 @@
 
 | Item   | Value |
 |--------|-------|
-| Branch | `feature/$EPIC_ID-<slug>` |
+| Branch | `feature/<epic-id>-<slug>` |
 | PR     | *(link once opened)* |
 | Base   | `main` |
 
@@ -65,7 +65,7 @@ None.
 > Tests authored first (red), then the implementation made them pass (green).
 > Prefer testing behavior through the rendered DOM over implementation details.
 
-| Test file | Cases (`$EPIC_ID-UT*`) | Type (happy / error / edge) |
+| Test file | Cases (`<epic-id>-UT*`) | Type (happy / error / edge) |
 |-----------|------------------------|------------------------------|
 | `src/components/__tests__/...` | | |
 
@@ -91,7 +91,7 @@ None.
 - [ ] Whole-project coverage re-run and recorded in §6
 - [ ] No new console errors / warnings in dev mode
 - [ ] Accessibility checklist (§4) reviewed
-- [ ] PR body references epic key `$EPIC_ID`
+- [ ] PR body references epic key `<epic-id>`
 - [ ] Reviewer assigned
 
 ## 8. Known Limitations / Follow-ups

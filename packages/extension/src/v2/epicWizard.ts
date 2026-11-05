@@ -40,6 +40,7 @@ import {
   WORKSPACE_FILENAME,
   type TaskTypeVerdict,
   type RecipeConfig,
+  resolveEpicIdLabel,
   resolveEpicIdPrefixChain,
   readUserConfig,
   suggestEpicId,
@@ -740,7 +741,8 @@ function readEpicRoot(doc: YamlDocument): string {
  * `.aidlc/user.yaml` first, then the shared `workspace.yaml`: with one declared the
  * suggestion is `EPIC-<yymmdd>-<XX>-<nnn>` and the counter is scoped to that
  * prefix on today, and without one it is the plain `EPIC-<nnn>` this wizard has
- * always offered. Either way the user can still type whatever they like — the
+ * always offered. `epic_id_label` replaces the `EPIC` word in both. Either way
+ * the user can still type whatever they like — the
  * suggestion is a default, not a rule.
  */
 async function pickEpicId(
@@ -761,10 +763,11 @@ async function pickEpicId(
       user: readUserConfig(workspaceRoot),
       workspace: doc as { epic_id_prefix?: unknown },
     }).prefix,
+    { label: resolveEpicIdLabel(doc as { epic_id_label?: unknown }) },
   );
   const id = await vscode.window.showInputBox({
     prompt: 'Epic id',
-    placeHolder: 'e.g. EPIC-001 (uppercase + dashes + digits)',
+    placeHolder: `e.g. ${suggested} (uppercase + dashes + digits)`,
     value: suggested,
     ignoreFocusOut: true,
     validateInput: (v) => {

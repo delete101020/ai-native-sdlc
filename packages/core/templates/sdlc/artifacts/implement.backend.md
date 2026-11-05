@@ -1,10 +1,10 @@
 # Implementation Summary — [Epic Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Author:** Developer
-**Branch:** `feature/$EPIC_ID-<slug>`
+**Branch:** `feature/<epic-id>-<slug>`
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 
 ---
 
@@ -12,7 +12,7 @@
 
 | Item   | Value |
 |--------|-------|
-| Branch | `feature/$EPIC_ID-<slug>` |
+| Branch | `feature/<epic-id>-<slug>` |
 | PR     | *(link once opened)* |
 | Base   | `main` |
 
@@ -59,7 +59,7 @@ None.
 
 > Tests authored first (red), then the implementation made them pass (green).
 
-| Test file | Cases (`$EPIC_ID-UT*`) | Type (happy / error / edge) |
+| Test file | Cases (`<epic-id>-UT*`) | Type (happy / error / edge) |
 |-----------|------------------------|------------------------------|
 | `src/.../__tests__/...` | | |
 
@@ -88,7 +88,7 @@ None.
 - [ ] Whole-project coverage re-run and recorded in §7
 - [ ] Migrations reviewed and reversible (§4)
 - [ ] API contract documented (§3)
-- [ ] PR body references epic key `$EPIC_ID`
+- [ ] PR body references epic key `<epic-id>`
 - [ ] Reviewer assigned
 
 ## 9. Known Limitations / Follow-ups

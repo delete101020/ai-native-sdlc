@@ -1,9 +1,9 @@
 # PRD — [Epic Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Author:** Product Owner
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 
 ---
 

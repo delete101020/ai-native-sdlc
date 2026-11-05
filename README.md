@@ -27,6 +27,15 @@ Code transcript.
 
 ![aidlc demo](packages/extension/media/demo.gif)
 
+## ✨ What's New in v4.0.51 — your epic ids, your epic folder (this fork)
+
+- **🏷️ Epic ids your way** — `epic_id_prefix: false` in `.aidlc/user.yaml` declines the prefix and stops the sidebar warning; `epic_id_label` in `workspace.yaml` replaces the `EPIC` word, as in `TASK-001`.
+- **📁 `state.root` that holds** — bundled personas and skills, and the `produces` gates of built-in pipelines, follow a moved epic folder. `{epic_root}` names it in `produces` and `requires`; existing `docs/epics/{epic}/` paths follow it too, and `aidlc dashboard` watches it.
+- **⚡ Much lighter in the background** — the token status bar reads only what was appended to a transcript, and a hidden panel or sidebar waits until it is shown.
+- **🧹 Fixes** — template placeholders such as `{{EPIC_ID}}` no longer reach agents as literal text, and the month's token total leaves out messages from before the 1st.
+
+---
+
 ## ✨ What's New in v4.0.35 – v4.0.50 — autopilot (this fork)
 
 - **🤖 Autopilot** — once a person has approved intent and build-plan, a run carries on to review unattended (`autopilot: true`, the `native-autopilot` recipe, or the Builder's loop settings). A reviewer's rejection goes back to `on_reject.send_back_to` with its findings as the feedback, up to `max_send_backs`; long steps run in `batches`, every step can have `timeout_minutes`, and the run stops cleanly before a step that needs a person. It refuses `main` and a dirty tree, except to resume a run cut short (out of usage, timed out, **Stop now**) from the code it left behind. Steps approved by auto-approve are marked as such.
@@ -429,8 +438,8 @@ To run unreleased changes. **The extension:**
 
 ```sh
 pnpm install
-pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.50.vsix
-code --install-extension packages/extension/aidlc-native-4.0.50.vsix
+pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.51.vsix
+code --install-extension packages/extension/aidlc-native-4.0.51.vsix
 ```
 
 Reload the window afterwards. A `.vsix` installs over the Marketplace copy (same
@@ -441,7 +450,7 @@ id), and the next Marketplace update replaces it again.
 ```sh
 pnpm -r compile
 cd packages/cli && pnpm bundle && npm link               # `aidlc` on your PATH
-aidlc --version                                          # 4.0.50
+aidlc --version                                          # 4.0.51
 ```
 
 To pick up later changes, re-run the same two commands — `npm link` points at

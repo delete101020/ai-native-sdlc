@@ -1,7 +1,7 @@
 ---
 name: discovery-gate
 description: Human-in-the-loop discovery gate — when a phase accumulates open questions before it can produce a good artifact, turn them into a point-and-click questionnaire (DISCOVERY.md), open it in annotron, let the human answer/annotate, then resume the phase from the confirmed choices. Invoke via /discovery-gate <epic>. This is a gate any phase runs up front, NOT a separate phase.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # /discovery-gate — confirm open questions before the phase commits

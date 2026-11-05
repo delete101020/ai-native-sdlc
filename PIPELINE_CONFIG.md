@@ -265,6 +265,22 @@ There is no `spec`. If an epic needs one, start it on `ai-native-full` and add
 Once you trust the validators, set `review: { human_review: false }` in the
 recipe. A `ship` then completes the run, and you only merge the PR.
 
+## Epic paths in `produces` and `requires`
+
+`{epic_root}` is the workspace's `state.root`, and `{epic}` is the epic id:
+
+```yaml
+produces:
+  - "{epic_root}/{epic}/artifacts/PRD.md"
+```
+
+Keep the quotes: YAML reads an unquoted value starting with `{` as a mapping.
+
+Built-in pipelines use this form, so they keep working when `state.root` moves.
+Pipelines written before it existed say `docs/epics/{epic}/...`. That prefix
+also follows `state.root`, so they need no edit. Any other path is used as
+written.
+
 ## Optional `produces` entries
 
 Output written only sometimes (a diagram rendered when there is something to
@@ -442,6 +458,23 @@ opened (`yymmdd`), the prefix, then a counter that restarts each day. Date
 first means sorting `docs/epics/` by name gives the team one timeline. Set it
 from the sidebar's **Epic ID prefix** box or by hand; from a terminal,
 `aidlc epic next-id` prints the next suggestion.
+
+Working alone? Pick **No prefix** in the sidebar's warning, or leave the box
+empty under **Project setup**. That writes `epic_id_prefix: false` to
+`.aidlc/user.yaml`: ids stay `EPIC-001` and the warning stops, even if
+`workspace.yaml` sets a shared prefix.
+
+The leading word is yours to change too. Set it in `workspace.yaml`, or in the
+sidebar's **Epic ID label** box under **Project setup**:
+
+```yaml
+epic_id_label: TASK
+```
+
+New epics become `TASK-001`, or `TASK-260908-NG-001` with a prefix. It is one
+word of up to 10 letters or digits, starting with a letter. It is shared with
+everyone on the repo, because it describes the project rather than the person.
+Existing epics keep their ids, and the counter for a new label starts at `001`.
 
 ## Epic depth — `strict_mode`
 

@@ -310,6 +310,17 @@ aidlc epic watch [id] · epic unwatch <id>       # listed under My epics in the 
 aidlc epic archive <id> · epic unarchive <id>   # hide from the list; nothing is deleted
 ```
 
+**Epic ids.** `aidlc epic next-id` honours two settings. `epic_id_label` in
+`workspace.yaml` replaces the `EPIC` word, as in `TASK-001`; existing epics keep
+their ids, and the counter is per label. `epic_id_prefix` in `.aidlc/user.yaml`
+is your own two letters, and `epic_id_prefix: false` there declines a prefix on
+purpose, even when `workspace.yaml` has a shared one.
+
+**A moved epic folder.** Use `{epic_root}` in a pipeline's `produces` and
+`requires` paths to name `state.root`. Paths written as `docs/epics/{epic}/`
+follow it too, so existing pipelines need no edit. Changing `state.root` doesn't
+move epics already on disk.
+
 **Changing a running epic's steps.** `<step>` is a step name, an agent id or a
 0-based index.
 

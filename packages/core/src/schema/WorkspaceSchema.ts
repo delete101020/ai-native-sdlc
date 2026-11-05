@@ -142,6 +142,7 @@ export type ProducesEntry = z.infer<typeof ProducesEntrySchema>;
  * from the run's context map at execution time — e.g.
  * `docs/epics/{epic}/PRD.md` becomes
  * `docs/epics/EPIC-2100/PRD.md` for a run with `context.epic == "EPIC-2100"`.
+ * `{epic_root}` is the workspace's `state.root`, wherever the epics live.
  */
 const PipelineStepObjectSchema = z
   .object({
@@ -1100,6 +1101,15 @@ export const WorkspaceSchema = z.object({
    * See `loader/epicId.ts`.
    */
   epic_id_prefix: z.string().regex(/^[A-Za-z]{2}$/, 'epic_id_prefix must be exactly two letters').optional(),
+
+  /**
+   * The word new epic ids start with, in place of `EPIC`: `TASK-001`,
+   * `SHOP-260908-NG-001`. Validated for the same reason as `epic_id_prefix`.
+   */
+  epic_id_label: z.string().regex(
+    /^[A-Za-z][A-Za-z0-9]{0,9}$/,
+    'epic_id_label must be one word of up to 10 letters or digits, starting with a letter',
+  ).optional(),
 
   /**
    * Whether an epic's artifacts are committed to a branch of their own as each

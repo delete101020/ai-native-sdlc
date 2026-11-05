@@ -22,26 +22,29 @@ const DEMO_DIR_NAME = 'aidlc-demo-project';
 /** How long the sidebar waits for more refresh calls before rebuilding. */
 const SIDEBAR_REFRESH_COALESCE_MS = 30;
 
-import { readYaml, writeYaml } from './yamlIO';
+import { readYaml, readYamlShared, writeYaml, type YamlDocument } from './yamlIO';
 import {
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
   RunStateStore,
+  type RunState,
   normalizeStep,
-  resolvePath,
-  discoverAssets,
-  provisionDeclaredWorkflows,
+  resolveArtifactPath,
   relativeEpicRoot,
+  discoverAssets,
+  refreshWorkspaceCommands,
   resolveArtifactLanguage,
+  DEFAULT_EPIC_ID_LABEL,
+  EPIC_ID_LABEL_PATTERN,
+  resolveEpicIdLabel,
   resolveEpicIdPrefixChain,
   readUserConfig,
-  readGitUserName,
+  readGitUserNameCached,
   writeUserEpicIdPrefix,
   ensureUserConfigIgnored,
   readEpicFocus,
   USER_CONFIG_RELPATH,
   EPIC_ID_PREFIX_PATTERN,
-  writeTwoLayerCommands,
   isActiveStatus,
 } from '@aidlc/core';
 import type { PipelineConfig, DiscoveredAsset, EpicIdPrefixSource } from '@aidlc/core';
@@ -190,14 +193,16 @@ interface SidebarState {
    * `.aidlc/user.yaml` first and the shared `workspace.yaml` second — see
    * `resolveEpicIdPrefixChain`. */
   epicIdPrefix: string | null;
+  /** `epic_id_label` from workspace.yaml, or `EPIC`: the word new ids start with. */
+  epicIdLabel: string;
   /** Which file {@link epicIdPrefix} came from, so the UI can say when a
    * value inherited from the shared file is not yet this person’s own. */
   epicIdPrefixSource: EpicIdPrefixSource;
   /** Two letters derived from `git config user.name`, offered when this
    * checkout has none of its own. Never reaches an id unaccepted. */
   epicIdPrefixSuggestion: string | null;
-  /** True when `.aidlc/user.yaml` declares no prefix, whatever the shared
-   * file says — what the sidebar warning renders on. */
+  /** True when `.aidlc/user.yaml` neither names a prefix nor declines one,
+   * whatever the shared file says — what the sidebar warning renders on. */
   epicIdPrefixNeedsSetup: boolean;
   /**
    * Runs with an agent this window dispatched still working, keyed by run id.
@@ -259,6 +264,7 @@ function buildState(
       mcpError: mcp.error,
       artifactLanguage: null,
       epicIdPrefix: null,
+      epicIdLabel: DEFAULT_EPIC_ID_LABEL,
       epicIdPrefixSource: null,
       epicIdPrefixSuggestion: null,
       epicIdPrefixNeedsSetup: false,
@@ -268,7 +274,7 @@ function buildState(
   }
 
   const root = folder.uri.fsPath;
-  const doc = readYaml(root);
+  const doc = readYamlShared(root);
 
   // Epics live on disk independent of workspace.yaml — list them either way.
   const allEpics = listEpicsCached(root, doc);
@@ -330,8 +336,9 @@ function buildState(
 
   // Active pipeline runs live in .aidlc/runs/ and are independent of the
   // workspace doc — surface them whenever the folder is open.
-  const activeRuns = listActiveRuns(root, new Set(allEpics.map((e) => e.id)));
-  const runIds = listAllRunIds(root);
+  const allRuns = listAllRuns(root);
+  const activeRuns = listActiveRuns(root, doc, allRuns, new Set(allEpics.map((e) => e.id)));
+  const runIds = allRuns.map((r) => r.runId);
 
   if (!doc) {
     return {
@@ -354,6 +361,7 @@ function buildState(
       extraProjects: sidebarExtraProjects,
       artifactLanguage: null,
       epicIdPrefix: null,
+      epicIdLabel: DEFAULT_EPIC_ID_LABEL,
       epicIdPrefixSource: null,
       epicIdPrefixSuggestion: null,
       epicIdPrefixNeedsSetup: false,
@@ -405,6 +413,7 @@ function buildState(
     // free top-level string the schema knows about and this type does not.
     artifactLanguage: resolveArtifactLanguage(doc as { artifact_language?: unknown }),
     ...epicIdPrefixFields(root, doc),
+    epicIdLabel: resolveEpicIdLabel(doc as { epic_id_label?: unknown }),
     agentActivity: running,
     agentStops: stops,
   };
@@ -459,7 +468,7 @@ function epicIdPrefixFields(root: string, doc: unknown): {
   const r = resolveEpicIdPrefixChain({
     user: readUserConfig(root),
     workspace: doc as { epic_id_prefix?: unknown },
-    gitUserName: readGitUserName(root),
+    gitUserName: readGitUserNameCached(root),
   });
   return {
     epicIdPrefix: r.prefix,
@@ -469,19 +478,21 @@ function epicIdPrefixFields(root: string, doc: unknown): {
   };
 }
 
-function listAllRunIds(root: string): string[] {
+function listAllRuns(root: string): RunState[] {
   try {
-    return RunStateStore.list(root).map((r) => r.runId);
+    return RunStateStore.list(root);
   } catch {
     return [];
   }
 }
 
-function listActiveRuns(root: string, epicIds: ReadonlySet<string>): ActiveRun[] {
+function listActiveRuns(
+  root: string,
+  doc: YamlDocument | null,
+  runs: readonly RunState[],
+  epicIds: ReadonlySet<string>,
+): ActiveRun[] {
   try {
-    // Read pipelines once so we can map runs → step config without
-    // re-parsing workspace.yaml per run.
-    const doc = readYaml(root);
     const pipelinesById = new Map<string, PipelineConfig>();
     // agent id → slash command name (including leading `/`). First wins
     // when multiple commands point at the same agent — the workspace
@@ -500,7 +511,8 @@ function listActiveRuns(root: string, epicIds: ReadonlySet<string>): ActiveRun[]
       }
     }
 
-    return RunStateStore.list(root)
+    const epicRoot = relativeEpicRoot(doc);
+    return runs
       .filter((r) => r.status === 'running')
       .map((r) => {
         // A DAG run keeps several steps open at once and `currentStepIdx` stays
@@ -531,12 +543,12 @@ function listActiveRuns(root: string, epicIds: ReadonlySet<string>): ActiveRun[]
           feedback: step?.feedback,
           produces: norm
             ? norm.produces.map((p) => {
-                const a = resolveArtifact(root, p, r.context);
+                const a = resolveArtifact(root, p, r.context, epicRoot);
                 return norm.produces_optional.includes(p) ? { ...a, optional: true } : a;
               })
             : [],
           requires: norm
-            ? norm.requires.map((p) => resolveArtifact(root, p, r.context))
+            ? norm.requires.map((p) => resolveArtifact(root, p, r.context, epicRoot))
             : [],
           currentSlashCommand: agent ? slashByAgent.get(agent) : undefined,
         };
@@ -550,8 +562,9 @@ function resolveArtifact(
   root: string,
   template: string,
   context: Record<string, string>,
+  epicRoot: string,
 ): ArtifactPath {
-  const resolved = resolvePath(template, context);
+  const resolved = resolveArtifactPath(template, context, epicRoot);
   const abs = path.isAbsolute(resolved) ? resolved : path.join(root, resolved);
   return { path: resolved, exists: fs.existsSync(abs) };
 }
@@ -640,6 +653,12 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     setTimeout(() => {
       this.refreshQueued = false;
       if (!this.view) { return; }
+      // Behind another view only the badge can be seen, and the visibility
+      // handler rebuilds the rest on the way back.
+      if (!this.view.visible) {
+        this.view.badge = stopsBadge(agentActivity.stopsSnapshot());
+        return;
+      }
       const state = buildState(this.presetStore, this.mcp);
       this.view.badge = stopsBadge(state.agentStops);
       void this.view.webview.postMessage({ type: 'state', state });
@@ -809,11 +828,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         // that predates `artifact_language` has bodies that never look. This
         // refreshes exactly those; see `commandBodyPredatesArtifactLanguage`.
         try {
-          const pipelineIds = (doc.pipelines ?? []).map((p) => String(p.id ?? '')).filter(Boolean);
-          writeTwoLayerCommands(root, { epicRoot: relativeEpicRoot(doc) });
-          provisionDeclaredWorkflows(this.extensionUri.fsPath, root, pipelineIds, {
-            epicRoot: relativeEpicRoot(doc),
-          });
+          refreshWorkspaceCommands(this.extensionUri.fsPath, root, doc);
         } catch (err) {
           // A refresh that fails leaves the setting written and the old bodies
           // in place — worth logging, not worth failing the edit over.
@@ -822,12 +837,38 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         this.refresh();
         return;
       }
+      case 'setEpicIdLabel': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) { return; }
+        const doc = readYaml(root);
+        if (!doc) { return; }
+        const next = String(msg.label ?? '').trim().toUpperCase();
+        if (next && !EPIC_ID_LABEL_PATTERN.test(next)) {
+          void vscode.window.showWarningMessage(
+            `epic_id_label must be one word of up to 10 letters or digits, starting with a letter — "${next}" was not saved.`,
+          );
+          this.refresh();
+          return;
+        }
+        // The default stays out of the file, so a workspace that never
+        // customised this has no key to explain.
+        if (next && next !== DEFAULT_EPIC_ID_LABEL) {
+          (doc as { epic_id_label?: string }).epic_id_label = next;
+        } else {
+          delete (doc as { epic_id_label?: string }).epic_id_label;
+        }
+        writeYaml(root, doc);
+        // Read when an id is suggested, so nothing regenerates, and epics
+        // already on disk keep the ids they were created with.
+        this.refresh();
+        return;
+      }
       case 'setEpicIdPrefix': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (!root) { return; }
         const next = String(msg.prefix ?? '').trim().toUpperCase();
-        // Empty removes the key rather than writing `""`: no prefix is a real
-        // choice, and it is the one every existing workspace already made.
+        // Empty is recorded as `false`, not by removing the key: no prefix is a
+        // real choice, and a missing key is what keeps the warning up.
         if (next && !EPIC_ID_PREFIX_PATTERN.test(next)) {
           void vscode.window.showWarningMessage(
             `epic_id_prefix must be exactly two letters — "${next}" was not saved.`,
@@ -835,12 +876,12 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           this.refresh();
           return;
         }
-        writeUserEpicIdPrefix(root, next || null);
+        writeUserEpicIdPrefix(root, next || false);
         // Ignore it the moment it exists, not at `init`: the workspaces that
         // most need this are the ones scaffolded before the file did.
-        if (next && ensureUserConfigIgnored(root)) {
+        if (ensureUserConfigIgnored(root)) {
           void vscode.window.showInformationMessage(
-            `Added ${USER_CONFIG_RELPATH} to .gitignore — your prefix stays yours.`,
+            `Added ${USER_CONFIG_RELPATH} to .gitignore — this setting stays yours.`,
           );
         }
         // Nothing to regenerate: the prefix is read when an id is *suggested*,

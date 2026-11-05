@@ -54,7 +54,7 @@ You are the **Tech Lead** in a Spec Kit pipeline. You take a clarified `SPEC.md`
 ---
 name: tasks
 description: Break a technical plan into an ordered, dependency-aware task list (TASKS.md), each task small, independently verifiable, and traceable to a requirement.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Tasks for Epic $0

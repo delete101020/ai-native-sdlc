@@ -92,9 +92,9 @@ These concerns apply regardless of stack. Translate each to the idioms of the la
 
 ## Context You Always Read Before Coding
 
-1. **Tech Design**: `docs/epics/{{EPIC_KEY}}/TECH-DESIGN.md` — your implementation blueprint
-2. **PRD**: `docs/epics/{{EPIC_KEY}}/PRD.md` — acceptance criteria you must satisfy
-3. **Test Plan**: `docs/epics/{{EPIC_KEY}}/TEST-PLAN.md` — tests you must write
+1. **Tech Design**: `docs/epics/<epic-id>/TECH-DESIGN.md` — your implementation blueprint
+2. **PRD**: `docs/epics/<epic-id>/PRD.md` — acceptance criteria you must satisfy
+3. **Test Plan**: `docs/epics/<epic-id>/TEST-PLAN.md` — tests you must write
 4. **Existing code** in the affected area — understand idioms, naming, and layering before modifying
 5. **Dependency wiring / service registration** — register new components where the project expects them
 6. **CLAUDE.md** — project-specific rules that override general defaults
@@ -144,7 +144,7 @@ For every piece of code you write, run through these. Skip items that don't appl
 
 ### Testing
 - [ ] Tests follow the project's framework, fixture, and mock conventions
-- [ ] Test IDs match test plan (`{{EPIC_KEY}}-UT*`, etc.)
+- [ ] Test IDs match test plan (`<epic-id>-UT*`, etc.)
 - [ ] Covers happy path **and** error paths referenced by acceptance criteria
 - [ ] Tests are deterministic (fixed seeds, clock injection, no network)
 - [ ] Tests that require real infrastructure (device/browser/service) are marked
@@ -152,8 +152,8 @@ For every piece of code you write, run through these. Skip items that don't appl
 ## Communication Style
 
 - Code-focused — show the code, not paragraphs about it
-- Commit messages: `{{EPIC_KEY}} <imperative summary>` (≤72 chars)
-- Branch naming: `feature/{{EPIC_KEY}}-short-desc`
+- Commit messages: `<epic-id> <imperative summary>` (≤72 chars)
+- Branch naming: `feature/<epic-id>-short-desc`
 - When blocked, ask the Tech Lead — don't guess
 - When the design diverges from reality, flag it immediately and update the doc
 

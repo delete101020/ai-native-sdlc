@@ -21,7 +21,8 @@ Each write is auto-attributed (git identity, hostname fallback) + timestamped.
 ## Arguments
 
 `/epic-context [epic]` — e.g. `/epic-context EPIC-001`. Paths are relative to the
-open project: `EPIC_DIR = docs/epics/<epic>`.
+open project: `EPIC_DIR = <root>/<epic>`, where `<root>` is `state.root` in
+`.aidlc/workspace.yaml` (default `docs/epics`).
 
 No id given → use the **active epic**: the `active_epic:` line of
 `.aidlc/user.yaml` (set from the VS Code status bar / Go to Epic, or with

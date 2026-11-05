@@ -20,7 +20,9 @@ import {
   normalizeStep,
   stepSkillAlternatives,
   pickAgentModel,
-  resolvePath,
+  resolveArtifactPath,
+  relativeEpicRoot,
+  expandEpicRoot,
   expandHome,
   mirrorRunStateToEpic,
   RUN_STATE_SCHEMA_VERSION,
@@ -393,7 +395,7 @@ export function producesWatchGlobs(doc: YamlDocument | null): string[] {
       catch { continue; }
       for (const produce of produces) {
         if (typeof produce !== 'string') { continue; }
-        const glob = watchGlobFor(produce);
+        const glob = watchGlobFor(expandEpicRoot(produce, relativeEpicRoot(doc)));
         if (glob) { globs.add(glob); }
       }
     }
@@ -759,6 +761,8 @@ interface EpicListingCache {
   dir: string;
   /** The workspace doc it was built from: pipelines decide most of a card. */
   docKey: string;
+  /** That doc as an object, so the shared one need not be serialized to compare. */
+  docRef: YamlDocument | null;
   /** Skill files the doc points at by path, which can live anywhere. */
   skillPaths: Set<string>;
   byFolder: Map<string, EpicSummary | null>;
@@ -789,16 +793,16 @@ export function listEpicsCached(workspaceRoot: string, doc: YamlDocument | null)
   const dir = epicsRoot(workspaceRoot, doc);
   if (!fs.existsSync(dir)) { listingCache = null; return []; }
 
-  const docKey = JSON.stringify(doc ?? null);
-  const now = Date.now();
   let cache = listingCache;
+  const docKey = cache && doc && cache.docRef === doc ? cache.docKey : JSON.stringify(doc ?? null);
+  const now = Date.now();
   if (!cache || cache.root !== workspaceRoot || cache.dir !== dir || cache.docKey !== docKey
     || now - cache.builtAt > EPIC_LISTING_MAX_AGE_MS) {
     const skillPaths = new Set((Array.isArray(doc?.skills) ? doc!.skills : [])
       .map((d) => (typeof d.path === 'string' && d.path ? expandHome(d.path) : ''))
       .filter(Boolean)
       .map((p) => path.resolve(workspaceRoot, p)));
-    cache = { root: workspaceRoot, dir, docKey, skillPaths, byFolder: new Map(), dirty: new Set(), builtAt: now };
+    cache = { root: workspaceRoot, dir, docKey, docRef: doc, skillPaths, byFolder: new Map(), dirty: new Set(), builtAt: now };
   }
 
   const folders = fs.readdirSync(dir, { withFileTypes: true })
@@ -811,7 +815,7 @@ export function listEpicsCached(workspaceRoot: string, doc: YamlDocument | null)
       ? cache.byFolder.get(folder) ?? null
       : readEpicSummary(workspaceRoot, doc, dir, folder, skillDescription));
   }
-  listingCache = { ...cache, byFolder, dirty: new Set(), declared: undefined };
+  listingCache = { ...cache, docRef: doc, byFolder, dirty: new Set(), declared: undefined };
 
   const epics: EpicSummary[] = [];
   for (const epic of byFolder.values()) {
@@ -1047,6 +1051,7 @@ function readEpicSummary(
   // Same context the runner resolves `produces` with, so the panel and
   // `markStepDone` are looking at the same file.
   const artifactContext: Record<string, string> = runState?.context ?? { epic: epicId };
+  const epicRoot = relativeEpicRoot(doc);
   if (pipelineCfg && Array.isArray(pipelineCfg.steps)) {
     pipelineCfg.steps.forEach((raw, i) => {
       const norm = normalizeStep(raw as PipelineStepConfig);
@@ -1059,7 +1064,7 @@ function readEpicSummary(
       if (alt) { stepAltByIdx.set(i, alt); }
       if (norm.model) { stepModelByIdx.set(i, norm.model); }
       stepRequiresByIdx.set(i, norm.requires.map((p) => ({
-        path: resolvePath(p, artifactContext),
+        path: resolveArtifactPath(p, artifactContext, epicRoot),
         optional: norm.requires_optional.includes(p),
       })));
       // What the card says the step does: its own `description`, else the
@@ -1087,10 +1092,10 @@ function readEpicSummary(
       // its output `docs/snp/analysis/{topic}.md`, and the raw basename
       // would put the literal `{topic}.md` on the card.
       const declared = norm.produces.filter((p): p is string => typeof p === 'string' && p.length > 0);
-      const resolvedProduces = declared.map((p) => resolvePath(p, artifactContext));
+      const resolvedProduces = declared.map((p) => resolveArtifactPath(p, artifactContext, epicRoot));
       const optionalRaw = new Set(norm.produces_optional);
       const optionalResolved = new Set(
-        declared.filter((p) => optionalRaw.has(p)).map((p) => resolvePath(p, artifactContext)),
+        declared.filter((p) => optionalRaw.has(p)).map((p) => resolveArtifactPath(p, artifactContext, epicRoot)),
       );
       if (optionalResolved.size > 0) { stepOptionalByIdx.set(i, optionalResolved); }
       if (resolvedProduces.length > 0) {
@@ -1643,7 +1648,7 @@ function backfillRunStateFromEpic(
         : 'pending';
     // Resolve produces against the epic context, then check disk for any
     // file whose basename matches an existing artifact.
-    const produces = norm.produces.map((p) => resolvePath(p, context));
+    const produces = norm.produces.map((p) => resolveArtifactPath(p, context, relativeEpicRoot(doc)));
     const artifactsProduced = produces.filter((p) => {
       const base = path.basename(p);
       return existingArtifacts.has(base);

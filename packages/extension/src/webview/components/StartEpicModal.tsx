@@ -74,7 +74,7 @@ interface Props {
   recipes: RecipeSummary[];
   agentMeta: Record<string, AgentMeta>;
   nextEpicId: string;
-  /** True when this checkout has no `epic_id_prefix` of its own. Warned
+  /** True when this checkout has not settled its `epic_id_prefix`. Warned
    *  about here as well as in the sidebar because this is where the id is
    *  actually chosen, and the sidebar section may be collapsed. */
   epicIdPrefixNeedsSetup: boolean;
@@ -1154,7 +1154,7 @@ export function StartEpicModal({
                   <code className="font-mono text-foreground">
                     {epicIdPrefixSuggestion ? `epic id prefix ${epicIdPrefixSuggestion}` : 'an epic id prefix'}
                   </code>{' '}
-                  in the sidebar to name them apart.
+                  in the sidebar to name them apart, or choose no prefix there if you work alone.
                 </span>
               </div>
             )}

@@ -1,9 +1,9 @@
 # Verification Report — [Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Verifier:** Verifier (independent)
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 **Verified against:** `spec.md`, `plan.md`
 
 ---
@@ -19,7 +19,7 @@ Verdict: pass / fail
 
 | Id | Criterion | Verdict | Evidence |
 |---|---|---|---|
-| `$EPIC_ID-AC01` |  | pass / fail / untested |  |
+| `<epic-id>-AC01` |  | pass / fail / untested |  |
 
 > *`pass` requires captured command output. `untested` means nothing checked it —
 > it blocks like a failure, it is simply a different kind of unknown.*

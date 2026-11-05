@@ -34,6 +34,7 @@ import { pathToFileURL } from 'url';
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep } from '../schema/WorkspaceSchema';
 import type { RunState, AutoReviewVerdict, StepRecord } from './RunState';
+import { readEpicRoot, resolveArtifactPath } from '../loader/epicRootText';
 
 /** Default ceiling on validator runtime when a step omits `auto_review_timeout_ms`. */
 export const DEFAULT_AUTO_REVIEW_TIMEOUT_MS = 120_000;
@@ -129,9 +130,11 @@ export async function runAutoReview(args: {
   const producesAbs = step.artifactsProduced.map((p) =>
     path.isAbsolute(p) ? p : path.join(workspaceRoot, p),
   );
-  const requiresAbs = norm.requires.map((p) =>
-    path.isAbsolute(p) ? p : path.join(workspaceRoot, p),
-  );
+  const epicRoot = readEpicRoot(workspaceRoot);
+  const requiresAbs = norm.requires.map((template) => {
+    const p = resolveArtifactPath(template, state.context, epicRoot);
+    return path.isAbsolute(p) ? p : path.join(workspaceRoot, p);
+  });
 
   const ctx: AutoReviewerContext = {
     workspaceRoot,

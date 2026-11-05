@@ -1,7 +1,7 @@
 ---
 name: prototype
 description: Propose the UI visually with multiple design options before technical design. Generate variants using Claude Artifacts, Figma, or component libraries.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Prototype Epic $0

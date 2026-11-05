@@ -59,7 +59,8 @@ export function readUserConfig(root: string): Record<string, unknown> | null {
 const HEADER = [
   '# Settings for this checkout only — NOT committed (see .gitignore).',
   '# epic_id_prefix is your own two letters, so the epics you open are filed',
-  '# under you and never collide with a colleague\'s numbering.',
+  '# under you and never collide with a colleague\'s numbering. Set it to false',
+  '# if you want none: new epics are then plain EPIC-001, and nothing asks again.',
   '# active_epic / recent_epics / watched_epics / epic_sort are your own; the',
   '# extension and `aidlc epic use|watch` keep them, and hand edits are fine.',
   '',
@@ -68,11 +69,13 @@ const HEADER = [
 /**
  * Set or clear `epic_id_prefix`, leaving any other key in the file alone.
  *
- * @param prefix Two letters, or `null` to go back to the unprefixed scheme.
+ * @param prefix Two letters; `false` to record that this checkout wants none;
+ *   `null` to say nothing, which leaves the question open.
  */
-export function writeUserEpicIdPrefix(root: string, prefix: string | null): void {
+export function writeUserEpicIdPrefix(root: string, prefix: string | false | null): void {
   updateUserConfig(root, (doc) => {
-    if (prefix) { doc.epic_id_prefix = prefix.toUpperCase(); }
+    if (prefix === false) { doc.epic_id_prefix = false; }
+    else if (prefix) { doc.epic_id_prefix = prefix.toUpperCase(); }
     else { delete doc.epic_id_prefix; }
   });
 }
@@ -119,6 +122,23 @@ export function readGitUserName(root: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** How long {@link readGitUserNameCached} trusts an answer. */
+const GIT_USER_NAME_MAX_AGE_MS = 5 * 60_000;
+const gitUserNames = new Map<string, { name: string | null; readAt: number }>();
+
+/**
+ * {@link readGitUserName} for code that runs on every refresh. Spawning git
+ * blocks the caller, and the answer only feeds a suggestion that can lag a
+ * changed identity by a few minutes.
+ */
+export function readGitUserNameCached(root: string, now: number = Date.now()): string | null {
+  const known = gitUserNames.get(root);
+  if (known && now - known.readAt < GIT_USER_NAME_MAX_AGE_MS) { return known.name; }
+  const name = readGitUserName(root);
+  gitUserNames.set(root, { name, readAt: now });
+  return name;
 }
 
 /**

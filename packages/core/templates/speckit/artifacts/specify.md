@@ -1,9 +1,9 @@
 # Spec — [Feature Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Author:** Analyst
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 
 > Describe **what** and **why**, never **how**. No libraries, schemas, or
 > frameworks in this document — those belong in PLAN.md.
@@ -35,23 +35,23 @@
 
 | ID | Requirement | Priority (MoSCoW) |
 |----|-------------|-------------------|
-| `$EPIC_ID-FR01` | | Must |
-| `$EPIC_ID-FR02` | | Should |
+| `<epic-id>-FR01` | | Must |
+| `<epic-id>-FR02` | | Should |
 
 ## 4. Non-Functional Requirements
 
 | ID | Category | Requirement (quantified) |
 |----|----------|--------------------------|
-| `$EPIC_ID-NFR01` | Performance | p95 < … ms |
-| `$EPIC_ID-NFR02` | Security / privacy | |
-| `$EPIC_ID-NFR03` | Accessibility | WCAG 2.1 AA |
+| `<epic-id>-NFR01` | Performance | p95 < … ms |
+| `<epic-id>-NFR02` | Security / privacy | |
+| `<epic-id>-NFR03` | Accessibility | WCAG 2.1 AA |
 
 ## 5. Acceptance Criteria
 
 | ID | Given / When / Then |
 |----|---------------------|
-| `$EPIC_ID-AC01` | Given … When … Then … |
-| `$EPIC_ID-AC02` | |
+| `<epic-id>-AC01` | Given … When … Then … |
+| `<epic-id>-AC02` | |
 
 ## 6. Out of Scope
 

@@ -1,10 +1,10 @@
 # Implementation Summary — [Epic Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Author:** Developer
-**Branch:** `feature/$EPIC_ID-<slug>`
+**Branch:** `feature/<epic-id>-<slug>`
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 **Stack:** React
 
 ---
@@ -13,7 +13,7 @@
 
 | Item   | Value |
 |--------|-------|
-| Branch | `feature/$EPIC_ID-<slug>` |
+| Branch | `feature/<epic-id>-<slug>` |
 | PR     | *(link once opened)* |
 | Base   | `main` |
 
@@ -71,7 +71,7 @@ None.
 > Query by **role/label/text** (what the user sees), not by test-id or
 > internal component state. Use `userEvent` for interactions.
 
-| Test file | Cases (`$EPIC_ID-UT*`) | Type (happy / error / edge) |
+| Test file | Cases (`<epic-id>-UT*`) | Type (happy / error / edge) |
 |-----------|------------------------|------------------------------|
 | `src/components/__tests__/...` | | |
 | `src/hooks/__tests__/...` | | |
@@ -101,7 +101,7 @@ None.
 - [ ] Whole-project coverage re-run and recorded in §6
 - [ ] No new console errors / React warnings (keys, act(), missing deps)
 - [ ] Accessibility checklist (§4) reviewed
-- [ ] PR body references epic key `$EPIC_ID`
+- [ ] PR body references epic key `<epic-id>`
 - [ ] Reviewer assigned
 
 ## 8. Known Limitations / Follow-ups

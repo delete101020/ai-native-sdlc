@@ -1,10 +1,10 @@
 # Test Execution Report — [Epic Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Tester:** QA
 **Environment:** UAT
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 
 ---
 

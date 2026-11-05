@@ -1,4 +1,4 @@
-# Test Cases — {{EPIC_ID}}
+# Test Cases — <epic-id>
 
 > Concrete, executable test cases derived from the approved Test Plan.
 > Written by QA while Implementation is in flight (parallel track).

@@ -454,6 +454,8 @@ export interface SidebarState {
    * people on one repo are never offered the same id. Null when neither
    * `.aidlc/user.yaml` nor `workspace.yaml` declares one. */
   epicIdPrefix: string | null;
+  /** `epic_id_label` from workspace.yaml, or `EPIC`: the word new ids start with. */
+  epicIdLabel: string;
   /** Which file {@link epicIdPrefix} came from. `workspace` means it was
    * inherited from the shared, committed file and is not this person’s own
    * — the sidebar offers to move it. */
@@ -461,7 +463,8 @@ export interface SidebarState {
   /** Two letters derived from `git config user.name`, pre-filled into the
    * warning below. A guess: it never reaches an id until accepted. */
   epicIdPrefixSuggestion: string | null;
-  /** True when this checkout has not chosen a prefix of its own. */
+  /** True when this checkout has neither chosen a prefix of its own nor
+   * declined to have one. */
   epicIdPrefixNeedsSetup: boolean;
   /**
    * Dispatches this VS Code window launched and has not seen finish, keyed by
@@ -932,8 +935,9 @@ export interface WorkspaceState {
   /** This checkout's epic id prefix, or null. Drives "My epics" sorting.
    * Optional so an older host bundle simply disables that option. */
   epicIdPrefix?: string | null;
-  /** True when this checkout has not chosen an `epic_id_prefix` of its own,
-   * so the Start Epic modal warns where the id is actually chosen. */
+  /** True when this checkout has neither chosen an `epic_id_prefix` of its
+   * own nor declined one, so the Start Epic modal warns where the id is
+   * actually chosen. */
   epicIdPrefixNeedsSetup: boolean;
   /** Two letters derived from `git config user.name` to offer in that
    * warning, or null when git has no identity here. */

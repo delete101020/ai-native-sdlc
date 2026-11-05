@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import chokidar from 'chokidar';
 import {
   WorkspaceLoader,
+  epicsRoot,
   RunStateStore,
   approveStep,
   rejectStep,
@@ -128,8 +129,7 @@ export function registerDashboard(program: Command): void {
         [
           path.join(root, RUNS_GLOB),
           path.join(root, WORKSPACE_YML),
-          path.join(root, 'docs/epics/*/state.json'),  // common default
-          path.join(root, 'docs/epics/*/state.json'),
+          path.join(epicsRoot(root, readYaml(root)), '*/state.json'),
         ],
         { persistent: true, ignoreInitial: true,
           awaitWriteFinish: { stabilityThreshold: 80, pollInterval: 30 } },

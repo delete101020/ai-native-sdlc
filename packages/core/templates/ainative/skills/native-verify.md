@@ -1,7 +1,7 @@
 ---
 name: aidlc-native-verify
 description: Independent verdict on whether the build satisfies the spec — fresh context, checks re-derived from spec.md, evidence for every claim. Stage 4 of the AI-Native SDLC.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Verify Epic $0

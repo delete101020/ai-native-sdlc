@@ -1,9 +1,9 @@
 # Incident — [Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Operator:** Operator (stage 6)
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 
 ---
 

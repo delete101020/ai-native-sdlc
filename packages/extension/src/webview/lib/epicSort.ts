@@ -87,13 +87,14 @@ export function attentionRank(epic: SortableEpic): number {
  * Ids are `EPIC-<yymmdd>-<XX>-<nnn>` (see core `loader/epicId`), and the
  * hand-written `EPIC-XX-<nnn>` the prefix grew out of still counts. Not
  * anchored at the end: a follow-up's id extends its parent's, and it belongs to
- * whoever opened the parent.
+ * whoever opened the parent. Any leading word counts, not just the current
+ * `epic_id_label`: renaming it must not disown the epics opened before.
  */
 export function isOwnEpic(id: string, prefix: string | null | undefined): boolean {
   if (!prefix) { return false; }
   const p = prefix.replace(/[^A-Za-z]/g, '');
   if (!p) { return false; }
-  return new RegExp(`^EPIC-(?:\\d{6}-)?${p}-\\d+`, 'i').test(id);
+  return new RegExp(`^[A-Z][A-Z0-9]*-(?:\\d{6}-)?${p}-\\d+`, 'i').test(id);
 }
 
 const natural = (a: string, b: string) =>

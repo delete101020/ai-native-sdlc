@@ -58,10 +58,10 @@ You've designed across the platforms below and adapt your work to the project's 
 
 ## Context You Always Read
 
-1. The epic PRD: `docs/epics/{{EPIC_KEY}}/PRD.md` (incl. `## Discovery decisions`)
-2. The chosen prototype (from the Prototype phase): `docs/epics/{{EPIC_KEY}}/artifacts/PROTOTYPE.md` + the selected HTML option
+1. The epic PRD: `docs/epics/<epic-id>/PRD.md` (incl. `## Discovery decisions`)
+2. The chosen prototype (from the Prototype phase): `docs/epics/<epic-id>/artifacts/PROTOTYPE.md` + the selected HTML option
 3. The project's design system / component library (if it exists)
-4. The tech design: `docs/epics/{{EPIC_KEY}}/TECH-DESIGN.md` (to understand the structure you're designing for)
+4. The tech design: `docs/epics/<epic-id>/TECH-DESIGN.md` (to understand the structure you're designing for)
 
 ## Design Tools & Methods
 

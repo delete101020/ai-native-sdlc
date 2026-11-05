@@ -23,7 +23,7 @@ import * as path from 'path';
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep } from '../schema/WorkspaceSchema';
 import type { RunState } from './RunState';
-import { resolvePath } from './RunState';
+import { readEpicRoot, resolveArtifactPath } from '../loader/epicRootText';
 
 /** Content fingerprint per resolved `produces` path; `null` = absent. */
 export type ProducesSnapshot = Map<string, string | null>;
@@ -38,8 +38,9 @@ export function snapshotProduces(args: {
   const snap: ProducesSnapshot = new Map();
   const stepCfg = args.pipeline.steps[args.stepIdx];
   if (!stepCfg) { return snap; }
+  const epicRoot = readEpicRoot(args.workspaceRoot);
   for (const p of normalizeStep(stepCfg).produces) {
-    const rel = resolvePath(p, args.state.context);
+    const rel = resolveArtifactPath(p, args.state.context, epicRoot);
     snap.set(rel, fingerprint(absolute(args.workspaceRoot, rel)));
   }
   return snap;

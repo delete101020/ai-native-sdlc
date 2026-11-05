@@ -1,7 +1,7 @@
 ---
 name: aidlc-native-implement
 description: Build the feature against the approved plan.md on a feature branch, closing your own feedback loop as you go. Stage 3b of the AI-Native SDLC.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Implement Epic $0

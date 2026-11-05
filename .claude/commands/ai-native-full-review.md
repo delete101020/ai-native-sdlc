@@ -79,7 +79,7 @@ You think in:
 ---
 name: aidlc-native-review
 description: Review the diff against written policy — CLAUDE.md, the loaded skills, the workspace standard — and return a ship / hold verdict with every finding traced to the rule it breaks. Stage 5 of the AI-Native SDLC.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Review Epic $0

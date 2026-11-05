@@ -30,6 +30,7 @@ import * as path from 'path';
 import { artifactLanguageSection, commandBodyPredatesArtifactLanguage } from '../loader/artifactLanguage';
 import { strictModeSection } from '../loader/strictMode';
 import { inheritedContextNote } from '../loader/inheritedContext';
+import { epicRootSection } from '../loader/epicRootText';
 import { commandBodyIsStale } from './commandBodyFreshness';
 import type { PipelineConfig, WorkspaceConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, resolveStepSkills, stepDagId } from '../schema/WorkspaceSchema';
@@ -259,6 +260,12 @@ export function unprovisionedPhases(
 
 // ── Command-file generation ────────────────────────────────────────
 
+/** These bodies load machine-wide personas and skills, which name the default root. */
+function epicRootNote(epicRoot: string): string {
+  const section = epicRootSection(epicRoot);
+  return section ? `${section}\n\n` : '';
+}
+
 /**
  * The backbone dispatcher command body (`.claude/commands/aidlc.md`).
  *
@@ -274,7 +281,7 @@ description: AIDLC dispatcher — run a phase for an epic, or the next eligible 
 
 # AIDLC dispatcher
 
-You were invoked as \`/aidlc <epic> [phase]\` with arguments: \`$ARGUMENTS\`.
+${epicRootNote(epicRoot)}You were invoked as \`/aidlc <epic> [phase]\` with arguments: \`$ARGUMENTS\`.
 The first token is the **epic id**; an optional second token is the **phase**.
 
 ## 1. Bind the epic to its pipeline
@@ -350,7 +357,7 @@ description: ${phase.description} (AIDLC ${phase.name} phase) Usage: /${phase.id
 
 # /${phase.id} — ${phase.name}
 
-You were invoked as \`/${phase.id} <epic>\` with arguments: \`$ARGUMENTS\` (the epic id).
+${epicRootNote(epicRoot)}You were invoked as \`/${phase.id} <epic>\` with arguments: \`$ARGUMENTS\` (the epic id).
 
 Run the **\`${phase.id}\`** phase for this epic by following the AIDLC dispatch
 procedure exactly as \`/aidlc <epic> ${phase.id}\` would:
@@ -411,7 +418,7 @@ export function writeTwoLayerCommands(
     // and would silently ignore the setting, so it is refreshed even though
     // `overwrite` is off — see `commandBodyPredatesArtifactLanguage`.
     if (fs.existsSync(file) && !overwrite
-      && !commandBodyIsStale(fs.readFileSync(file, 'utf8'))) {
+      && !commandBodyIsStale(fs.readFileSync(file, 'utf8'), epicRoot)) {
       skipped.push(file);
       return;
     }

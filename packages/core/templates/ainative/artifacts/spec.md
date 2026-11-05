@@ -1,9 +1,9 @@
 # Spec — [Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Owner:** Product Owner
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 **Traces to:** `intent.md`
 
 ---
@@ -34,19 +34,19 @@
 
 | Id | Requirement | Priority | Traces to |
 |---|---|---|---|
-| `$EPIC_ID-FR01` |  | Must |  |
+| `<epic-id>-FR01` |  | Must |  |
 
 ## 5. Non-functional requirements
 
 | Id | Requirement | Target |
 |---|---|---|
-| `$EPIC_ID-NFR01` |  |  |
+| `<epic-id>-NFR01` |  |  |
 
 ## 6. Acceptance criteria
 
 | Id | Given / When / Then |
 |---|---|
-| `$EPIC_ID-AC01` |  |
+| `<epic-id>-AC01` |  |
 
 ## 7. Out of scope
 

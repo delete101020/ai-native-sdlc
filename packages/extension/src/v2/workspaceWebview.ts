@@ -165,7 +165,7 @@ function describeExecError(err: unknown): string {
 }
 
 import * as jsYaml from 'js-yaml';
-import { readYaml, writeYaml, type YamlDocument } from './yamlIO';
+import { readYaml, readYamlShared, writeYaml, type YamlDocument } from './yamlIO';
 import {
   claudeConfigDir,
   claudeConfigEnv,
@@ -214,9 +214,10 @@ import {
   setEpicDescription,
   EpicDescriptionError,
   commandBodyIsStale,
+  resolveEpicIdLabel,
   resolveEpicIdPrefixChain,
   readUserConfig,
-  readGitUserName,
+  readGitUserNameCached,
   suggestEpicId,
   EpicScaffoldError,
   asExtraInputs,
@@ -272,7 +273,7 @@ import {
 import { resolveTechStackForRoot } from './techStackResolver';
 import { artifactLookupKeys } from './techStackDetector';
 import { uninstallWorkflowGlobalsByIds, installWorkflowGlobalsByIds } from './globalDefaultsInstaller';
-import { provisionDeclaredWorkflows, relativeEpicRoot, resolveCommand } from '@aidlc/core';
+import { provisionDeclaredWorkflows, refreshWorkspaceCommands, relativeEpicRoot, resolveCommand } from '@aidlc/core';
 import { PresetStore } from './presetStore';
 import type {
   PipelineStepConfig,
@@ -758,7 +759,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   }
 
   const root = folder.uri.fsPath;
-  const doc = readYaml(root);
+  const doc = readYamlShared(root);
   const discovered = discoverAssets(root);
 
   // agent display metadata + slash commands — only AIDLC agents have these
@@ -1053,9 +1054,12 @@ function listEpicIdsFromDir(workspaceRoot: string, epicRoot: string): string[] {
  * The id the Start-Epic modal opens with. Scoped by this checkout's
  * `epic_id_prefix` so two people on one repo are never offered the same one;
  * with no prefix declared this is the plain `EPIC-<nnn>` it always was.
+ * `epic_id_label` replaces the `EPIC` word in both.
  */
 function suggestNextEpicId(root: string, existing: string[], doc: unknown): string {
-  return suggestEpicId(existing, epicIdPrefixState(root, doc).prefix);
+  return suggestEpicId(existing, epicIdPrefixState(root, doc).prefix, {
+    label: resolveEpicIdLabel(doc as { epic_id_label?: unknown } | null),
+  });
 }
 
 /**
@@ -1067,7 +1071,7 @@ function epicIdPrefixState(root: string, doc: unknown) {
   return resolveEpicIdPrefixChain({
     user: readUserConfig(root),
     workspace: doc as { epic_id_prefix?: unknown },
-    gitUserName: readGitUserName(root),
+    gitUserName: readGitUserNameCached(root),
   });
 }
 
@@ -1083,7 +1087,7 @@ async function mergeEpicTokenUsageInto(state: WorkspaceState): Promise<void> {
   const root = folder.uri.fsPath;
   let summaries: CoreEpicSummary[];
   try {
-    summaries = listEpicsCached(root, readYaml(root));
+    summaries = listEpicsCached(root, readYamlShared(root));
   } catch { return; }
   try {
     await enrichEpicsWithUsage(root, summaries);
@@ -1821,6 +1825,7 @@ export class WorkspaceWebview {
   private producesGlobs: string[] = [];
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshQueued = false;
+  private refreshWhenVisible = false;
   private disposed = false;
   /** The state last posted, which a token walk in flight fills in. */
   private latestState: WorkspaceState | undefined;
@@ -1938,6 +1943,12 @@ export class WorkspaceWebview {
       this.disposables,
     );
     this.disposables.push(themeManager.register(this.panel.webview));
+    this.panel.onDidChangeViewState(() => {
+      if (this.panel.visible && this.refreshWhenVisible) {
+        this.refreshWhenVisible = false;
+        this.refresh();
+      }
+    }, null, this.disposables);
 
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (root) {
@@ -2026,6 +2037,9 @@ export class WorkspaceWebview {
     this.refreshQueued = true;
     setTimeout(() => {
       this.refreshQueued = false;
+      // A panel in a background tab shows nothing, so a run in flight should
+      // not rebuild it. It catches up when it comes back.
+      if (!this.panel.visible) { this.refreshWhenVisible = true; return; }
       void this.refreshAsync();
     }, REFRESH_COALESCE_MS);
   }
@@ -2037,7 +2051,7 @@ export class WorkspaceWebview {
    */
   private syncProducesWatchers(root: string): void {
     let globs: string[] = [];
-    try { globs = producesWatchGlobs(readYaml(root)); } catch { globs = []; }
+    try { globs = producesWatchGlobs(readYamlShared(root)); } catch { globs = []; }
     const unchanged = globs.length === this.producesGlobs.length
       && globs.every((g, i) => g === this.producesGlobs[i]);
     if (unchanged && this.producesWatchers.length > 0) { return; }
@@ -2835,6 +2849,7 @@ export class WorkspaceWebview {
         const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (!wsRoot) { return; }
         writeEpicsDirToYaml(wsRoot, newDir);
+        this.refreshCommandsForEpicRoot(wsRoot);
         // Also update the VS Code setting so the bidirectional sync stays consistent.
         const EPICS_DIR_KEY = 'aidlcNative.workspace.epicsDirectory';
         void vscode.workspace.getConfiguration()
@@ -2856,6 +2871,7 @@ export class WorkspaceWebview {
         const rel = path.relative(wsRoot, abs);
         const dir = rel.startsWith('..') || path.isAbsolute(rel) ? abs : rel;
         writeEpicsDirToYaml(wsRoot, dir);
+        this.refreshCommandsForEpicRoot(wsRoot);
         const EPICS_DIR_KEY = 'aidlcNative.workspace.epicsDirectory';
         void vscode.workspace.getConfiguration()
           .update(EPICS_DIR_KEY, dir, vscode.ConfigurationTarget.Workspace);
@@ -4286,6 +4302,16 @@ export class WorkspaceWebview {
     this.ensureWorkflowProjectFiles(root);
   }
 
+  /** Generated commands name `state.root`, so moving it has to rewrite them. */
+  private refreshCommandsForEpicRoot(root: string): void {
+    try {
+      refreshWorkspaceCommands(this.extensionUri.fsPath, root, readYaml(root));
+    } catch (err) {
+      // The new root is already saved. Stale bodies get flagged on the epic.
+      console.warn('[refreshCommandsForEpicRoot]', err);
+    }
+  }
+
   /**
    * Ensure every built-in pipeline this workspace declares has its project
    * files on disk: the artifact templates under
@@ -4300,7 +4326,7 @@ export class WorkspaceWebview {
    * overwritten, and nothing is written when everything is already there.
    */
   private ensureWorkflowProjectFiles(root: string): void {
-    const doc = readYaml(root);
+    const doc = readYamlShared(root);
     if (!doc) { return; }
     // Resolve the project's tech stack once: `stacks` drives `{{#if}}` block
     // rendering (secondary stacks survive), `lookupKeys` picks the most
@@ -4321,9 +4347,10 @@ export class WorkspaceWebview {
     // the Start-Epic "Auto" task-type suggestion has something to classify
     // against. Idempotent: planRecipeMigration returns null once recipes exist.
     const recipes = planRecipeMigration(doc as { recipes?: unknown; pipelines?: unknown });
-    if (recipes) {
-      (doc as { recipes?: unknown }).recipes = recipes;
-      writeYaml(root, doc);
+    const writable = recipes ? readYaml(root) : null;
+    if (recipes && writable) {
+      (writable as { recipes?: unknown }).recipes = recipes;
+      writeYaml(root, writable);
       rlog(`[migrate] back-filled ${recipes.length} recipe(s) from pipeline "${recipes[0].from}"`);
     }
   }
@@ -4859,6 +4886,7 @@ export class WorkspaceWebview {
     if (!pipeline) { return []; }
     const steps = Array.isArray(state.stepStates) ? (state.stepStates as Array<Record<string, unknown>>) : [];
     const commandsDir = path.join(root, '.claude', 'commands');
+    const epicRoot = relativeEpicRoot(readYaml(root));
     const stale = new Set<string>();
     for (const step of steps) {
       const phase = typeof step.name === 'string' && step.name
@@ -4870,7 +4898,7 @@ export class WorkspaceWebview {
         // A command that was never written is not stale — it is absent, and
         // the headless runner composes that prompt itself.
         const body = fs.readFileSync(path.join(commandsDir, `${id}.md`), 'utf8');
-        if (commandBodyIsStale(body)) { stale.add(`/${id}`); }
+        if (commandBodyIsStale(body, epicRoot)) { stale.add(`/${id}`); }
       } catch { /* absent — see above */ }
     }
     return [...stale];

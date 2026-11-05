@@ -319,10 +319,13 @@ export {
 } from './loader/artifactLanguage';
 // Per-checkout epic id prefix, and the id suggester both front doors share.
 export {
+  DEFAULT_EPIC_ID_LABEL,
+  EPIC_ID_LABEL_PATTERN,
   EPIC_ID_PREFIX_KEY,
   EPIC_ID_PREFIX_PATTERN,
   deriveEpicIdPrefix,
   epicIdDateStamp,
+  resolveEpicIdLabel,
   resolveEpicIdPrefix,
   resolveEpicIdPrefixChain,
   suggestEpicId,
@@ -334,6 +337,7 @@ export {
   USER_CONFIG_RELPATH,
   ensureUserConfigIgnored,
   readGitUserName,
+  readGitUserNameCached,
   readUserConfig,
   updateUserConfig,
   userConfigPath,
@@ -372,6 +376,7 @@ export {
   strictModeSection,
 } from './loader/strictMode';
 // What a follow-up inherits from the epics it follows — named in every phase prompt.
+export { expandEpicRoot, resolveArtifactPath } from './loader/epicRootText';
 export { INHERITED_CONTEXT_MARKER, inheritedContextNote } from './loader/inheritedContext';
 // Epic tags — free text in, one canonical SCREAMING-KEBAB form on disk.
 export {
@@ -608,6 +613,7 @@ export {
   writeWorkflowArtifactTemplates,
   provisionWorkflowFiles,
   provisionDeclaredWorkflows,
+  refreshWorkspaceCommands,
   relativeEpicRoot,
 } from './presets/workflowProvisioning';
 export type {

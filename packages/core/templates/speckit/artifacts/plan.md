@@ -1,9 +1,9 @@
 # Plan — [Feature Title]
 
-**Epic ID:** `$EPIC_ID`
+**Epic ID:** `<epic-id>`
 **Author:** Tech Lead
 **Status:** Draft
-**Created:** `$DATE`
+**Created:** `<yyyy-mm-dd>`
 **Derived from:** `SPEC.md`
 
 ---
@@ -48,8 +48,8 @@
 
 | Requirement | Plan section that implements it |
 |-------------|--------------------------------|
-| `$EPIC_ID-FR01` | |
-| `$EPIC_ID-NFR01` | |
+| `<epic-id>-FR01` | |
+| `<epic-id>-NFR01` | |
 
 ## 8. Risks & Open Decisions
 

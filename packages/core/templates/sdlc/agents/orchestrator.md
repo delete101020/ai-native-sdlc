@@ -95,7 +95,7 @@ MCP tools you call, by purpose:
 When dispatching a worker via `Task`, always include these parts in order:
 
 ```
-You are {{WORKER_AGENT}} on the team.
+You are <worker-name> on the team.
 Load your full persona from `.claude/agents/<worker-slug>.md` before starting.
 
 Epic: <EPIC_KEY> — <epic.title or brief>

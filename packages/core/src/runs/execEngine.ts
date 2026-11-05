@@ -41,7 +41,7 @@ import { pickAgentModel, resolveProviderModel, stepModelOptions } from '../prese
 import type { RunState, StepLeftover, StepRecord } from './RunState';
 import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, resolveStepSkills, stepSkillAlternatives, DEFAULT_MAX_SEND_BACKS } from '../schema/WorkspaceSchema';
-import { resolvePath } from './RunState';
+import { readEpicRoot, resolveArtifactPath } from '../loader/epicRootText';
 import { resolveArtifactLanguage } from '../loader/artifactLanguage';
 import { resolveEpicStrictMode } from '../loader/strictMode';
 import { inheritedContextNote } from '../loader/inheritedContext';
@@ -490,7 +490,7 @@ async function execLoop(
       if (cfg?.pause) {
         hooks.onBatchPause?.({
           stepIdx: idx, agent: step.agent, label: stepLabel(step), batch: batchNo, runId,
-          report: batchReport(initialPipeline, after ?? state, idx) ?? '',
+          report: batchReport(initialPipeline, after ?? state, idx, root) ?? '',
         });
         return { kind: 'batch_pause' };
       }
@@ -591,6 +591,7 @@ function buildStepPrompt(
       : findProjectInstructions(root, harness.instructionFile),
     harness,
     artifactLanguage: resolveArtifactLanguage(ws.config),
+    epicRoot: path.relative(root, epicsRoot(root, ws.config)).split(path.sep).join('/'),
     // Per epic, not per workspace: how deep a phase goes is a property of the
     // work item. An epic that never set it reads as strict.
     strictMode: resolveEpicStrictMode(epicsRoot(root, ws.config), epicId),
@@ -688,7 +689,7 @@ async function execStep(
   const feedback = revisionFeedback(state, stepIdx);
   // A batched step: which session this is, and where it reports. The plan
   // says how the work is sliced; the loop only says which slice comes next.
-  const report = norm?.batches ? batchReport(pipeline, state, stepIdx) : null;
+  const report = norm?.batches ? batchReport(pipeline, state, stepIdx, root) : null;
   if (norm?.batches && !report) {
     hooks.onStepFailed?.({
       stepIdx, agent: agentId, label: stepLabel(stepRec),
@@ -913,12 +914,12 @@ function batchesOf(rec: StepRecord | undefined): Array<Extract<NonNullable<StepR
 }
 
 /** Where a batched step writes its `Status:` line: its first required `produces` path. */
-function batchReport(pipeline: PipelineConfig, state: RunState, stepIdx: number): string | null {
+function batchReport(pipeline: PipelineConfig, state: RunState, stepIdx: number, root: string): string | null {
   const cfg = pipeline.steps[stepIdx];
   if (!cfg) { return null; }
   const norm = normalizeStep(cfg);
   const first = norm.produces.find((p) => !norm.produces_optional.includes(p));
-  return first ? resolvePath(first, state.context) : null;
+  return first ? resolveArtifactPath(first, state.context, readEpicRoot(root)) : null;
 }
 
 /** What a batched step's session is told about the session it is. */

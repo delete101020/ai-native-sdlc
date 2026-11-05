@@ -13,19 +13,18 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as readline from 'readline';
 
 import { claudeConfigDir } from '@aidlc/core';
 
 import { calcCost, type Usage } from './tokenPricing';
 import { TokenReportWebview } from './tokenReportWebview';
 
-interface Totals extends Usage {
+export interface Totals extends Usage {
   cost: number;
   calls: number;
 }
 
-interface Snapshot {
+export interface Snapshot {
   today: Totals;
   month: Totals;
   scannedFiles: number;
@@ -55,37 +54,67 @@ function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
 
+/** Everything the last scan learned, so the next one reads only what was appended. */
+interface ScanState {
+  root: string;
+  monthStart: number;
+  todayStart: number;
+  today: Totals;
+  month: Totals;
+  seen: Set<string>;
+  /** Bytes of each transcript already counted, always ending on a line break. */
+  offsets: Map<string, number>;
+}
+
+let scan: ScanState | null = null;
+
+/** Forget the running totals, so the next {@link readSnapshot} reads everything again. */
+export function resetTokenScan(): void {
+  scan = null;
+}
+
 /**
- * Walk `~/.claude/projects` and aggregate usage for today + this month.
- * Files whose mtime is before the start of the current month are skipped
- * entirely — they cannot contain records for either bucket.
+ * Aggregate usage in `~/.claude/projects` for today + this month.
  *
- * Dedupes by (sessionId, message.id) because Claude Code emits one JSONL
- * entry per content block but reuses the same per-call usage total.
+ * This runs every minute in every window, and by the end of a month there are
+ * hundreds of megabytes of transcripts. They are append-only, so totals are
+ * kept between calls and each call reads only what was added. A file that got
+ * shorter was rewritten, which voids the totals; so does a new day, a new month
+ * or a different account.
  */
-async function readSnapshot(): Promise<Snapshot> {
+export async function readSnapshot(now: Date = new Date()): Promise<Snapshot> {
   const root = projectsRoot();
-  const today = emptyTotals();
-  const month = emptyTotals();
-  const snap: Snapshot = { today, month, scannedFiles: 0, scannedAt: Date.now() };
-
-  if (!fs.existsSync(root)) return snap;
-
-  const now = new Date();
   const monthStart = startOfMonth(now).getTime();
   const todayStart = startOfDay(now).getTime();
-  const seen = new Set<string>();
-
-  let projectDirs: fs.Dirent[];
-  try {
-    projectDirs = await fs.promises.readdir(root, { withFileTypes: true });
-  } catch {
-    return snap;
+  if (!scan || scan.root !== root || scan.monthStart !== monthStart || scan.todayStart !== todayStart) {
+    scan = newScan(root, monthStart, todayStart);
   }
 
+  let scannedFiles = await scanTranscripts(scan);
+  if (scannedFiles === null) {
+    scan = newScan(root, monthStart, todayStart);
+    scannedFiles = (await scanTranscripts(scan)) ?? 0;
+  }
+  return { today: { ...scan.today }, month: { ...scan.month }, scannedFiles, scannedAt: Date.now() };
+}
+
+function newScan(root: string, monthStart: number, todayStart: number): ScanState {
+  return { root, monthStart, todayStart, today: emptyTotals(), month: emptyTotals(), seen: new Set(), offsets: new Map() };
+}
+
+/** Bring `state` up to date. Returns the file count, or null when a file was rewritten. */
+async function scanTranscripts(state: ScanState): Promise<number | null> {
+  let projectDirs: fs.Dirent[];
+  try {
+    projectDirs = await fs.promises.readdir(state.root, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+
+  let scannedFiles = 0;
   for (const dirent of projectDirs) {
     if (!dirent.isDirectory()) continue;
-    const projectDir = path.join(root, dirent.name);
+    const projectDir = path.join(state.root, dirent.name);
     let files: string[];
     try {
       files = await fs.promises.readdir(projectDir);
@@ -102,78 +131,92 @@ async function readSnapshot(): Promise<Snapshot> {
       } catch {
         continue;
       }
-      if (stat.mtimeMs < monthStart) continue;
-      snap.scannedFiles++;
+      if (stat.mtimeMs < state.monthStart) continue;
+      scannedFiles++;
 
-      await processFile(file, todayStart, seen, today, month);
+      const offset = state.offsets.get(file) ?? 0;
+      if (stat.size < offset) return null;
+      if (stat.size > offset) await readAppended(file, offset, state);
     }
   }
-
-  return snap;
+  return scannedFiles;
 }
 
-async function processFile(
-  file: string,
-  todayStart: number,
-  seen: Set<string>,
-  today: Totals,
-  month: Totals,
-): Promise<void> {
+/** Count the complete lines after `offset`. A line still being written waits for the next scan. */
+async function readAppended(file: string, offset: number, state: ScanState): Promise<void> {
   let stream: fs.ReadStream;
   try {
-    stream = fs.createReadStream(file, { encoding: 'utf8' });
+    stream = fs.createReadStream(file, { start: offset });
   } catch {
     return;
   }
 
-  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  let position = offset;
+  let pending: Buffer[] = [];
   try {
-    for await (const raw of rl) {
-      const line = raw.trim();
-      if (!line || line[0] !== '{') continue;
-
-      let entry: any;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
+    let chunkStart = offset;
+    for await (const chunk of stream as AsyncIterable<Buffer>) {
+      let from = 0;
+      for (let nl = chunk.indexOf(0x0a); nl !== -1; nl = chunk.indexOf(0x0a, from)) {
+        pending.push(chunk.subarray(from, nl));
+        countLine(Buffer.concat(pending).toString('utf8'), state);
+        pending = [];
+        from = nl + 1;
+        position = chunkStart + from;
       }
-      if (entry.type !== 'assistant') continue;
-
-      const msg = entry.message;
-      if (!msg || !msg.usage) continue;
-
-      const sessionId = entry.sessionId || '';
-      const msgId = msg.id || '';
-      const key = `${sessionId}\0${msgId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      const ts = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
-      if (!Number.isFinite(ts)) continue;
-
-      const rawCreation = (msg.usage as Record<string, unknown>).cache_creation as
-        { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number } | undefined;
-      const cwTotal = rawCreation
-        ? (Number(rawCreation.ephemeral_5m_input_tokens) || 0) + (Number(rawCreation.ephemeral_1h_input_tokens) || 0)
-        : Number(msg.usage.cache_creation_input_tokens) || 0;
-      const usage: Usage = {
-        input_tokens: Number(msg.usage.input_tokens) || 0,
-        output_tokens: Number(msg.usage.output_tokens) || 0,
-        cache_read_input_tokens: Number(msg.usage.cache_read_input_tokens) || 0,
-        cache_creation_input_tokens: cwTotal,
-        cache_creation: rawCreation,
-      };
-      const model = msg.model || 'unknown';
-      const cost = calcCost(usage, model);
-
-      addInto(month, usage, cost);
-      if (ts >= todayStart) addInto(today, usage, cost);
+      if (from < chunk.length) pending.push(chunk.subarray(from));
+      chunkStart += chunk.length;
     }
+  } catch {
+    // Unreadable now; the lines counted so far stand and the rest come next time.
   } finally {
-    rl.close();
     stream.close();
+    state.offsets.set(file, position);
   }
+}
+
+function countLine(raw: string, state: ScanState): void {
+  const line = raw.trim();
+  if (!line || line[0] !== '{') return;
+
+  let entry: any;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return;
+  }
+  if (entry.type !== 'assistant') return;
+
+  const msg = entry.message;
+  if (!msg || !msg.usage) return;
+
+  const sessionId = entry.sessionId || '';
+  const msgId = msg.id || '';
+  const key = `${sessionId}\0${msgId}`;
+  if (state.seen.has(key)) return;
+  state.seen.add(key);
+
+  const ts = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
+  // A session resumed this month keeps last month's messages in the same file.
+  if (!Number.isFinite(ts) || ts < state.monthStart) return;
+
+  const rawCreation = (msg.usage as Record<string, unknown>).cache_creation as
+    { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number } | undefined;
+  const cwTotal = rawCreation
+    ? (Number(rawCreation.ephemeral_5m_input_tokens) || 0) + (Number(rawCreation.ephemeral_1h_input_tokens) || 0)
+    : Number(msg.usage.cache_creation_input_tokens) || 0;
+  const usage: Usage = {
+    input_tokens: Number(msg.usage.input_tokens) || 0,
+    output_tokens: Number(msg.usage.output_tokens) || 0,
+    cache_read_input_tokens: Number(msg.usage.cache_read_input_tokens) || 0,
+    cache_creation_input_tokens: cwTotal,
+    cache_creation: rawCreation,
+  };
+  const model = msg.model || 'unknown';
+  const cost = calcCost(usage, model);
+
+  addInto(state.month, usage, cost);
+  if (ts >= state.todayStart) addInto(state.today, usage, cost);
 }
 
 function addInto(t: Totals, u: Usage, cost: number): void {

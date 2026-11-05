@@ -1,7 +1,7 @@
 ---
 name: tech-design
 description: Generate or review a Technical Design document for an epic. Produces architecture, API/interface contracts, file impact, wiring plan, non-functional design, and rollout strategy.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Tech Design for Epic $0

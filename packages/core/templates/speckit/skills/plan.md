@@ -1,7 +1,7 @@
 ---
 name: plan
 description: Derive the technical implementation plan (PLAN.md) from a clarified spec — architecture, data model, contracts, tech choices — honoring the project constitution and the existing codebase.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Plan for Epic $0

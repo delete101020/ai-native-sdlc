@@ -3,6 +3,7 @@ import {
   EPIC_ID_PREFIX_PATTERN,
   epicIdDateStamp,
   deriveEpicIdPrefix,
+  resolveEpicIdLabel,
   resolveEpicIdPrefix,
   resolveEpicIdPrefixChain,
   suggestEpicId,
@@ -58,13 +59,13 @@ describe('suggestEpicId', () => {
   const day = new Date(2026, 8, 8, 9, 0, 0);
 
   it('keeps the old scheme byte for byte when no prefix is declared', () => {
-    expect(suggestEpicId([], null, day)).toBe('EPIC-001');
-    expect(suggestEpicId(['EPIC-001', 'EPIC-002'], null, day)).toBe('EPIC-003');
-    expect(suggestEpicId(['EPIC-007', 'notes'], null, day)).toBe('EPIC-008');
+    expect(suggestEpicId([], null, { now: day })).toBe('EPIC-001');
+    expect(suggestEpicId(['EPIC-001', 'EPIC-002'], null, { now: day })).toBe('EPIC-003');
+    expect(suggestEpicId(['EPIC-007', 'notes'], null, { now: day })).toBe('EPIC-008');
   });
 
   it('puts the date first, then the prefix', () => {
-    expect(suggestEpicId([], 'NG', day)).toBe('EPIC-260908-NG-001');
+    expect(suggestEpicId([], 'NG', { now: day })).toBe('EPIC-260908-NG-001');
   });
 
   it('counts only ids from this prefix on this day', () => {
@@ -75,25 +76,25 @@ describe('suggestEpicId', () => {
       'EPIC-260907-NG-005',  // ours, yesterday
       'EPIC-003',            // the old scheme
     ];
-    expect(suggestEpicId(existing, 'NG', day)).toBe('EPIC-260908-NG-003');
-    expect(suggestEpicId(existing, 'KF', day)).toBe('EPIC-260908-KF-010');
+    expect(suggestEpicId(existing, 'NG', { now: day })).toBe('EPIC-260908-NG-003');
+    expect(suggestEpicId(existing, 'KF', { now: day })).toBe('EPIC-260908-KF-010');
   });
 
   it('restarts at 001 on a new day', () => {
     const existing = ['EPIC-260907-NG-001', 'EPIC-260907-NG-002'];
-    expect(suggestEpicId(existing, 'NG', day)).toBe('EPIC-260908-NG-001');
+    expect(suggestEpicId(existing, 'NG', { now: day })).toBe('EPIC-260908-NG-001');
   });
 
   it('never proposes an id that is already on disk', () => {
     // The bug this whole module exists for: a prefixed folder used to be
     // invisible to the scan, so the suggester kept offering a taken id.
     const existing = ['EPIC-260908-NG-001'];
-    const next = suggestEpicId(existing, 'NG', day);
+    const next = suggestEpicId(existing, 'NG', { now: day });
     expect(existing).not.toContain(next);
   });
 
   it('ignores case in existing folder names', () => {
-    expect(suggestEpicId(['epic-260908-ng-004'], 'NG', day)).toBe('EPIC-260908-NG-005');
+    expect(suggestEpicId(['epic-260908-ng-004'], 'NG', { now: day })).toBe('EPIC-260908-NG-005');
   });
 });
 
@@ -118,6 +119,32 @@ describe('deriveEpicIdPrefix', () => {
     expect(deriveEpicIdPrefix('  ')).toBeNull();
     expect(deriveEpicIdPrefix('X')).toBeNull();
     expect(deriveEpicIdPrefix('12345')).toBeNull();
+  });
+});
+
+describe('epic_id_label', () => {
+  const day = new Date(2026, 8, 8, 12);
+
+  it('falls back to EPIC for anything unusable, and normalises the rest', () => {
+    expect(resolveEpicIdLabel({ epic_id_label: 'task' })).toBe('TASK');
+    expect(resolveEpicIdLabel({ epic_id_label: ' P2 ' })).toBe('P2');
+    for (const bad of ['', '2FA', 'MY-PROJ', 'ELEVENCHARS', 42, null]) {
+      expect(resolveEpicIdLabel({ epic_id_label: bad })).toBe('EPIC');
+    }
+    expect(resolveEpicIdLabel({})).toBe('EPIC');
+    expect(resolveEpicIdLabel(null)).toBe('EPIC');
+  });
+
+  it('replaces the leading word in both id shapes', () => {
+    expect(suggestEpicId([], null, { label: 'TASK', now: day })).toBe('TASK-001');
+    expect(suggestEpicId([], 'NG', { label: 'TASK', now: day })).toBe('TASK-260908-NG-001');
+  });
+
+  it('counts only ids carrying the current label', () => {
+    const existing = ['EPIC-007', 'TASK-002', 'task-003', 'EPIC-260908-NG-009', 'TASK-260908-NG-001'];
+    expect(suggestEpicId(existing, null, { label: 'TASK', now: day })).toBe('TASK-004');
+    expect(suggestEpicId(existing, 'NG', { label: 'TASK', now: day })).toBe('TASK-260908-NG-002');
+    expect(suggestEpicId(existing, null, { now: day })).toBe('EPIC-008');
   });
 });
 
@@ -167,6 +194,33 @@ describe('resolveEpicIdPrefixChain', () => {
     expect(r.suggestion).toBe('KI');
     expect(r.needsSetup).toBe(true);
     expect(suggestEpicId([], r.prefix)).toBe('EPIC-001');
+  });
+
+  it('takes false in the checkout\'s own file as a settled "no prefix"', () => {
+    const r = resolveEpicIdPrefixChain({
+      user: { epic_id_prefix: false },
+      gitUserName: 'Kingfisher',
+    });
+    expect(r.prefix).toBeNull();
+    expect(r.source).toBeNull();
+    expect(r.needsSetup).toBe(false);
+    expect(suggestEpicId([], r.prefix)).toBe('EPIC-001');
+  });
+
+  it('lets declining in the checkout\'s own file outrank the shared prefix', () => {
+    const r = resolveEpicIdPrefixChain({
+      user: { epic_id_prefix: false },
+      workspace: { epic_id_prefix: 'KF' },
+    });
+    expect(r.prefix).toBeNull();
+    expect(r.source).toBeNull();
+    expect(r.needsSetup).toBe(false);
+  });
+
+  it('does not read false in the shared file as anyone having declined', () => {
+    const r = resolveEpicIdPrefixChain({ workspace: { epic_id_prefix: false } });
+    expect(r.prefix).toBeNull();
+    expect(r.needsSetup).toBe(true);
   });
 
   it('reads an empty workspace as the old unprefixed scheme', () => {

@@ -7,7 +7,7 @@ import {
   WorkspaceValidationError,
   collectWorkspaceRefIssues,
   readUserConfig,
-  resolveEpicIdPrefix,
+  resolveEpicIdPrefixChain,
   USER_CONFIG_RELPATH,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
@@ -53,8 +53,11 @@ export function registerValidate(program: Command): void {
         // is a *sharing* error: everyone who pulls the repo inherits it and
         // files their epics under one person's initials. Say so once, here,
         // rather than letting it stay silently wrong.
-        const shared = resolveEpicIdPrefix(readYaml(root) as { epic_id_prefix?: unknown } | null);
-        if (shared && !resolveEpicIdPrefix(readUserConfig(root))) {
+        const { prefix: shared, source } = resolveEpicIdPrefixChain({
+          user: readUserConfig(root),
+          workspace: readYaml(root) as { epic_id_prefix?: unknown } | null,
+        });
+        if (source === 'workspace') {
           console.error(chalk.yellow(
             `
 epic_id_prefix: ${shared} is in the shared workspace.yaml.`,

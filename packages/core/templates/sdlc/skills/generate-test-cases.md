@@ -1,7 +1,7 @@
 ---
 name: generate-test-cases
 description: Generate concrete, executable test cases for an epic from its test plan and acceptance criteria. Output is runnable test scripts plus structured TEST-CASES.md, not prose.
-argument-hint: "<{{EPIC_PREFIX}}-XXXX>"
+argument-hint: "<epic-id>"
 ---
 
 # Generate Test Cases for Epic $0

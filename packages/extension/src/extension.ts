@@ -37,10 +37,12 @@ import { setEpicUsageCacheFile } from './v2/epicTokenAttribution';
 import { invalidateEpicListing } from './v2/epicsList';
 import { onDidSaveRun } from './v2/runCommands';
 import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './v2/epicsDirSync';
+import { readYaml } from './v2/yamlIO';
 import {
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
   activateBackendFromWorkspace,
+  refreshWorkspaceCommands,
 } from '@aidlc/core';
 
 /** workspaceState key for {@link agentActivity}'s stops. */
@@ -140,6 +142,11 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!wsRoot) { return; }
       const newDir = vscode.workspace.getConfiguration().get<string>(EPICS_DIR_KEY, DEFAULT_EPICS_DIR);
       writeEpicsDirToYaml(wsRoot, newDir);
+      try {
+        refreshWorkspaceCommands(context.extensionPath, wsRoot, readYaml(wsRoot));
+      } catch (err) {
+        output.appendLine(`[epicsDirectory] command refresh failed: ${String(err)}`);
+      }
     }),
   );
 

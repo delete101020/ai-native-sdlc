@@ -42,7 +42,7 @@ function run(raw) {
   const matched = ids.filter((id) => {
     if (lower.includes(id.toLowerCase())) { return true; }
     // Also match the leading code (DEMO-002 for DEMO-002-AUTO-REVIEW, EPIC-001 …).
-    const code = (id.match(/^[A-Za-z]+-\d+/) || [])[0];
+    const code = (id.match(/^[A-Za-z][A-Za-z0-9]*-\d+/) || [])[0];
     return code ? lower.includes(code.toLowerCase()) : false;
   });
   if (!matched.length) { return; }

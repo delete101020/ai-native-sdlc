@@ -18,6 +18,8 @@ import * as yaml from 'js-yaml';
 import {
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
+  EPIC_PIPELINE_FILENAME,
+  epicsRoot,
   mergeEpicPipelines,
   splitEpicPipelines,
   writeEpicPipelines,
@@ -76,6 +78,65 @@ export function readYaml(workspaceRoot: string): YamlDocument | null {
   // in so every caller still finds it in `doc.pipelines`, and so `writeYaml`
   // knows to route it back out instead of inlining it here.
   mergeEpicPipelines(workspaceRoot, doc);
+  return doc;
+}
+
+interface SharedDoc {
+  root: string;
+  yamlSig: string;
+  pipelinesSig: string;
+  doc: YamlDocument;
+  readAt: number;
+}
+
+let sharedDoc: SharedDoc | null = null;
+
+/** Bounds how long a write that slipped in between parsing and stat-ing can go unseen. */
+const SHARED_DOC_MAX_AGE_MS = 60_000;
+
+function fileSig(file: string): string {
+  const st = fs.statSync(file, { throwIfNoEntry: false });
+  return st ? `${st.mtimeMs}:${st.size}` : '';
+}
+
+/** Every epic-owned pipeline file, since `readYaml` splices those into the doc. */
+function epicPipelinesSig(workspaceRoot: string, doc: YamlDocument): string {
+  const dir = epicsRoot(workspaceRoot, doc);
+  let names: string[];
+  try { names = fs.readdirSync(dir); } catch { return ''; }
+  let sig = dir;
+  for (const name of names) {
+    const one = fileSig(path.join(dir, name, EPIC_PIPELINE_FILENAME));
+    if (one) { sig += `|${name}:${one}`; }
+  }
+  return sig;
+}
+
+/**
+ * {@link readYaml} for the refresh paths, which ask several times per refresh
+ * and only read. Parsing means the workspace file plus every epic's pipeline
+ * file; stat-ing them is an order of magnitude cheaper.
+ *
+ * Callers share one object, so it must not be mutated or passed to
+ * {@link writeYaml}. To change the doc, call {@link readYaml} for a fresh copy.
+ */
+export function readYamlShared(workspaceRoot: string): Readonly<YamlDocument> | null {
+  const yamlSig = fileSig(workspaceYamlPath(workspaceRoot));
+  if (!yamlSig) { sharedDoc = null; return null; }
+  const held = sharedDoc;
+  if (held && held.root === workspaceRoot && held.yamlSig === yamlSig
+    && Date.now() - held.readAt < SHARED_DOC_MAX_AGE_MS
+    && held.pipelinesSig === epicPipelinesSig(workspaceRoot, held.doc)) {
+    return held.doc;
+  }
+  const doc = readYaml(workspaceRoot);
+  sharedDoc = doc && {
+    root: workspaceRoot,
+    yamlSig,
+    pipelinesSig: epicPipelinesSig(workspaceRoot, doc),
+    doc,
+    readAt: Date.now(),
+  };
   return doc;
 }
 
