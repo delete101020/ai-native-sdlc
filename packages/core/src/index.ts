@@ -364,8 +364,12 @@ export {
   setEpicSort,
   setEpicListFlat,
   setEpicWatched,
+  EPIC_VIEWS_KEY,
+  readEpicViews,
+  saveEpicView,
+  deleteEpicView,
 } from './loader/epicFocus';
-export type { EpicFocus, EpicSortPref } from './loader/epicFocus';
+export type { EpicFocus, EpicSortPref, EpicView } from './loader/epicFocus';
 // Per-epic depth of work, and the prompt section that states it.
 export {
   STRICT_MODE_HEADING,

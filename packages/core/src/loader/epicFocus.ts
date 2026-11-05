@@ -159,6 +159,51 @@ export function setEpicListFlat(root: string, flat: boolean): void {
 }
 
 /**
+ * Named snapshots of the Epics list filters ("EDI", "Today", "Later"), so a
+ * view used every day is one click instead of five. Fields are stored as
+ * given and checked by the webview when it applies one, like `epic_sort`.
+ *
+ *   epic_views:
+ *     - { name: EDI, tags: [edi], sort: activity }
+ *     - { name: Today, watched: true, status: in_progress }
+ */
+export const EPIC_VIEWS_KEY = 'epic_views';
+
+export interface EpicView {
+  name: string;
+  status?: string;
+  tags?: string[];
+  watched?: boolean;
+  archived?: boolean;
+  query?: string;
+  sort?: string;
+  reversed?: boolean;
+  flat?: boolean;
+}
+
+export function readEpicViews(root: string): EpicView[] {
+  const v = readUserConfig(root)?.[EPIC_VIEWS_KEY];
+  if (!Array.isArray(v)) { return []; }
+  return v.filter((x): x is EpicView =>
+    !!x && typeof x === 'object' && !!asId((x as Record<string, unknown>).name));
+}
+
+/** Add `view`, replacing the one with the same name in place. */
+export function saveEpicView(root: string, view: EpicView): void {
+  const views = readEpicViews(root);
+  const i = views.findIndex((v) => v.name === view.name);
+  if (i >= 0) { views[i] = view; } else { views.push(view); }
+  updateUserConfig(root, (doc) => { doc[EPIC_VIEWS_KEY] = views; });
+}
+
+export function deleteEpicView(root: string, name: string): void {
+  const views = readEpicViews(root).filter((v) => v.name !== name);
+  updateUserConfig(root, (doc) => {
+    if (views.length > 0) { doc[EPIC_VIEWS_KEY] = views; } else { delete doc[EPIC_VIEWS_KEY]; }
+  });
+}
+
+/**
  * Which of `knownIds` a git branch name refers to, or `null`.
  *
  * `feature/EPIC-012-login` → `EPIC-012`. The id has to stand as its own token

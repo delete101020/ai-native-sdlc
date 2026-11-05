@@ -947,6 +947,8 @@ export interface WorkspaceState {
   epicSortPref?: { sort: string; reversed: boolean } | null;
   /** Flat Epics list instead of families, from `.aidlc/user.yaml`. */
   epicListFlat?: boolean;
+  /** Saved Epics list filters (`epic_views` in `.aidlc/user.yaml`). */
+  epicViews?: EpicView[];
   /** Ids of the epics this user watches, from `.aidlc/user.yaml`. */
   watchedEpics?: string[];
   /** All existing epic ids (folders under epicRoot) — for uniqueness check. */
@@ -981,6 +983,19 @@ export interface TestAgentTarget {
 export type WorkspaceView = 'builder' | 'epics' | 'analyze' | 'tests';
 
 export type EpicFilter = 'all' | 'in_progress' | 'pending' | 'done' | 'failed';
+
+/** Mirrors `EpicView` in @aidlc/core: a named snapshot of the Epics filters. */
+export interface EpicView {
+  name: string;
+  status?: string;
+  tags?: string[];
+  watched?: boolean;
+  archived?: boolean;
+  query?: string;
+  sort?: string;
+  reversed?: boolean;
+  flat?: boolean;
+}
 
 export interface RequirementRunSummary {
   id: string;           // REQ-001

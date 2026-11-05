@@ -254,6 +254,10 @@ import {
   setEpicSort,
   readEpicListFlat,
   setEpicListFlat,
+  readEpicViews,
+  saveEpicView,
+  deleteEpicView,
+  type EpicView,
 } from '@aidlc/core';
 import { SKILL_TEMPLATES } from './skillTemplates';
 import {
@@ -643,6 +647,8 @@ interface WorkspaceState {
   watchedEpics?: string[];
   /** Flat Epics list instead of families, from `.aidlc/user.yaml`. */
   epicListFlat?: boolean;
+  /** Saved Epics list filters, from `.aidlc/user.yaml`. */
+  epicViews?: EpicView[];
 }
 
 /**
@@ -941,6 +947,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     epicSortPref: savedEpicSort(),
     watchedEpics: readEpicFocus(root).watched,
     epicListFlat: readEpicListFlat(root),
+    epicViews: readEpicViews(root),
   };
 }
 
@@ -2480,6 +2487,33 @@ export class WorkspaceWebview {
       case 'setEpicListFlat': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (root) { setEpicListFlat(root, msg.flat === true); }
+        return;
+      }
+
+      // The webview sends the current filters; the name is asked here because
+      // a webview has no prompt(). Same name overwrites, so "update" is free.
+      case 'saveEpicView': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root || !msg.view || typeof msg.view !== 'object') { return; }
+        const name = (await vscode.window.showInputBox({
+          prompt: 'Name this view of the Epics list (same name replaces it)',
+          placeHolder: 'EDI, Today, Later…',
+          validateInput: (v) => (v.trim() ? null : 'Name cannot be empty'),
+        }))?.trim();
+        if (!name) { return; }
+        saveEpicView(root, { ...(msg.view as Omit<EpicView, 'name'>), name });
+        this.refresh();
+        return;
+      }
+
+      case 'deleteEpicView': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const name = String(msg.name ?? '');
+        if (!root || !name) { return; }
+        const ok = await vscode.window.showWarningMessage(`Delete the saved view "${name}"?`, { modal: true }, 'Delete');
+        if (ok !== 'Delete') { return; }
+        deleteEpicView(root, name);
+        this.refresh();
         return;
       }
 

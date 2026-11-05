@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp, Star, List, ListTree, Search, Archive } from 'lucide-react';
+import { Plus, Brain, FolderOpen, Pencil, Radio, ChevronRight, RefreshCw, Tag as TagIcon, X, ArrowDownUp, Star, List, ListTree, Search, Archive, Bookmark, BookmarkPlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { WorkspaceState, EpicSummary, EpicFilter, FollowUpContext } from '@/lib/types';
+import type { WorkspaceState, EpicSummary, EpicFilter, EpicView, FollowUpContext } from '@/lib/types';
 import { EpicCard } from './EpicCard';
 import { StartEpicModal } from './StartEpicModal';
 import { ReportSignalModal } from './ReportSignalModal';
@@ -130,6 +130,37 @@ export function EpicsView({
     setFlat(next);
     postMessage({ type: 'setEpicListFlat', flat: next });
   };
+  // Saved views: a snapshot of every facet above, kept in `.aidlc/user.yaml`.
+  // Only non-default fields are written, so a view stays readable by hand.
+  const currentView = (): Omit<EpicView, 'name'> => ({
+    ...(filter !== 'all' && { status: filter }),
+    ...(tagFilter.length > 0 && { tags: tagFilter }),
+    ...(watchedOnly && { watched: true }),
+    ...(showArchived && { archived: true }),
+    ...(query.trim() && { query: query.trim() }),
+    sort: effectiveSort,
+    ...(sortReversed && { reversed: true }),
+    ...(flat && { flat: true }),
+  });
+  const applyView = (v: EpicView) => {
+    setFilter(FILTERS.some((f) => f.id === v.status) ? (v.status as EpicFilter) : 'all');
+    setTagFilter(Array.isArray(v.tags) ? v.tags.map(String) : []);
+    setWatchedOnly(v.watched === true);
+    setShowArchived(v.archived === true);
+    setQuery(typeof v.query === 'string' ? v.query : '');
+    const s = isEpicSort(v.sort) ? v.sort : sort;
+    const r = v.reversed === true;
+    setSort(s);
+    setSortReversed(r);
+    persistSort({ sort: s, reversed: r });
+    if ((v.flat === true) !== flat) { toggleFlat(); }
+  };
+  // Field-order and default-value blind, so a hand-edited view still lights up.
+  const viewKey = (v: Omit<EpicView, 'name'>) => JSON.stringify([
+    v.status ?? 'all', [...(v.tags ?? [])].sort(), !!v.watched, !!v.archived,
+    v.query ?? '', isEpicSort(v.sort) ? v.sort : effectiveSort, !!v.reversed, !!v.flat,
+  ]);
+  const activeViewKey = viewKey(currentView());
   // The last deep link from outside the panel (sidebar, Go to Epic, a run):
   // every other card folds, so arriving on an epic never lands among a pile of
   // cards left open from before. The chips inside the list only set `focus`,
@@ -408,6 +439,44 @@ export function EpicsView({
             Start Epic
           </button>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Bookmark className="h-3 w-3 shrink-0 text-muted-foreground" />
+        {(state.epicViews ?? []).map((v) => {
+          const on = viewKey(v) === activeViewKey;
+          return (
+            <span
+              key={v.name}
+              className={cn(
+                'inline-flex items-center rounded-full border text-[11px] font-medium transition-colors',
+                on ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <button type="button" onClick={() => applyView(v)} title={`Apply the saved view "${v.name}"`} className="py-0.5 pl-2 pr-1">
+                {v.name}
+              </button>
+              <button
+                type="button"
+                onClick={() => postMessage({ type: 'deleteEpicView', name: v.name })}
+                title={`Delete the saved view "${v.name}"`}
+                aria-label={`Delete the saved view ${v.name}`}
+                className="py-0.5 pr-1.5 opacity-60 hover:opacity-100"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => postMessage({ type: 'saveEpicView', view: currentView() })}
+          title="Save the current filters, search and sort as a named view (same name replaces it)"
+          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          <BookmarkPlus className="h-3 w-3" />
+          Save view
+        </button>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">

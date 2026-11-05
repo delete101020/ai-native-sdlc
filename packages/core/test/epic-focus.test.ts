@@ -12,6 +12,9 @@ import {
   readEpicFocus,
   readEpicSort,
   readEpicListFlat,
+  readEpicViews,
+  saveEpicView,
+  deleteEpicView,
   readUserConfig,
   recordEpicOpened,
   setActiveEpic,
@@ -125,6 +128,22 @@ describe('epic list view — flat or grouped', () => {
     expect(readEpicListFlat(root)).toBe(true);
     setEpicListFlat(root, false);
     expect(readUserConfig(root)?.epic_list_flat).toBeUndefined();
+  });
+});
+
+describe('saved epic views', () => {
+  it('saves, replaces by name, deletes, and drops the key when empty', () => {
+    expect(readEpicViews(root)).toEqual([]);
+    saveEpicView(root, { name: 'EDI', tags: ['edi'] });
+    saveEpicView(root, { name: 'Today', watched: true });
+    saveEpicView(root, { name: 'EDI', tags: ['edi'], sort: 'activity' });
+    expect(readEpicViews(root)).toEqual([
+      { name: 'EDI', tags: ['edi'], sort: 'activity' },
+      { name: 'Today', watched: true },
+    ]);
+    deleteEpicView(root, 'EDI');
+    deleteEpicView(root, 'Today');
+    expect(readUserConfig(root)?.epic_views).toBeUndefined();
   });
 });
 
