@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EpicSummary, EpicStepDetailFull } from '../src/webview/lib/types';
-import { attentionRank, isOwnEpic, lastActivity, sortEpics } from '../src/webview/lib/epicSort';
+import { attentionRank, isOwnEpic, lastActivity, sinceCutoff, sortEpics } from '../src/webview/lib/epicSort';
 
 function step(over: Partial<EpicStepDetailFull> = {}): EpicStepDetailFull {
   return {
@@ -103,5 +103,20 @@ describe('isOwnEpic', () => {
     expect(isOwnEpic('EPIC-001', 'NG')).toBe(false);
     expect(isOwnEpic('TASK-260908-KD-001', 'NG')).toBe(false);
     expect(isOwnEpic('EPIC-260908-NG-001', null)).toBe(false);
+  });
+});
+
+describe('sinceCutoff', () => {
+  const now = new Date(2026, 10, 5, 15, 30);
+  it('today starts at local midnight', () => {
+    expect(sinceCutoff('today', now)).toBe(new Date(2026, 10, 5).getTime());
+  });
+  it('7d and 30d count back from now', () => {
+    expect(sinceCutoff('7d', now)).toBe(now.getTime() - 7 * 86_400_000);
+    expect(sinceCutoff('30d', now)).toBe(now.getTime() - 30 * 86_400_000);
+  });
+  it('an epic only created today counts as active today', () => {
+    const e = epic('E', { createdAt: new Date(2026, 10, 5, 9).toISOString(), stepDetails: [] });
+    expect(lastActivity(e) >= sinceCutoff('today', now)).toBe(true);
   });
 });

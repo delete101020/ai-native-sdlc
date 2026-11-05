@@ -149,3 +149,27 @@ export function sortEpics<T extends SortableEpic>(
 
   return [...epics].sort(cmp);
 }
+
+/** "Active since" windows for the Epics list, read off `lastActivity`. */
+export type EpicSince = 'today' | '7d' | '30d';
+
+export const EPIC_SINCE: { id: EpicSince; label: string }[] = [
+  { id: 'today', label: 'Active today' },
+  { id: '7d', label: 'Active 7 days' },
+  { id: '30d', label: 'Active 30 days' },
+];
+
+export function isEpicSince(v: unknown): v is EpicSince {
+  return EPIC_SINCE.some((s) => s.id === v);
+}
+
+/**
+ * Earliest activity time that still counts. Relative, so a saved "today" view
+ * means today tomorrow too. "Today" is the local calendar day, not 24 hours.
+ */
+export function sinceCutoff(since: EpicSince, now = new Date()): number {
+  if (since === 'today') {
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  }
+  return now.getTime() - (since === '7d' ? 7 : 30) * 86_400_000;
+}

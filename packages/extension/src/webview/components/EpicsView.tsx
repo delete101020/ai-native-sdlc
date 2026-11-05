@@ -7,7 +7,7 @@ import { StartEpicModal } from './StartEpicModal';
 import { ReportSignalModal } from './ReportSignalModal';
 import { postMessage, onHostMessage } from '@/lib/bridge';
 import { shareStructure } from '@/lib/hostState';
-import { EPIC_SORTS, DEFAULT_EPIC_SORT, isEpicSort, sortEpics, type EpicSort } from '@/lib/epicSort';
+import { EPIC_SORTS, DEFAULT_EPIC_SORT, isEpicSort, sortEpics, type EpicSort, EPIC_SINCE, isEpicSince, sinceCutoff, lastActivity, type EpicSince } from '@/lib/epicSort';
 
 const FILTERS: { id: EpicFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -95,6 +95,8 @@ export function EpicsView({
   );
   // Matches id or title, case-insensitively, as one more facet.
   const [query, setQuery] = useState('');
+  // Last activity within a relative window (today / 7d / 30d); null = any time.
+  const [since, setSince] = useState<EpicSince | null>(null);
   const watchedIds = useMemo(() => new Set(state.watchedEpics ?? []), [state.watchedEpics]);
   // The host keeps the order: this webview's own state dies with the panel.
   const [sort, setSort] = useState<EpicSort>(() => {
@@ -141,6 +143,7 @@ export function EpicsView({
     sort: effectiveSort,
     ...(sortReversed && { reversed: true }),
     ...(flat && { flat: true }),
+    ...(since && { since }),
   });
   const applyView = (v: EpicView) => {
     setFilter(FILTERS.some((f) => f.id === v.status) ? (v.status as EpicFilter) : 'all');
@@ -148,6 +151,7 @@ export function EpicsView({
     setWatchedOnly(v.watched === true);
     setShowArchived(v.archived === true);
     setQuery(typeof v.query === 'string' ? v.query : '');
+    setSince(isEpicSince(v.since) ? v.since : null);
     const s = isEpicSort(v.sort) ? v.sort : sort;
     const r = v.reversed === true;
     setSort(s);
@@ -159,6 +163,7 @@ export function EpicsView({
   const viewKey = (v: Omit<EpicView, 'name'>) => JSON.stringify([
     v.status ?? 'all', [...(v.tags ?? [])].sort(), !!v.watched, !!v.archived,
     v.query ?? '', isEpicSort(v.sort) ? v.sort : effectiveSort, !!v.reversed, !!v.flat,
+    isEpicSince(v.since) ? v.since : null,
   ]);
   const activeViewKey = viewKey(currentView());
   // The last deep link from outside the panel (sidebar, Go to Epic, a run):
@@ -190,6 +195,7 @@ export function EpicsView({
       setTagFilter((t) => (target && matchesTags(target, t) ? t : []));
       setWatchedOnly((w) => w && (state.watchedEpics ?? []).includes(focus.id));
       setQuery('');
+      setSince(null);
       setShowArchived(!!target?.archived);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -234,16 +240,18 @@ export function EpicsView({
   // Sorted before grouping: a family takes the place of whichever of its
   // epics sorts first, so one follow-up awaiting review lifts its incident.
   const q = query.trim().toLowerCase();
+  const cutoff = since ? sinceCutoff(since) : null;
   const visible = useMemo(
     () => sortEpics(
       pool.filter((e) =>
         matches(e, filter) && matchesTags(e, tagFilter) && (!watchedOnly || watchedIds.has(e.id))
-        && (!q || e.id.toLowerCase().includes(q) || e.title.toLowerCase().includes(q))),
+        && (!q || e.id.toLowerCase().includes(q) || e.title.toLowerCase().includes(q))
+        && (cutoff === null || lastActivity(e) >= cutoff)),
       effectiveSort,
       sortReversed,
       prefix,
     ),
-    [pool, filter, tagFilter, watchedOnly, watchedIds, q, effectiveSort, sortReversed, prefix],
+    [pool, filter, tagFilter, watchedOnly, watchedIds, q, cutoff, effectiveSort, sortReversed, prefix],
   );
 
   /**
@@ -571,6 +579,19 @@ export function EpicsView({
             {flat ? <List className="h-3 w-3" /> : <ListTree className="h-3 w-3" />}
           </button>
           <select
+            aria-label="Filter by last activity"
+            value={since ?? ''}
+            onChange={(e) => setSince(isEpicSince(e.target.value) ? e.target.value : null)}
+            title="Last step started, finished or reviewed — or created, if nothing has run yet"
+            className={cn(
+              'rounded-md border bg-card px-2 py-1 text-xs focus:border-primary focus:outline-none',
+              since ? 'border-primary text-primary' : 'border-border text-foreground',
+            )}
+          >
+            <option value="">Any time</option>
+            {EPIC_SINCE.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+          <select
             aria-label="Sort epics"
             value={effectiveSort}
             onChange={(e) => {
@@ -660,6 +681,8 @@ export function EpicsView({
             ? `No epics match "${query.trim()}".`
             : watchedOnly
             ? 'None of the epics you watch match these filters.'
+            : since
+            ? `No epics ${EPIC_SINCE.find((s) => s.id === since)?.label.toLowerCase()} match these filters.`
             : tagFilter.length > 0
             ? `No epics tagged ${tagFilter.join(' + ')}${filter === 'all' ? '' : ` in ${filter.replace('_', ' ')}`}.`
             : showArchived ? `No archived${filter === 'all' ? '' : ` ${filter.replace('_', ' ')}`} epics.`

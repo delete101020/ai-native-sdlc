@@ -179,6 +179,8 @@ export interface EpicView {
   sort?: string;
   reversed?: boolean;
   flat?: boolean;
+  /** Active-since window: 'today' | '7d' | '30d'. */
+  since?: string;
 }
 
 export function readEpicViews(root: string): EpicView[] {
