@@ -519,6 +519,10 @@ the question in the reason; answer it and run again. Its agents get
 `AIDLC_AUTOPILOT=1` only on an `autopilot: true` pipeline; without it a skill
 that asks a question stops there.
 
+Installing a workflow with an autopilot recipe also installs its approval gate:
+the hook goes to `.claude/hooks/aidlc-approval-gate.py` and is registered in
+`.claude/settings.local.json` (kept out of git), run with `py -3` on Windows.
+
 An `autopilot: true` pipeline refuses to start on uncommitted changes, with
 one exception: when a step stopped short (a non-zero exit such as the account
 running out of usage, its `timeout_minutes`, a "stop now"), the run records

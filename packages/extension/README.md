@@ -106,6 +106,9 @@ six sample epics) into the open folder.
 - **An Epics panel that scales** — search by ID or name, a flat or grouped view, tags and filters,
   **Go to Epic** (`Ctrl+Alt+E`), an active epic that follows your git branch, and **My epics**, which
   says which agent just stopped and is waiting on you.
+- **Saved Epics views** — save the current filters, search and sort under a name (`epic_views` in
+  `.aidlc/user.yaml`); each view is a chip above the filters and its own section in the sidebar.
+  Filter by last activity too: today, 7 or 30 days.
 - **Epic ids your way** — `epic_id_prefix` files epics under your initials and a date, or set it to `false`
   in `.aidlc/user.yaml` to decline one and stop the sidebar warning. `epic_id_label` in `workspace.yaml`
   replaces the `EPIC` word, as in `TASK-001`.

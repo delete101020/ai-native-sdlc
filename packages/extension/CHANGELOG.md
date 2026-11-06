@@ -1,5 +1,30 @@
 # Changelog
 
+## 4.0.52
+
+The Epics list remembers how you like to look at it: save a set of filters as a
+named view, open it from the sidebar, and narrow by recent activity. Autopilot
+pipelines now work in a freshly set-up workspace without a manual hook step.
+
+### Added
+
+- Saved views of the Epics list: status, tags, Watching, Archived, search, sort
+  and layout are stored under a name in `.aidlc/user.yaml` (`epic_views`) and
+  shown as chips above the filters. Click to apply, × to delete; saving under
+  the same name replaces it.
+- Each saved view also appears as its own section in the sidebar, under
+  **My epics**, listing the epics it matches in its own sort.
+- A last-activity filter on the Epics list: today, last 7 days or last 30 days.
+  The windows are relative, so a saved "today" view still means today tomorrow.
+
+### Fixed
+
+- Setting up a workspace with an autopilot workflow now installs the approval
+  gate hook in `.claude/hooks/` and registers it in `.claude/settings.local.json`
+  (with `py -3` on Windows). Before, an autopilot pipeline refused to start
+  until the hook was set up by hand. Existing workspaces are fixed on the next
+  panel refresh.
+
 ## 4.0.51
 
 Epic ids are yours to name, a project that moved its epic folder now works from

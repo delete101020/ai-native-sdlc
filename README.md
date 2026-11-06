@@ -27,6 +27,14 @@ Code transcript.
 
 ![aidlc demo](packages/extension/media/demo.gif)
 
+## ✨ What's New in v4.0.52 — saved Epics views (this fork)
+
+- **🔖 Saved views** — save the Epics list's filters, search and sort under a name (`epic_views` in `.aidlc/user.yaml`); each view is a chip above the filters and its own sidebar section.
+- **🕒 Last-activity filter** — show epics touched today, in the last 7 days or the last 30.
+- **🧹 Fixes** — setting up an autopilot workflow installs and registers the approval gate hook, so the pipeline starts without a manual step.
+
+---
+
 ## ✨ What's New in v4.0.51 — your epic ids, your epic folder (this fork)
 
 - **🏷️ Epic ids your way** — `epic_id_prefix: false` in `.aidlc/user.yaml` declines the prefix and stops the sidebar warning; `epic_id_label` in `workspace.yaml` replaces the `EPIC` word, as in `TASK-001`.
@@ -438,8 +446,8 @@ To run unreleased changes. **The extension:**
 
 ```sh
 pnpm install
-pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.51.vsix
-code --install-extension packages/extension/aidlc-native-4.0.51.vsix
+pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.52.vsix
+code --install-extension packages/extension/aidlc-native-4.0.52.vsix
 ```
 
 Reload the window afterwards. A `.vsix` installs over the Marketplace copy (same
@@ -450,7 +458,7 @@ id), and the next Marketplace update replaces it again.
 ```sh
 pnpm -r compile
 cd packages/cli && pnpm bundle && npm link               # `aidlc` on your PATH
-aidlc --version                                          # 4.0.51
+aidlc --version                                          # 4.0.52
 ```
 
 To pick up later changes, re-run the same two commands — `npm link` points at
