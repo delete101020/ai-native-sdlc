@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EpicSummary, EpicStepDetailFull } from '../src/webview/lib/types';
-import { attentionRank, isOwnEpic, lastActivity, sinceCutoff, sortEpics } from '../src/webview/lib/epicSort';
+import { attentionRank, isOwnEpic, lastActivity, matchesView, sinceCutoff, sortEpics } from '../src/webview/lib/epicSort';
 
 function step(over: Partial<EpicStepDetailFull> = {}): EpicStepDetailFull {
   return {
@@ -118,5 +118,28 @@ describe('sinceCutoff', () => {
   it('an epic only created today counts as active today', () => {
     const e = epic('E', { createdAt: new Date(2026, 10, 5, 9).toISOString(), stepDetails: [] });
     expect(lastActivity(e) >= sinceCutoff('today', now)).toBe(true);
+  });
+});
+
+describe('matchesView', () => {
+  const now = new Date(2026, 10, 5, 15, 30);
+  const edi = epic('EPIC-1', { title: 'EDI import', status: 'in_progress', tags: ['EDI', 'Q3'], createdAt: new Date(2026, 10, 5, 9).toISOString() });
+  const old = epic('EPIC-2', { title: 'Billing', tags: ['EDI'], createdAt: '2026-01-01T00:00:00Z' });
+  const arch = epic('EPIC-3', { archived: true });
+  const ok = (e: EpicSummary, v: Parameters<typeof matchesView>[1], w: string[] = []) => matchesView(e, v, new Set(w), now);
+  it('every facet narrows', () => {
+    expect(ok(edi, {})).toBe(true);
+    expect(ok(edi, { status: 'in_progress', tags: ['EDI', 'Q3'], query: 'edi', since: 'today' })).toBe(true);
+    expect(ok(old, { tags: ['EDI', 'Q3'] })).toBe(false);
+    expect(ok(old, { status: 'in_progress' })).toBe(false);
+    expect(ok(old, { since: '7d' })).toBe(false);
+    expect(ok(old, { query: 'xyz' })).toBe(false);
+    expect(ok(old, { watched: true })).toBe(false);
+    expect(ok(old, { watched: true }, ['EPIC-2'])).toBe(true);
+  });
+  it('archived views show only archived epics', () => {
+    expect(ok(arch, {})).toBe(false);
+    expect(ok(arch, { archived: true })).toBe(true);
+    expect(ok(edi, { archived: true })).toBe(false);
   });
 });

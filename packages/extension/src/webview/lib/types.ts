@@ -427,6 +427,8 @@ export interface SidebarState {
   epicsCount: number;
   /** Every watched epic, in the Epics view's order. */
   myEpics: RecentEpicRef[];
+  /** Saved Epics-list views, each with the epics it matches, in its own sort. */
+  epicViews?: Array<{ name: string; epics: RecentEpicRef[] }>;
   slashCommands: SlashCommandRef[];
   builtinTemplates: TemplateRef[];
   projectTemplates: TemplateRef[];

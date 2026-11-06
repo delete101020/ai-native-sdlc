@@ -7,7 +7,7 @@ import { StartEpicModal } from './StartEpicModal';
 import { ReportSignalModal } from './ReportSignalModal';
 import { postMessage, onHostMessage } from '@/lib/bridge';
 import { shareStructure } from '@/lib/hostState';
-import { EPIC_SORTS, DEFAULT_EPIC_SORT, isEpicSort, sortEpics, type EpicSort, EPIC_SINCE, isEpicSince, sinceCutoff, lastActivity, type EpicSince } from '@/lib/epicSort';
+import { EPIC_SORTS, DEFAULT_EPIC_SORT, isEpicSort, sortEpics, type EpicSort, EPIC_SINCE, isEpicSince, matchesView, type EpicSince } from '@/lib/epicSort';
 
 const FILTERS: { id: EpicFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -240,18 +240,19 @@ export function EpicsView({
   // Sorted before grouping: a family takes the place of whichever of its
   // epics sorts first, so one follow-up awaiting review lifts its incident.
   const q = query.trim().toLowerCase();
-  const cutoff = since ? sinceCutoff(since) : null;
+  // Same predicate the sidebar uses for saved views, so the two never disagree.
   const visible = useMemo(
     () => sortEpics(
-      pool.filter((e) =>
-        matches(e, filter) && matchesTags(e, tagFilter) && (!watchedOnly || watchedIds.has(e.id))
-        && (!q || e.id.toLowerCase().includes(q) || e.title.toLowerCase().includes(q))
-        && (cutoff === null || lastActivity(e) >= cutoff)),
+      pool.filter((e) => matchesView(
+        e,
+        { status: filter, tags: tagFilter, watched: watchedOnly, archived: showArchived, query: q, ...(since && { since }) },
+        watchedIds,
+      )),
       effectiveSort,
       sortReversed,
       prefix,
     ),
-    [pool, filter, tagFilter, watchedOnly, watchedIds, q, cutoff, effectiveSort, sortReversed, prefix],
+    [pool, filter, tagFilter, watchedOnly, showArchived, watchedIds, q, since, effectiveSort, sortReversed, prefix],
   );
 
   /**

@@ -173,3 +173,39 @@ export function sinceCutoff(since: EpicSince, now = new Date()): number {
   }
   return now.getTime() - (since === '7d' ? 7 : 30) * 86_400_000;
 }
+
+/** The fields a saved view filters on — shared by the Epics list and the sidebar. */
+export interface FilterableEpic extends SortableEpic {
+  tags?: readonly string[];
+  archived?: boolean;
+}
+
+/** The facets of a saved view (`epic_views` in `.aidlc/user.yaml`), as stored. */
+export interface EpicViewFilter {
+  status?: string;
+  tags?: readonly string[];
+  watched?: boolean;
+  archived?: boolean;
+  query?: string;
+  since?: string;
+}
+
+/**
+ * Whether `epic` belongs in a saved view. Tags are AND (each one narrows), the
+ * query matches id or title case-insensitively, and an archived view shows only
+ * archived epics. Unknown status / since values match everything.
+ */
+export function matchesView(
+  epic: FilterableEpic,
+  v: EpicViewFilter,
+  watchedIds: ReadonlySet<string>,
+  now = new Date(),
+): boolean {
+  if (!!epic.archived !== (v.archived === true)) { return false; }
+  if (v.status && v.status !== 'all' && epic.status !== v.status) { return false; }
+  if (v.tags?.length && !v.tags.every((t) => epic.tags?.includes(t))) { return false; }
+  if (v.watched === true && !watchedIds.has(epic.id)) { return false; }
+  const q = (v.query ?? '').trim().toLowerCase();
+  if (q && !epic.id.toLowerCase().includes(q) && !epic.title.toLowerCase().includes(q)) { return false; }
+  return !isEpicSince(v.since) || lastActivity(epic) >= sinceCutoff(v.since, now);
+}

@@ -33,6 +33,7 @@ import {
   BellRing,
   type LucideIcon,
   Tag,
+  Bookmark,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -73,7 +74,8 @@ const DEFAULT_COLLAPSED: CollapseState = {
 
 export function AppSidebar({ state }: { state: SidebarState | null }) {
   const seed = (getPersistedUi<PersistedUi>() ?? {});
-  const [collapsed, setCollapsed] = useState<CollapseState>({
+  // Saved-view sections are keyed `view:<name>` alongside the fixed ones.
+  const [collapsed, setCollapsed] = useState<CollapseState & Record<string, boolean>>({
     ...DEFAULT_COLLAPSED,
     ...(seed.collapsed ?? {}),
   });
@@ -87,7 +89,7 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
     [collapsed],
   );
 
-  const toggleSection = (key: keyof CollapseState) => {
+  const toggleSection = (key: string) => {
     const next = { ...collapsed, [key]: !collapsed[key] };
     setCollapsed(next);
     persist({ collapsed: next });
@@ -149,6 +151,21 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
                 onToggle={() => toggleSection('myEpics')}
               />
             )}
+
+            {state.configExists && (state.epicViews ?? []).map((v) => (
+              <MyEpicsSection
+                key={v.name}
+                label={<><Bookmark className="h-3 w-3" />{v.name}</>}
+                emptyText="No epics match this view right now."
+                epics={v.epics}
+                epicsCount={state.epicsCount}
+                runs={state.activeRuns}
+                activity={state.agentActivity ?? {}}
+                stops={state.agentStops ?? {}}
+                collapsed={collapsed[`view:${v.name}`] === true}
+                onToggle={() => toggleSection(`view:${v.name}`)}
+              />
+            ))}
 
             {state.configExists ? (
               <SectionShell
@@ -638,7 +655,7 @@ function SectionHeader({
   onToggle,
   trailing,
 }: {
-  label: string;
+  label: React.ReactNode;
   collapsed: boolean;
   onToggle: () => void;
   trailing?: React.ReactNode;
@@ -653,7 +670,7 @@ function SectionHeader({
         <ChevronDown
           className={cn('h-3 w-3 transition-transform', collapsed && '-rotate-90')}
         />
-        <span>{label}</span>
+        <span className="flex items-center gap-1">{label}</span>
       </button>
       {trailing}
     </div>
@@ -823,6 +840,8 @@ const MY_EPICS_LIMIT = 8;
  * else. A run shows on its epic's row; there is no separate runs list.
  */
 function MyEpicsSection({
+  label = 'My epics',
+  emptyText,
   epics,
   epicsCount,
   runs,
@@ -831,6 +850,9 @@ function MyEpicsSection({
   collapsed,
   onToggle,
 }: {
+  label?: React.ReactNode;
+  /** Replaces the "star an epic" hint, which only makes sense for My epics. */
+  emptyText?: string;
   epics: RecentEpicRef[];
   epicsCount: number;
   runs: ActiveRun[];
@@ -845,7 +867,7 @@ function MyEpicsSection({
   return (
     <div>
       <SectionHeader
-        label="My epics"
+        label={label}
         collapsed={collapsed}
         onToggle={onToggle}
         trailing={
@@ -870,7 +892,9 @@ function MyEpicsSection({
       />
       {!collapsed && (
         <div className="mt-1.5 space-y-1">
-          {epics.length === 0 ? (
+          {epics.length === 0 && emptyText ? (
+            <div className="px-2.5 py-1 text-[10.5px] text-muted-foreground">{emptyText}</div>
+          ) : epics.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-2.5 py-2 text-[10.5px] leading-relaxed text-muted-foreground">
               <Star className="mr-1 inline h-3 w-3 align-text-bottom" />
               Star the epics you want to keep an eye on from a card in the Epics view, or find one with Go to Epic.

@@ -43,6 +43,7 @@ import {
   writeUserEpicIdPrefix,
   ensureUserConfigIgnored,
   readEpicFocus,
+  readEpicViews,
   USER_CONFIG_RELPATH,
   EPIC_ID_PREFIX_PATTERN,
   isActiveStatus,
@@ -65,7 +66,7 @@ import {
 } from './runCommands';
 import { WorkspaceWebview } from './workspaceWebview';
 import { stepLabel } from './epicFocus';
-import { DEFAULT_EPIC_SORT, isEpicSort, sortEpics } from '../webview/lib/epicSort';
+import { DEFAULT_EPIC_SORT, isEpicSort, matchesView, sortEpics } from '../webview/lib/epicSort';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { agentActivity, type AgentActivityMap, type AgentStopMap } from './agentActivity';
 import { guardMessages } from './webviewMessageGuard';
@@ -156,6 +157,8 @@ interface SidebarState {
   epicsCount: number;
   /** Every watched epic still on disk, in the Epics view's order. */
   myEpics: EpicRef[];
+  /** Saved Epics-list views (`epic_views`), each with the epics it matches, in its own sort. */
+  epicViews: Array<{ name: string; epics: EpicRef[] }>;
   slashCommands: Array<{ name: string; target: string }>;
   /** Workspace templates split by source — built-in (extension) vs project. */
   builtinTemplates: TemplateRef[];
@@ -253,7 +256,7 @@ function buildState(
       workspaceName: '',
       configExists: false,
       agentsCount: 0, skillsCount: 0, pipelinesCount: 0,
-      epicsCount: 0, myEpics: [],
+      epicsCount: 0, myEpics: [], epicViews: [],
       slashCommands: [],
       builtinTemplates: [], projectTemplates: [],
       activeRuns: [],
@@ -314,6 +317,20 @@ function buildState(
   const running = agentActivity.snapshot();
   const stops = agentActivity.stopsSnapshot();
   const myEpics = myEpicRefs(allEpics, focus.watched, running, stops, inEpicsOrder, toRef);
+  // Saved views of the Epics list, filtered by the same predicate the list uses.
+  const watchedIds = new Set(focus.watched);
+  const epicViews = readEpicViews(root).map((v) => {
+    const vSort = isEpicSort(v.sort) ? v.sort : sort;
+    return {
+      name: v.name,
+      epics: sortEpics(
+        allEpics.filter((e) => matchesView(e, v, watchedIds)),
+        vSort,
+        v.reversed === true,
+        vSort === 'mine' ? epicIdPrefixFields(root, doc).epicIdPrefix : null,
+      ).map(toRef),
+    };
+  });
 
   // GH-67: read extra_projects from the epic being worked on — the active one,
   // else the most recent in-progress one — for sidebar display.
@@ -348,7 +365,7 @@ function buildState(
       agentsCount: countDistinct([], claudeAgents),
       skillsCount: countDistinct([], claudeSkills),
       pipelinesCount: 0,
-      epicsCount: allEpics.length, myEpics,
+      epicsCount: allEpics.length, myEpics, epicViews,
       slashCommands: [],
       builtinTemplates, projectTemplates,
       activeRuns,
@@ -390,6 +407,7 @@ function buildState(
     pipelinesCount: doc.pipelines.length,
     epicsCount: allEpics.length,
     myEpics,
+    epicViews,
     slashCommands: doc.slash_commands.map((c) => ({
       name: typeof c.name === 'string' ? c.name : '',
       target:
