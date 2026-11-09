@@ -320,7 +320,7 @@ describe('stopping a running step', () => {
     const outcome = await runExecLoop(root, 'R-1', {}, { onStepFailed: (e) => { message = e.message ?? ''; } });
     expect(Date.now() - started).toBeLessThan(10_000);
     expect(outcome).toEqual({ kind: 'error' });
-    expect(message).toMatch(/^Step "dev" ran past its 0\.005-minute limit \(`timeout_minutes`\) and was stopped\./);
+    expect(message).toMatch(/^Step "implement" ran past its 0\.005-minute limit \(`timeout_minutes`\) and was stopped\./);
     const step = RunStateStore.load(root, 'R-1')!.steps[0];
     expect(step).toMatchObject({ status: 'awaiting_work', revision: 1 });
     expect(step.history).toEqual([expect.objectContaining({ kind: 'interrupted', why: 'timeout', minutes: 0.005, revision: 1 })]);

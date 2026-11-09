@@ -328,7 +328,7 @@ pipelines:
     expect(outcome).toEqual({ kind: 'stalled' });
     expect(devCalls(root)).toBe(2);
     expect(stalled).toBe(
-      'Revision 2 of "dev" changed no code — the working tree is what it was before it ran (its report aside). ' +
+      'Revision 2 of "implement" changed no code — the working tree is what it was before it ran (its report aside). ' +
       'Sent back 1 time; stopping rather than have the same code reviewed again.',
     );
     const s = RunStateStore.load(root, 'R-1')!;

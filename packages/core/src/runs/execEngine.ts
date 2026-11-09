@@ -693,7 +693,7 @@ async function execStep(
   if (norm?.batches && !report) {
     hooks.onStepFailed?.({
       stepIdx, agent: agentId, label: stepLabel(stepRec),
-      message: `Step "${agentId}" has \`batches: true\` but no \`produces\` file to write its \`Status:\` line in.`,
+      message: `Step "${stepLabel(stepRec)}" has \`batches: true\` but no \`produces\` file to write its \`Status:\` line in.`,
     });
     return 'failed';
   }
@@ -780,7 +780,7 @@ async function execStep(
     if (timedOut) {
       hooks.onStepFailed?.({
         stepIdx, agent: agentId, label: stepLabel(stepRec),
-        message: `Step "${agentId}" ran past its ${minutes}-minute limit (\`timeout_minutes\`) and was stopped. ` +
+        message: `Step "${stepLabel(stepRec)}" ran past its ${minutes}-minute limit (\`timeout_minutes\`) and was stopped. ` +
           `It is still awaiting work on revision ${stepRec.revision}; nothing was sent back. Whatever it ` +
           'half-wrote is still in the working tree.',
       });
@@ -792,7 +792,7 @@ async function execStep(
 
   if (!result || !result.success) {
     recordLeftover(root, runId, stepIdx, 'failed', codeExclude);
-    hooks.onStepFailed?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), message: `Step "${agentId}" failed (non-zero exit).` });
+    hooks.onStepFailed?.({ stepIdx, agent: agentId, label: stepLabel(stepRec), message: `Step "${stepLabel(stepRec)}" failed (non-zero exit).` });
     return 'failed';
   }
 
@@ -802,7 +802,7 @@ async function execStep(
   if (sentBackHere && codeUnchanged && batchNo <= 1) {
     hooks.onStalled?.({
       stepIdx, agent: agentId, label: stepLabel(stepRec), revision: stepRec.revision, runId,
-      reason: `Revision ${stepRec.revision} of "${agentId}" changed no code — the working tree is what it was ` +
+      reason: `Revision ${stepRec.revision} of "${stepLabel(stepRec)}" changed no code — the working tree is what it was ` +
         `before it ran (its report aside). Sent back ${state.sendBacks} time${state.sendBacks === 1 ? '' : 's'}; ` +
         'stopping rather than have the same code reviewed again.',
     });
@@ -813,7 +813,7 @@ async function execStep(
   if (stale.length > 0) {
     hooks.onStepFailed?.({
       stepIdx, agent: agentId, label: stepLabel(stepRec),
-      message: `Step "${agentId}" reported success but left its artifacts unchanged: ${stale.join(', ')}. `
+      message: `Step "${stepLabel(stepRec)}" reported success but left its artifacts unchanged: ${stale.join(', ')}. `
         + 'The agent may have failed to write them. Check its output, then rerun the step.',
     });
     return 'failed';
@@ -824,7 +824,7 @@ async function execStep(
     if ('error' in read) {
       hooks.onStepFailed?.({
         stepIdx, agent: agentId, label: stepLabel(stepRec),
-        message: `Step "${agentId}" runs in batches and its report cannot say whether it is done: ${read.error} ` +
+        message: `Step "${stepLabel(stepRec)}" runs in batches and its report cannot say whether it is done: ${read.error} ` +
           'Add the line, then run exec again.',
       });
       return 'failed';
@@ -832,7 +832,7 @@ async function execStep(
     if (read.status === 'continue' && codeUnchanged) {
       hooks.onStalled?.({
         stepIdx, agent: agentId, label: stepLabel(stepRec), revision: stepRec.revision, runId,
-        reason: `Batch ${batchNo} of "${agentId}" asked for another session but changed no code — the working ` +
+        reason: `Batch ${batchNo} of "${stepLabel(stepRec)}" asked for another session but changed no code — the working ` +
           'tree is what it was before it ran (its report aside). Stopping rather than start the same batch again.',
       });
       return 'stalled';
@@ -859,7 +859,7 @@ async function execStep(
         // step stays awaiting work; answer, then run again.
         hooks.onStalled?.({
           stepIdx, agent: agentId, label: stepLabel(stepRec), revision: stepRec.revision, runId,
-          reason: `Batch ${batchNo} of "${agentId}" is waiting on an answer` +
+          reason: `Batch ${batchNo} of "${stepLabel(stepRec)}" is waiting on an answer` +
             (read.question ? `: ${read.question}` : ` — see ${report}.`) +
             ' Answer it, then run again.',
         });

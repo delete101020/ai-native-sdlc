@@ -172,7 +172,7 @@ describe('a batched step in the exec loop', () => {
       .toEqual({ kind: 'error' });
     // The template's `**Status:** Draft` header is the last Status line left.
     expect(failed).toBe(
-      'Step "dev" runs in batches and its report cannot say whether it is done: The last Status line in ' +
+      'Step "implement" runs in batches and its report cannot say whether it is done: The last Status line in ' +
       `${REPORT} reads "draft", not \`Status: continue\` or \`Status: done\`. Add the line, then run exec again.`,
     );
     expect(RunStateStore.load(root, 'R-1')!.steps[0].status).toBe('awaiting_work');
@@ -183,7 +183,7 @@ describe('a batched step in the exec loop', () => {
     let stalled = '';
     expect(await runExecLoop(root, 'R-1', {}, { onStalled: (e) => { stalled = e.reason; } }))
       .toEqual({ kind: 'stalled' });
-    expect(stalled).toBe('Batch 2 of "dev" is waiting on an answer: pick A or B? Answer it, then run again.');
+    expect(stalled).toBe('Batch 2 of "implement" is waiting on an answer: pick A or B? Answer it, then run again.');
     let step = RunStateStore.load(root, 'R-1')!.steps[0];
     expect(step.status).toBe('awaiting_work');
     expect(step.costUsd).toBeCloseTo(0.2);
@@ -220,7 +220,7 @@ describe('a batched step in the exec loop', () => {
       .toEqual({ kind: 'stalled' });
     expect(messages(root)).toHaveLength(1);
     expect(stalled).toBe(
-      'Batch 1 of "dev" asked for another session but changed no code — the working tree is what it was ' +
+      'Batch 1 of "implement" asked for another session but changed no code — the working tree is what it was ' +
       'before it ran (its report aside). Stopping rather than start the same batch again.',
     );
     expect(RunStateStore.load(root, 'R-1')!.steps[0].history ?? []).toEqual([]);
