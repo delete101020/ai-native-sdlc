@@ -316,7 +316,6 @@ function buildState(
   const focusedEpic = focus.active ? byId.get(focus.active) : undefined;
   const running = agentActivity.snapshot();
   const stops = agentActivity.stopsSnapshot();
-  const myEpics = myEpicRefs(allEpics, focus.watched, running, stops, inEpicsOrder, toRef);
   // Saved views of the Epics list, filtered by the same predicate the list uses.
   const watchedIds = new Set(focus.watched);
   const epicViews = readEpicViews(root).map((v) => {
@@ -331,6 +330,10 @@ function buildState(
       ).map(toRef),
     };
   });
+  // A running epic a saved view already lists isn't added to My epics as well.
+  // (Without a workspace doc the sidebar hides view sections, so don't dedupe.)
+  const inViews = new Set(doc ? epicViews.flatMap((v) => v.epics.map((e) => e.id)) : []);
+  const myEpics = myEpicRefs(allEpics, focus.watched, running, stops, inEpicsOrder, toRef, inViews);
 
   // GH-67: read extra_projects from the epic being worked on — the active one,
   // else the most recent in-progress one — for sidebar display.
@@ -451,6 +454,7 @@ function myEpicRefs<E extends { id: string; runId: string | null }>(
   stops: AgentStopMap,
   inEpicsOrder: (ids: string[]) => E[],
   toRef: (e: E) => EpicRef,
+  inViews: ReadonlySet<string>,
 ): EpicRef[] {
   // The convention is runId === epic.id; the explicit runId wins when set.
   const runOf = (e: E) => e.runId ?? e.id;
@@ -459,7 +463,7 @@ function myEpicRefs<E extends { id: string; runId: string | null }>(
   const watchedSet = new Set(watched);
   const ids = [...watched];
   for (const e of allEpics) {
-    if (!watchedSet.has(e.id) && (isStopped(e) || isRunning(e))) { ids.push(e.id); }
+    if (!watchedSet.has(e.id) && !inViews.has(e.id) && (isStopped(e) || isRunning(e))) { ids.push(e.id); }
   }
   const rank = (e: E) => (isStopped(e) ? 0 : isRunning(e) ? 1 : 2);
   return inEpicsOrder(ids)
