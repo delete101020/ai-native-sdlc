@@ -27,11 +27,11 @@ Code transcript.
 
 ![aidlc demo](packages/extension/media/demo.gif)
 
-## ✨ What's New in v4.0.52 — saved Epics views (this fork)
+## ✨ What's New in v4.0.52 – v4.0.53 — saved Epics views (this fork)
 
 - **🔖 Saved views** — save the Epics list's filters, search and sort under a name (`epic_views` in `.aidlc/user.yaml`); each view is a chip above the filters and its own sidebar section.
 - **🕒 Last-activity filter** — show epics touched today, in the last 7 days or the last 30.
-- **🧹 Fixes** — setting up an autopilot workflow installs and registers the approval gate hook, so the pipeline starts without a manual step.
+- **🧹 Fixes** — setting up an autopilot workflow installs and registers the approval gate hook, so the pipeline starts without a manual step; a running epic no longer shows twice in the sidebar when a saved view lists it; autopilot step and batch messages name the step, not the agent.
 
 ---
 
@@ -446,8 +446,8 @@ To run unreleased changes. **The extension:**
 
 ```sh
 pnpm install
-pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.52.vsix
-code --install-extension packages/extension/aidlc-native-4.0.52.vsix
+pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.53.vsix
+code --install-extension packages/extension/aidlc-native-4.0.53.vsix
 ```
 
 Reload the window afterwards. A `.vsix` installs over the Marketplace copy (same
@@ -458,7 +458,7 @@ id), and the next Marketplace update replaces it again.
 ```sh
 pnpm -r compile
 cd packages/cli && pnpm bundle && npm link               # `aidlc` on your PATH
-aidlc --version                                          # 4.0.52
+aidlc --version                                          # 4.0.53
 ```
 
 To pick up later changes, re-run the same two commands — `npm link` points at

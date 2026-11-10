@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.0.53
+
+Two small fixes to the sidebar and to autopilot messages.
+
+### Fixed
+
+- A running epic no longer appears twice under **My epics** when a saved view
+  in the sidebar also lists it.
+- Autopilot step and batch messages name the pipeline step instead of the
+  agent that runs it, so a stalled batch reads 'Batch 3 of "cr-build"', not
+  'Batch 3 of "cr-dev"'.
+
 ## 4.0.52
 
 The Epics list remembers how you like to look at it: save a set of filters as a
