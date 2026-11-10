@@ -1,5 +1,24 @@
 # Changelog
 
+## 4.0.54
+
+Large workspaces feel quicker: the Epics panel no longer stalls for seconds
+after a step moves on a long-running epic, and the list stops re-reading every
+epic on a timer.
+
+### Changed
+
+- Per-epic token figures are worked out from transcripts read once and then
+  only for what was appended, instead of re-reading every transcript since the
+  epic began each time its run changed. On a workspace with ~1 GB of Claude
+  history, a step moving on a three-week-old epic went from ~5 s to ~40 ms.
+- The epic listing is kept until a file it depends on changes, rather than
+  rebuilt every minute, and opening an epic no longer throws it away. Run
+  **AIDLC Native: Refresh Skills & Agents Catalog** (the ↻ in the sidebar)
+  to re-read every epic by hand.
+- Each panel refresh does less: run ids come from file names, and the
+  workflow files are checked only when workspace.yaml changes.
+
 ## 4.0.53
 
 Two small fixes to the sidebar and to autopilot messages.
