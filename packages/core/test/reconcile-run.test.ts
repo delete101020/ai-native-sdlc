@@ -184,6 +184,12 @@ describe('migrateRunState', () => {
     expect(migrateRunState(current)).toBe(current);
   });
 
+  it('fills a missing artifactsProduced so readers can assume the array', () => {
+    const { artifactsProduced: _omit, ...bare } = record('a');
+    const migrated = migrateRunState({ ...run([]), steps: [bare] });
+    expect(migrated?.steps[0].artifactsProduced).toEqual([]);
+  });
+
   it('declines a version it does not know and anything malformed', () => {
     expect(migrateRunState({ ...run([]), schemaVersion: 99 })).toBeNull();
     expect(migrateRunState({ schemaVersion: 1, runId: 'x' })).toBeNull();

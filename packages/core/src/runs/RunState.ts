@@ -419,6 +419,14 @@ export function migrateRunState(parsed: unknown): RunState | null {
   if (!parsed || typeof parsed !== 'object') { return null; }
   const obj = parsed as Record<string, unknown>;
   if (typeof obj.runId !== 'string' || !Array.isArray(obj.steps)) { return null; }
+  // Run files are also written by hand / by project scripts, which omit
+  // `artifactsProduced` on untouched steps. Every reader assumes the array, so
+  // fill it here — the one place all reads route through.
+  for (const step of obj.steps as Array<Record<string, unknown> | null>) {
+    if (step && typeof step === 'object' && !Array.isArray(step.artifactsProduced)) {
+      step.artifactsProduced = [];
+    }
+  }
   const version = obj.schemaVersion;
   if (version === RUN_STATE_SCHEMA_VERSION) { return obj as unknown as RunState; }
   if (version !== 1 && version !== 2) { return null; }
