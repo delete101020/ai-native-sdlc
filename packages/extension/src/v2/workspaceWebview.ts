@@ -229,7 +229,6 @@ import {
   followUpIdFor,
   readEpicSignal,
   existingEpicIds as epicIdsOnDisk,
-  SIGNAL_FILE,
   type Signal,
   parseFollowUps,
   readEpicFollowUps,
@@ -1030,7 +1029,10 @@ function readTestAgentTargets(root: string): { exists: boolean; targets: { name:
 
 function listRunIds(root: string): string[] {
   try {
-    return RunStateStore.list(root).map((r) => r.runId);
+    // Names only: parsing every run file for its id was most of this call.
+    return fs.readdirSync(RunStateStore.dir(root))
+      .filter((n) => n.endsWith('.json') && !n.endsWith('.usage.json'))
+      .map((n) => n.slice(0, -'.json'.length));
   } catch {
     return [];
   }
@@ -1203,13 +1205,6 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
   );
   const progress = weighted.percent;
   const epicDir = e.epicDir;
-  const artifactsDir = path.join(epicDir, 'artifacts');
-  let existingArtifacts: string[] = [];
-  if (fs.existsSync(artifactsDir)) {
-    try {
-      existingArtifacts = fs.readdirSync(artifactsDir).filter((n) => !n.startsWith('.'));
-    } catch { /* ignore */ }
-  }
   return {
     id: e.id,
     title: e.title,
@@ -1280,14 +1275,14 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     tags: e.tags,
     ...(e.archived ? { archived: true } : {}),
     epicDir,
-    existingArtifacts,
-    // Cheap and exact: the file core writes is the only marker of an incident
+    existingArtifacts: e.existingArtifacts,
+    // Exact: the file core writes is the only marker of an incident
     // epic — the pipeline id is generated per epic, and epics started before
     // the `recipe:` label existed do not record their recipe.
-    hasSignal: fs.existsSync(path.join(epicDir, SIGNAL_FILE)),
+    hasSignal: e.hasSignal,
     // Existence only — the manifest is parsed when the button is pressed, where
     // a malformed one can say what is wrong instead of hiding the button.
-    hasFollowUps: fs.existsSync(path.join(epicDir, FOLLOW_UPS_FILE)),
+    hasFollowUps: e.hasFollowUps,
     followUpHookFailures: readHookFailures(epicDir),
     createdAt: e.createdAt,
     strictMode: e.strictMode,
@@ -1832,6 +1827,8 @@ export class WorkspaceWebview {
   private producesGlobs: string[] = [];
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshQueued = false;
+  /** The workspace doc {@link ensureWorkflowProjectFiles} last ran for. */
+  private provisionedDoc: Readonly<YamlDocument> | null = null;
   private refreshWhenVisible = false;
   private disposed = false;
   /** The state last posted, which a token walk in flight fills in. */
@@ -2104,7 +2101,13 @@ export class WorkspaceWebview {
   private async refreshAsync(): Promise<void> {
     if (this.disposed) { return; }
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (root) { this.ensureWorkflowProjectFiles(root); }
+    // Only for a workspace doc not provisioned yet: the files it calls for
+    // do not change between two refreshes of the same doc. The shared doc is
+    // re-read at least once a minute, which keeps the self-healing.
+    if (root && readYamlShared(root) !== this.provisionedDoc) {
+      this.ensureWorkflowProjectFiles(root);
+      this.provisionedDoc = readYamlShared(root);
+    }
     const state = buildState(this.currentView);
     applyKnownTokenUsage(state, this.knownTokenUsage);
     this.latestState = state;

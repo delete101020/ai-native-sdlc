@@ -190,7 +190,11 @@ export function activate(context: vscode.ExtensionContext): void {
   // ~/.claude/skills changes or CI generates new files).
   context.subscriptions.push(
     vscode.commands.registerCommand('aidlcNative.refreshSidebar', () => {
+      // The one way to re-read every epic: the listing is otherwise kept
+      // until a file event says what changed.
+      invalidateEpicListing();
       sidebar.refresh();
+      WorkspaceWebview.current?.refresh();
       vscode.window.showInformationMessage('AIDLC sidebar refreshed');
     }),
   );

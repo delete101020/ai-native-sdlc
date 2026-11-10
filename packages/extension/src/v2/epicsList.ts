@@ -18,6 +18,10 @@ import {
   canRerunApprovedStep,
   dirtyUpstreamOf,
   normalizeStep,
+  withNormalizedStepMemo,
+  USER_CONFIG_RELPATH,
+  SIGNAL_FILE,
+  FOLLOW_UPS_FILE,
   stepSkillAlternatives,
   pickAgentModel,
   resolveArtifactPath,
@@ -239,6 +243,12 @@ export interface EpicSummary {
   statePath: string;
   /** Absolute path to the epic dir (for opening artifacts/). */
   epicDir: string;
+  /** Names in the epic's `artifacts/` folder, dotfiles left out. */
+  existingArtifacts: string[];
+  /** The epic has a signal file — the only marker of an incident epic. */
+  hasSignal: boolean;
+  /** The epic has a follow-ups manifest. Existence only; it is parsed on use. */
+  hasFollowUps: boolean;
   /**
    * `strict_mode` from state.json — how deep this epic's phases go. Absent on
    * disk reads as true, which is the depth every epic had before the setting.
@@ -306,12 +316,38 @@ function mergeHistory(
   return merged;
 }
 
+/** What the card needs to know about an epic folder beyond its state. */
+function epicFolderFacts(epicDir: string): Pick<EpicSummary, 'existingArtifacts' | 'hasSignal' | 'hasFollowUps'> {
+  let existingArtifacts: string[] = [];
+  try {
+    existingArtifacts = fs.readdirSync(path.join(epicDir, 'artifacts')).filter((n) => !n.startsWith('.'));
+  } catch { /* no artifacts folder */ }
+  return {
+    existingArtifacts,
+    hasSignal: fs.existsSync(path.join(epicDir, SIGNAL_FILE)),
+    hasFollowUps: fs.existsSync(path.join(epicDir, FOLLOW_UPS_FILE)),
+  };
+}
+
 /** `fs.statSync` that answers null instead of throwing on a missing file. */
 function statOrNull(filePath: string): fs.Stats | null {
   try {
-    return fs.statSync(filePath);
+    // Most declared artifacts of a pending step are not there yet, and a
+    // thrown ENOENT costs twice what an undefined does.
+    return fs.statSync(filePath, { throwIfNoEntry: false }) ?? null;
   } catch {
     return null;
+  }
+}
+
+/** The first `bytes` of a file as text, without reading the rest of it. */
+function readHead(filePath: string, bytes = 4096): string {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const buf = Buffer.alloc(bytes);
+    return buf.toString('utf8', 0, fs.readSync(fd, buf, 0, bytes, 0));
+  } finally {
+    fs.closeSync(fd);
   }
 }
 
@@ -476,7 +512,7 @@ export function epicsRoot(workspaceRoot: string, doc: YamlDocument | null): stri
  */
 function parseArtifactStatus(filePath: string): string | undefined {
   let raw: string;
-  try { raw = fs.readFileSync(filePath, 'utf8').slice(0, 4096); }
+  try { raw = readHead(filePath); }
   catch { return undefined; }
   const m = raw.match(/^(?:<!--[^\n]*-->\s*\n)?---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) { return undefined; }
@@ -520,7 +556,7 @@ export function readSkillDescription(
   );
   for (const file of candidates) {
     let raw: string;
-    try { raw = fs.readFileSync(file, 'utf8').slice(0, 4096); }
+    try { raw = readHead(file); }
     catch { continue; }
     const m = raw.match(/^(?:<!--[^\n]*-->\s*\n)?---\r?\n([\s\S]*?)\r?\n---/);
     if (!m) { continue; }
@@ -698,6 +734,7 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
     // An artifacts-only folder has no state.json to carry the setting.
     strictMode: true,
     epicDir,
+    ...epicFolderFacts(epicDir),
     runId: null,
     artifactsOnly: true,
   };
@@ -742,10 +779,12 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
 
   const skillDescription = skillDescriptionReader(workspaceRoot, doc);
   const epics: EpicSummary[] = [];
-  for (const folder of folders) {
-    const epic = readEpicSummary(workspaceRoot, doc, dir, folder, skillDescription);
-    if (epic) { epics.push(epic); }
-  }
+  withNormalizedStepMemo(() => {
+    for (const folder of folders) {
+      const epic = readEpicSummary(workspaceRoot, doc, dir, folder, skillDescription);
+      if (epic) { epics.push(epic); }
+    }
+  });
   return sortNewestFirst(epics);
 }
 
@@ -768,19 +807,11 @@ interface EpicListingCache {
   byFolder: Map<string, EpicSummary | null>;
   /** Folders to re-read on the next listing. */
   dirty: Set<string>;
-  builtAt: number;
   /** Built on the first file event after a listing — see {@link indexDeclaredArtifacts}. */
   declared?: { exact: Map<string, Set<string>>; above: Map<string, Set<string>> };
 }
 
 let listingCache: EpicListingCache | null = null;
-
-/**
- * Longest a cached listing is reused before every epic is read again. Changes
- * reach the cache through {@link invalidateEpicListing}; this bounds how long
- * one the watchers never reported can go unseen.
- */
-const EPIC_LISTING_MAX_AGE_MS = 60_000;
 
 /**
  * {@link listEpics}, reusing each epic's summary until
@@ -795,14 +826,15 @@ export function listEpicsCached(workspaceRoot: string, doc: YamlDocument | null)
 
   let cache = listingCache;
   const docKey = cache && doc && cache.docRef === doc ? cache.docKey : JSON.stringify(doc ?? null);
-  const now = Date.now();
-  if (!cache || cache.root !== workspaceRoot || cache.dir !== dir || cache.docKey !== docKey
-    || now - cache.builtAt > EPIC_LISTING_MAX_AGE_MS) {
+  // No age limit: every change reaches the cache through
+  // `invalidateEpicListing`, and re-reading every epic on a timer cost more
+  // than anything it caught. *Refresh* drops the listing by hand.
+  if (!cache || cache.root !== workspaceRoot || cache.dir !== dir || cache.docKey !== docKey) {
     const skillPaths = new Set((Array.isArray(doc?.skills) ? doc!.skills : [])
       .map((d) => (typeof d.path === 'string' && d.path ? expandHome(d.path) : ''))
       .filter(Boolean)
       .map((p) => path.resolve(workspaceRoot, p)));
-    cache = { root: workspaceRoot, dir, docKey, docRef: doc, skillPaths, byFolder: new Map(), dirty: new Set(), builtAt: now };
+    cache = { root: workspaceRoot, dir, docKey, docRef: doc, skillPaths, byFolder: new Map(), dirty: new Set() };
   }
 
   const folders = fs.readdirSync(dir, { withFileTypes: true })
@@ -810,11 +842,14 @@ export function listEpicsCached(workspaceRoot: string, doc: YamlDocument | null)
     .map((d) => d.name);
   const skillDescription = skillDescriptionReader(workspaceRoot, doc);
   const byFolder = new Map<string, EpicSummary | null>();
-  for (const folder of folders) {
-    byFolder.set(folder, cache.byFolder.has(folder) && !cache.dirty.has(folder)
-      ? cache.byFolder.get(folder) ?? null
-      : readEpicSummary(workspaceRoot, doc, dir, folder, skillDescription));
-  }
+  const held = cache;
+  withNormalizedStepMemo(() => {
+    for (const folder of folders) {
+      byFolder.set(folder, held.byFolder.has(folder) && !held.dirty.has(folder)
+        ? held.byFolder.get(folder) ?? null
+        : readEpicSummary(workspaceRoot, doc, dir, folder, skillDescription));
+    }
+  });
   listingCache = { ...cache, docRef: doc, byFolder, dirty: new Set(), declared: undefined };
 
   const epics: EpicSummary[] = [];
@@ -858,6 +893,9 @@ export function invalidateEpicListing(changedPath?: string): void {
     }
     return;
   }
+  // The personal working set (active / recent epics) is rewritten on every
+  // epic opened, and no card reads it.
+  if (abs === path.join(cache.root, USER_CONFIG_RELPATH)) { return; }
   if (within(path.join(cache.root, '.claude'), abs) || within(path.join(cache.root, '.aidlc'), abs)
     || cache.skillPaths.has(abs)) {
     listingCache = null;
@@ -1391,6 +1429,7 @@ function readEpicSummary(
     inputsCount: Object.keys(inputs).length,
     statePath: stateFile,
     epicDir,
+    ...epicFolderFacts(epicDir),
     strictMode: epicStrictMode(parsed as { strict_mode?: unknown }),
     runId: runState ? runState.runId : null,
   };

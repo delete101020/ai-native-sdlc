@@ -10,6 +10,7 @@ export {
   validateWorkspace,
   WorkspaceValidationError,
   normalizeStep,
+  withNormalizedStepMemo,
   producesEntries,
   requiresEntries,
   stepAgentId,

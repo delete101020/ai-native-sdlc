@@ -507,6 +507,31 @@ export interface NormalizedStep {
  * omitted optional fields.
  */
 export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: string]: unknown }): NormalizedStep {
+  const memo = normalizeMemo;
+  if (!memo || typeof step === 'string') { return normalizeStepUncached(step); }
+  let norm = memo.get(step);
+  if (!norm) { norm = normalizeStepUncached(step); memo.set(step, norm); }
+  return norm;
+}
+
+let normalizeMemo: Map<object, NormalizedStep> | null = null;
+
+/**
+ * Run `fn` with {@link normalizeStep} remembering its answer per step object.
+ *
+ * For read-only passes over many runs (the epic listing): the run helpers each
+ * normalize the whole pipeline for every step they are asked about, which is
+ * quadratic in the pipeline's length and was a third of a listing's time.
+ * Scoped to one synchronous call, so a step edited afterwards is never served
+ * stale — `fn` must not edit steps, nor the normalized objects it gets.
+ */
+export function withNormalizedStepMemo<T>(fn: () => T): T {
+  if (normalizeMemo) { return fn(); }
+  normalizeMemo = new Map();
+  try { return fn(); } finally { normalizeMemo = null; }
+}
+
+function normalizeStepUncached(step: PipelineStepConfig | { agent?: string; [k: string]: unknown }): NormalizedStep {
   if (typeof step === 'string') {
     return {
       agent: step,

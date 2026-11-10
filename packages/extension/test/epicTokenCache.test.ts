@@ -83,6 +83,26 @@ describe('getOrComputeWorkspaceEpicUsage', () => {
   });
 });
 
+describe('transcript index', () => {
+  it('reads only complete appended lines, and starts over when the file was rewritten', async () => {
+    const r = run('RUN-I', '2026-09-02T00:00:00Z', '2026-09-02T23:00:00Z');
+    const calls = async () => (await computeWorkspaceEpicUsage(root, [r])).get('RUN-I')?.total.calls;
+    const before = fs.readFileSync(transcript, 'utf8');
+    const half = record('i2', '2026-09-02T02:00:00Z');
+
+    fs.appendFileSync(transcript, record('i1', '2026-09-02T01:00:00Z') + half.slice(0, 40));
+    expect(await calls()).toBe(1);
+    // The rest of the line arrives: it is counted once, whole.
+    fs.appendFileSync(transcript, half.slice(40));
+    expect(await calls()).toBe(2);
+
+    // Shorter than what was read — nothing indexed from it stands.
+    fs.writeFileSync(transcript, record('i3', '2026-09-02T03:00:00Z'));
+    expect(await calls()).toBe(1);
+    fs.writeFileSync(transcript, before);
+  });
+});
+
 describe('transcriptFoldersFor', () => {
   it('keeps the root folder and those of directories above it', () => {
     // path.resolve adds the drive on Windows (C:\Users\me → C--Users-me).

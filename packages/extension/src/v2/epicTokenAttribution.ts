@@ -18,7 +18,6 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as readline from 'readline';
 
 import type { RunState, StepRecord } from '@aidlc/core';
 
@@ -389,7 +388,7 @@ export async function computeWorkspaceEpicUsage(
         let stat: fs.Stats;
         try { stat = await fs.promises.stat(file); } catch { continue; }
         if (stat.mtimeMs < overallEarliest) continue;
-        await processJsonl(file, normalized, ctxByRun, seen);
+        attributeRecords(await transcriptRecords(file, stat.size), normalized, ctxByRun, seen);
       }
     }
   }
@@ -458,105 +457,175 @@ interface RunCtxLike {
   latestMs: number;
 }
 
-async function processJsonl(
+/** One assistant call's usage, as read from a transcript line. */
+interface UsageRecord {
+  ts: number;
+  cwd: string;
+  dedupKey: string;
+  cost: number;
+  inp: number;
+  out: number;
+  cr: number;
+  cw: number;
+}
+
+/**
+ * The usage records of each transcript read so far, and how many bytes of it
+ * they cover (always ending on a line break).
+ *
+ * Transcripts are append-only and run to hundreds of megabytes per project.
+ * Attributing one moved run used to re-read every transcript written since
+ * that run began — seconds of parsing on the extension host for each step of
+ * a weeks-old epic. Kept here, a transcript is parsed once and then only for
+ * what was appended; attribution itself is a pass over these records.
+ */
+const transcripts = new Map<string, { offset: number; records: UsageRecord[] }>();
+
+/** Forget every transcript read so far. */
+export function resetTranscriptIndex(): void {
+  transcripts.clear();
+}
+
+async function transcriptRecords(file: string, size: number): Promise<UsageRecord[]> {
+  let entry = transcripts.get(file);
+  // Shorter than what was read: rewritten, so nothing read from it stands.
+  if (!entry || size < entry.offset) {
+    entry = { offset: 0, records: [] };
+    transcripts.set(file, entry);
+  }
+  if (size > entry.offset) { await readAppendedRecords(file, entry); }
+  return entry.records;
+}
+
+/** Index the complete lines after `entry.offset`. A line still being written waits for the next read. */
+async function readAppendedRecords(
   file: string,
+  entry: { offset: number; records: UsageRecord[] },
+): Promise<void> {
+  let stream: fs.ReadStream;
+  try { stream = fs.createReadStream(file, { start: entry.offset }); }
+  catch { return; }
+
+  let pending: Buffer[] = [];
+  try {
+    let chunkStart = entry.offset;
+    for await (const chunk of stream as AsyncIterable<Buffer>) {
+      let from = 0;
+      for (let nl = chunk.indexOf(0x0a); nl !== -1; nl = chunk.indexOf(0x0a, from)) {
+        pending.push(chunk.subarray(from, nl));
+        const record = parseUsageLine(pending.length === 1 ? pending[0] : Buffer.concat(pending));
+        if (record) { entry.records.push(record); }
+        pending = [];
+        from = nl + 1;
+        entry.offset = chunkStart + from;
+      }
+      if (from < chunk.length) { pending.push(chunk.subarray(from)); }
+      chunkStart += chunk.length;
+    }
+  } catch {
+    // Unreadable now; the lines indexed so far stand and the rest come next time.
+  } finally {
+    stream.close();
+  }
+}
+
+const ASSISTANT_MARK = Buffer.from('"assistant"');
+
+function parseUsageLine(raw: Buffer): UsageRecord | null {
+  // Most of a transcript's bytes are tool results on `user` lines; skip those
+  // without decoding or parsing them.
+  if (raw.indexOf(ASSISTANT_MARK) === -1) return null;
+  const line = raw.toString('utf8').trim();
+  if (!line || line[0] !== '{') return null;
+  let entry: Record<string, unknown>;
+  try { entry = JSON.parse(line); } catch { return null; }
+  if (entry.type !== 'assistant') return null;
+
+  const msg = entry.message as Record<string, unknown> | undefined;
+  if (!msg || !msg.usage) return null;
+  const tsRaw = entry.timestamp as string | undefined;
+  const ts = tsRaw ? Date.parse(tsRaw) : NaN;
+  if (!Number.isFinite(ts)) return null;
+
+  const u = msg.usage as Record<string, unknown>;
+  const inp = Number(u.input_tokens) || 0;
+  const out = Number(u.output_tokens) || 0;
+  const cr = Number(u.cache_read_input_tokens) || 0;
+  const rawCreation = u.cache_creation as
+    { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number } | undefined;
+  let cw_5m: number;
+  let cw_1h: number;
+  if (rawCreation && (rawCreation.ephemeral_5m_input_tokens !== undefined || rawCreation.ephemeral_1h_input_tokens !== undefined)) {
+    cw_5m = Number(rawCreation.ephemeral_5m_input_tokens) || 0;
+    cw_1h = Number(rawCreation.ephemeral_1h_input_tokens) || 0;
+  } else {
+    cw_5m = Number(u.cache_creation_input_tokens) || 0;
+    cw_1h = 0;
+  }
+  const p = modelPrice((msg.model as string) || '');
+  return {
+    ts,
+    cwd: typeof entry.cwd === 'string' ? path.resolve(entry.cwd) : '',
+    dedupKey: `${(entry.sessionId as string) || ''}\0${(msg.id as string) || ''}`,
+    cost: inp * p.in / 1e6 + out * p.out / 1e6
+        + cr * p.cr / 1e6 + cw_5m * p.cw_5m / 1e6 + cw_1h * p.cw_1h / 1e6,
+    inp, out, cr,
+    cw: cw_5m + cw_1h,
+  };
+}
+
+function attributeRecords(
+  records: UsageRecord[],
   workspaceRoot: string,
   ctxByRun: RunCtxLike[],
   seen: Set<string>,
-): Promise<void> {
-  let stream: fs.ReadStream;
-  try { stream = fs.createReadStream(file, { encoding: 'utf8' }); }
-  catch { return; }
+): void {
+  for (const r of records) {
+    if (r.cwd !== workspaceRoot) continue;
+    if (seen.has(r.dedupKey)) continue;
+    seen.add(r.dedupKey);
+    const { ts, cost, inp, out, cr, cw } = r;
 
-  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
-  try {
-    for await (const raw of rl) {
-      const line = raw.trim();
-      if (!line || line[0] !== '{') continue;
-      let entry: Record<string, unknown>;
-      try { entry = JSON.parse(line); } catch { continue; }
-      if (entry.type !== 'assistant') continue;
-
-      const cwd = typeof entry.cwd === 'string' ? path.resolve(entry.cwd) : '';
-      if (cwd !== workspaceRoot) continue;
-
-      const msg = entry.message as Record<string, unknown> | undefined;
-      if (!msg || !msg.usage) continue;
-      const sessionId = (entry.sessionId as string) || '';
-      const msgId = (msg.id as string) || '';
-      const dedupKey = `${sessionId}\0${msgId}`;
-      if (seen.has(dedupKey)) continue;
-      seen.add(dedupKey);
-
-      const tsRaw = entry.timestamp as string | undefined;
-      const ts = tsRaw ? Date.parse(tsRaw) : NaN;
-      if (!Number.isFinite(ts)) continue;
-
-      const u = msg.usage as Record<string, unknown>;
-      const inp = Number(u.input_tokens) || 0;
-      const out = Number(u.output_tokens) || 0;
-      const cr = Number(u.cache_read_input_tokens) || 0;
-      const rawCreation = u.cache_creation as
-        { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number } | undefined;
-      let cw_5m: number;
-      let cw_1h: number;
-      if (rawCreation && (rawCreation.ephemeral_5m_input_tokens !== undefined || rawCreation.ephemeral_1h_input_tokens !== undefined)) {
-        cw_5m = Number(rawCreation.ephemeral_5m_input_tokens) || 0;
-        cw_1h = Number(rawCreation.ephemeral_1h_input_tokens) || 0;
-      } else {
-        cw_5m = Number(u.cache_creation_input_tokens) || 0;
-        cw_1h = 0;
-      }
-      const cw = cw_5m + cw_1h;
-      const model = (msg.model as string) || '';
-      const p = modelPrice(model);
-      const cost = inp * p.in / 1e6 + out * p.out / 1e6
-                 + cr * p.cr / 1e6 + cw_5m * p.cw_5m / 1e6 + cw_1h * p.cw_1h / 1e6;
-
-      // Attribute to every run-step whose window contains this timestamp.
-      // Steps without a valid startedAt have a zero-length window and are
-      // skipped — old runs that pre-date the per-step timestamp schema
-      // simply show no usage rather than fake numbers from a broad fallback.
-      // Overlapping step windows from different runs double-count by design
-      // (flagged via `hasOverlap`).
-      for (const ctx of ctxByRun) {
-        if (ts < ctx.earliestMs || ts >= ctx.latestMs) continue;
-        for (let i = 0; i < ctx.windows.length; i++) {
-          const w = ctx.windows[i];
-          if (!Number.isFinite(w.startMs) || w.endMs <= w.startMs) continue;
-          if (ts >= w.startMs && ts < w.endMs) {
-            const s = ctx.steps[i];
-            s.cost += cost;
-            s.inputTokens += inp;
-            s.outputTokens += out;
-            s.cacheReadTokens += cr;
-            s.cacheWriteTokens += cw;
-            s.totalTokens += inp + out + cr + cw;
-            s.calls += 1;
-            // Also attribute to the matching history sub-window, if any.
-            const subs = ctx.historyWindows[i];
-            const hist = s.history;
-            if (subs && hist) {
-              for (let k = 0; k < subs.length; k++) {
-                const sw = subs[k];
-                if (!Number.isFinite(sw.startMs) || sw.endMs <= sw.startMs) continue;
-                if (ts >= sw.startMs && ts < sw.endMs) {
-                  const h = hist[k];
-                  h.totalTokens += inp + out + cr + cw;
-                  h.cost += cost;
-                  h.calls += 1;
-                  break;
-                }
+    // Attribute to every run-step whose window contains this timestamp.
+    // Steps without a valid startedAt have a zero-length window and are
+    // skipped — old runs that pre-date the per-step timestamp schema
+    // simply show no usage rather than fake numbers from a broad fallback.
+    // Overlapping step windows from different runs double-count by design
+    // (flagged via `hasOverlap`).
+    for (const ctx of ctxByRun) {
+      if (ts < ctx.earliestMs || ts >= ctx.latestMs) continue;
+      for (let i = 0; i < ctx.windows.length; i++) {
+        const w = ctx.windows[i];
+        if (!Number.isFinite(w.startMs) || w.endMs <= w.startMs) continue;
+        if (ts >= w.startMs && ts < w.endMs) {
+          const s = ctx.steps[i];
+          s.cost += cost;
+          s.inputTokens += inp;
+          s.outputTokens += out;
+          s.cacheReadTokens += cr;
+          s.cacheWriteTokens += cw;
+          s.totalTokens += inp + out + cr + cw;
+          s.calls += 1;
+          // Also attribute to the matching history sub-window, if any.
+          const subs = ctx.historyWindows[i];
+          const hist = s.history;
+          if (subs && hist) {
+            for (let k = 0; k < subs.length; k++) {
+              const sw = subs[k];
+              if (!Number.isFinite(sw.startMs) || sw.endMs <= sw.startMs) continue;
+              if (ts >= sw.startMs && ts < sw.endMs) {
+                const h = hist[k];
+                h.totalTokens += inp + out + cr + cw;
+                h.cost += cost;
+                h.calls += 1;
+                break;
               }
             }
-            break;
           }
+          break;
         }
       }
     }
-  } finally {
-    rl.close();
-    stream.close();
   }
 }
 
