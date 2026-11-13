@@ -52,15 +52,21 @@ if [ ${#missing[@]} -gt 0 ]; then
 fi
 
 # 2. With new features, every listing page that owns them should have moved.
-feats=$(git log --format=%s "v$old..HEAD" | rg -c '^feat' || true)
-if [ "${feats:-0}" -gt 0 ]; then
-  for p in packages/extension/README.md packages/cli/README.md README.md; do
-    if git diff --quiet "v$old" -- "$p"; then
-      fail=1
-      echo "✘ $feats feat commit(s) since v$old, but $p is unchanged"
-    fi
-  done
-fi
+# An extension-only scope (feat(extension|webview|sidebar|monitor)) spares the
+# CLI README, and feat(cli) spares the extension README; any other feat needs both.
+subjects=$(git log --format=%s "v$old..HEAD")
+ext_only='^feat\((extension|webview|sidebar|monitor)\)'
+for p in packages/extension/README.md packages/cli/README.md README.md; do
+  case "$p" in
+    packages/extension/*) feats=$(printf '%s\n' "$subjects" | rg '^feat' | rg -vc '^feat\(cli\)' || true) ;;
+    packages/cli/*)       feats=$(printf '%s\n' "$subjects" | rg '^feat' | rg -vc "$ext_only" || true) ;;
+    *)                    feats=$(printf '%s\n' "$subjects" | rg -c '^feat' || true) ;;
+  esac
+  if [ "${feats:-0}" -gt 0 ] && git diff --quiet "v$old" -- "$p"; then
+    fail=1
+    echo "✘ $feats feat commit(s) since v$old that $p owns, but it is unchanged"
+  fi
+done
 
 if [ $fail -eq 0 ]; then echo "✔ listing pages cover CHANGELOG $new"; fi
 exit $fail
