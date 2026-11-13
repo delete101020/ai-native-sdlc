@@ -1,5 +1,38 @@
 # Changelog
 
+## 4.0.55
+
+The Usage Report's Efficiency Suggestions now point at how you work, not just
+at what you spent: each one says why it matters and how to improve, and new
+rules look at agent turns, long sessions, CLAUDE.md size and your AIDLC epics.
+
+### Added
+
+- Workflow suggestions, adapted from Microsoft's
+  [AI Engineering Coach](https://github.com/microsoft/AI-Engineering-Coach):
+  `runaway-agent-turns` (prompts that ran 40+ tool calls without editing a
+  file), `mega-session` (sessions of 50+ prompts), `repeated-prompts` (the same
+  prompt sent again and again) and `instruction-bloat` (CLAUDE.md files over
+  4 KB that ride along on every call).
+- AIDLC epic suggestions for the open workspace: `phase-cost-outlier` (a phase
+  that cost 3× its usual), `phase-rework` (a phase rejected on a quarter or
+  more of epics), `unverified-epics` (done epics implemented with no review or
+  verify step done) and `phase-compaction` (a phase whose context was
+  compacted twice or more).
+
+### Changed
+
+- The suggestions table shows **How to improve** instead of a savings column,
+  and each suggestion's detail adds **Why it matters**.
+- The four Opus rules are one, `premium-model-routine`, which also covers
+  Fable and prices the saving at Sonnet rates; the three cache rules are one,
+  `cache-churn`. The day-spike and raw-input-spike rules are gone.
+
+### Fixed
+
+- The extension no longer fails to activate when a run file written by hand
+  leaves `artifactsProduced` out of a step.
+
 ## 4.0.54
 
 Large workspaces feel quicker: the Epics panel no longer stalls for seconds

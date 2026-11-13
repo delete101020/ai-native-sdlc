@@ -27,6 +27,14 @@ Code transcript.
 
 ![aidlc demo](packages/extension/media/demo.gif)
 
+## ✨ What's New in v4.0.54 – v4.0.55 — suggestions that coach (this fork)
+
+- **🧭 Efficiency Suggestions rework** — the Usage Report now flags how you work, not just what you spent: runaway agent turns, mega sessions, repeated prompts, bloated CLAUDE.md, premium models on routine work, cache churn, and AIDLC phases that cost outliers, get rejected often, compact repeatedly or ship unverified. Each says why it matters and how to improve. Rules adapted from Microsoft's [AI Engineering Coach](https://github.com/microsoft/AI-Engineering-Coach).
+- **⚡ Faster Epics panel** — transcripts are indexed incrementally and the epic listing stays cached until a file it depends on changes.
+- **🧹 Fix** — a hand-written run file missing `artifactsProduced` no longer stops the extension from activating.
+
+---
+
 ## ✨ What's New in v4.0.52 – v4.0.53 — saved Epics views (this fork)
 
 - **🔖 Saved views** — save the Epics list's filters, search and sort under a name (`epic_views` in `.aidlc/user.yaml`); each view is a chip above the filters and its own sidebar section.
@@ -446,8 +454,8 @@ To run unreleased changes. **The extension:**
 
 ```sh
 pnpm install
-pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.54.vsix
-code --install-extension packages/extension/aidlc-native-4.0.54.vsix
+pnpm package:extension                                  # → packages/extension/aidlc-native-4.0.55.vsix
+code --install-extension packages/extension/aidlc-native-4.0.55.vsix
 ```
 
 Reload the window afterwards. A `.vsix` installs over the Marketplace copy (same
@@ -458,7 +466,7 @@ id), and the next Marketplace update replaces it again.
 ```sh
 pnpm -r compile
 cd packages/cli && pnpm bundle && npm link               # `aidlc` on your PATH
-aidlc --version                                          # 4.0.54
+aidlc --version                                          # 4.0.55
 ```
 
 To pick up later changes, re-run the same two commands — `npm link` points at

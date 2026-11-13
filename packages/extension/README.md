@@ -124,7 +124,11 @@ six sample epics) into the open folder.
   [CodeGraph](https://github.com/colbymchenry/codegraph) MCP server, registered for the project so Claude
   answers structural questions without grepping. CodeGraph suits large repos.
 - **AIDLC Monitor** — token usage and cost, session insights from Claude Code transcripts, and live agent
-  sessions through [agents-observe](https://github.com/simple10/agents-observe).
+  sessions through [agents-observe](https://github.com/simple10/agents-observe). Its **Efficiency
+  Suggestions** flag workflow habits (`runaway-agent-turns`, `mega-session`, `repeated-prompts`,
+  `instruction-bloat`, `premium-model-routine`, `cache-churn`) and epic trouble spots
+  (`phase-cost-outlier`, `phase-rework`, `unverified-epics`, `phase-compaction`), each with why it
+  matters and how to improve.
 - **One window, one Claude account** — pin a Claude config dir per workspace
   (`aidlcNative.claude.configDir`) or switch with **AIDLC Native: Switch Claude Account**. The status
   bar shows how much of each plan window is used (`5h 2% · 1w 38% · Fable 61%`), the way `/usage` does.
