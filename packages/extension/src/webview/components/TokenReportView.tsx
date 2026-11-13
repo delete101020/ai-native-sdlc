@@ -499,8 +499,7 @@ function SuggestionsSection({
             <Th>Rule</Th>
             <Th>Scope</Th>
             <Th>Evidence</Th>
-            <Th align="right" hint="API-equivalent savings — directional, not what subscription users would see on their bill.">Save (API $)</Th>
-            <Th>Action</Th>
+            <Th>How to improve</Th>
           </tr>
         </thead>
         <tbody>
@@ -519,11 +518,6 @@ function SuggestionsSection({
               <Td><span className="font-mono text-[10.5px] text-primary">{s.rule}</span></Td>
               <Td><span className="font-mono text-[10.5px] text-foreground/85">{s.scope}</span></Td>
               <Td><span className="text-muted-foreground">{s.evidence}</span></Td>
-              <Td align="right" mono>
-                {s.estSavings > 0
-                  ? <span className="text-success">{fmtCost(s.estSavings)}</span>
-                  : <span className="text-muted-foreground">—</span>}
-              </Td>
               <Td><span className="text-foreground/90">{s.action}</span></Td>
             </tr>
           ))}
@@ -566,7 +560,7 @@ function SuggestionDetailModal({
 }) {
   return (
     <Modal
-      title="Cost suggestion"
+      title="Efficiency suggestion"
       subtitle={
         <span className="flex items-center gap-2">
           <span className={cn('rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wider', SEV_PILL[suggestion.severity])}>
@@ -587,7 +581,12 @@ function SuggestionDetailModal({
         <DetailField label="Evidence">
           <span className="text-muted-foreground">{suggestion.evidence}</span>
         </DetailField>
-        <DetailField label="Recommended action">
+        {suggestion.why && (
+          <DetailField label="Why it matters">
+            <span className="leading-relaxed text-muted-foreground">{suggestion.why}</span>
+          </DetailField>
+        )}
+        <DetailField label="How to improve">
           <span className="leading-relaxed text-foreground">{suggestion.action}</span>
         </DetailField>
         {suggestion.estSavings > 0 && (

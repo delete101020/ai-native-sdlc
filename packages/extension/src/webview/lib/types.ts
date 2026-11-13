@@ -175,6 +175,8 @@ export interface CostSuggestion {
   severity: SuggestionSeverity;
   scope: string;
   evidence: string;
+  /** Why the pattern hurts — mirror of `costSuggestions.Suggestion.why`. */
+  why: string;
   action: string;
   /** USD; 0 when the rule doesn't quantify a saving. */
   estSavings: number;

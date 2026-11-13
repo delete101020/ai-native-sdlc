@@ -11,6 +11,7 @@ import { themeManager } from './themeManager';
 import { accountDirs } from './claudeAccounts';
 import { loadAllRecords, type CallRecord } from './tokenRecords';
 import { buildAccountReport, type TokenPanelState } from './tokenReport';
+import { workspaceEpicSuggestions, type Suggestion } from './costSuggestions';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { guardMessages } from './webviewMessageGuard';
 
@@ -28,6 +29,8 @@ export class TokenReportWebview {
   };
   /** Last scan, kept so switching account re-aggregates without re-reading logs. */
   private records: CallRecord[] = [];
+  /** Epic-phase suggestions from the last scan — workspace-level, not per account. */
+  private epicSuggestions: Suggestion[] = [];
   private loadPromise: Promise<void> | null = null;
 
   static show(extensionUri: vscode.Uri): void {
@@ -72,8 +75,9 @@ export class TokenReportWebview {
     this.loadPromise = (async () => {
       try {
         this.records = await loadAllRecords(windowDays, accountDirs());
+        this.epicSuggestions = await workspaceEpicSuggestions(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, this.records);
         this.state = {
-          ...buildAccountReport(this.records, windowDays, this.state.account),
+          ...buildAccountReport(this.records, windowDays, this.state.account, this.epicSuggestions),
           loading: false,
           error: null,
           windowDays,
@@ -106,7 +110,7 @@ export class TokenReportWebview {
         return;
       case 'setAccount': {
         const account = typeof msg.account === 'string' ? msg.account : null;
-        this.state = { ...this.state, ...buildAccountReport(this.records, this.state.windowDays, account) };
+        this.state = { ...this.state, ...buildAccountReport(this.records, this.state.windowDays, account, this.epicSuggestions) };
         this.refresh();
         return;
       }

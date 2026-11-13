@@ -41,6 +41,12 @@ export interface CallRecord {
   tools: string[];
   /** `file_path` args passed to the Read tool, when present. */
   readPaths: string[];
+  /** Index of the human prompt this call answers, counted per transcript file. */
+  turn: number;
+  /** The prompt text, on the first call of its turn only (slash commands and harness text left out). */
+  prompt?: string;
+  /** First call after a `/compact` or auto-compaction in this transcript. */
+  afterCompact?: boolean;
 }
 
 export function projectsRoot(configDir: string = claudeConfigDir()): string {
@@ -156,6 +162,11 @@ async function processFile(
     return;
   }
   const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  // Per-file turn tracking: a human prompt opens a turn; its text and any
+  // compaction before it ride on the turn's first assistant call.
+  let turn = 0;
+  let pendingPrompt: string | undefined;
+  let pendingCompact = false;
   try {
     for await (const raw of rl) {
       const line = raw.trim();
@@ -164,6 +175,18 @@ async function processFile(
       try {
         entry = JSON.parse(line);
       } catch {
+        continue;
+      }
+      if (entry.type === 'system' && entry.subtype === 'compact_boundary') {
+        pendingCompact = true;
+        continue;
+      }
+      if (entry.type === 'user') {
+        const prompt = humanPrompt(entry);
+        if (prompt !== null) {
+          turn++;
+          pendingPrompt = prompt || undefined;
+        }
         continue;
       }
       if (entry.type !== 'assistant') { continue; }
@@ -209,7 +232,12 @@ async function processFile(
           cost: calcCost(usage, model),
           cwd: entry.cwd ?? '',
           msgId,
+          turn,
+          ...(pendingPrompt !== undefined ? { prompt: pendingPrompt } : {}),
+          ...(pendingCompact ? { afterCompact: true } : {}),
         };
+        pendingPrompt = undefined;
+        pendingCompact = false;
       }
     }
   } finally {
@@ -220,6 +248,10 @@ async function processFile(
 
 interface RawEntry {
   type?: string;
+  subtype?: string;
+  isMeta?: boolean;
+  isSidechain?: boolean;
+  isCompactSummary?: boolean;
   sessionId?: string;
   timestamp?: string;
   cwd?: string;
@@ -256,4 +288,30 @@ function extractToolInfo(msg: NonNullable<RawEntry['message']>): [string[], stri
     }
   }
   return [tools, paths];
+}
+
+/**
+ * A `user` entry the person typed, as its text: `''` for a turn that is not
+ * free text (slash command, interrupt, harness notice), `null` for an entry
+ * that is not a human turn at all (tool results, meta, compaction summary).
+ */
+function humanPrompt(entry: RawEntry): string | null {
+  if (entry.isMeta || entry.isSidechain || entry.isCompactSummary) { return null; }
+  const content = entry.message?.content;
+  let text = '';
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    for (const block of content) {
+      const b = block as { type?: string; text?: string } | null;
+      if (!b) { continue; }
+      if (b.type === 'tool_result') { return null; }
+      if (b.type === 'text' && typeof b.text === 'string') { text += b.text; }
+    }
+  } else {
+    return null;
+  }
+  text = text.trim();
+  if (text.startsWith('<') || text.startsWith('[')) { return ''; }
+  return text.slice(0, 200);
 }

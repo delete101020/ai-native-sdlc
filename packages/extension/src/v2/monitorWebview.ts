@@ -17,6 +17,7 @@ import { themeManager } from './themeManager';
 import { accountDirs } from './claudeAccounts';
 import { loadAllRecords, type CallRecord } from './tokenRecords';
 import { buildAccountReport, type TokenPanelState } from './tokenReport';
+import { workspaceEpicSuggestions, type Suggestion } from './costSuggestions';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { listSessions, parseSession, type SessionInsight, type SessionListItem } from './sessionInsights';
 import { OtelReceiver, setTelemetryEnv, type OtelSnapshot } from './otelReceiver';
@@ -45,6 +46,8 @@ export class MonitorWebview {
   };
   /** Last scan, kept so switching account re-aggregates without re-reading logs. */
   private records: CallRecord[] = [];
+  /** Epic-phase suggestions from the last scan — workspace-level, not per account. */
+  private epicSuggestions: Suggestion[] = [];
   private loadPromise: Promise<void> | null = null;
   private pollTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -194,8 +197,9 @@ export class MonitorWebview {
     this.loadPromise = (async () => {
       try {
         this.records = await loadAllRecords(windowDays, accountDirs());
+        this.epicSuggestions = await workspaceEpicSuggestions(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, this.records);
         this.tokenState = {
-          ...buildAccountReport(this.records, windowDays, this.tokenState.account),
+          ...buildAccountReport(this.records, windowDays, this.tokenState.account, this.epicSuggestions),
           loading: false,
           error: null,
           windowDays,
@@ -274,7 +278,7 @@ export class MonitorWebview {
         const account = typeof msg.account === 'string' ? msg.account : null;
         this.tokenState = {
           ...this.tokenState,
-          ...buildAccountReport(this.records, this.tokenState.windowDays, account),
+          ...buildAccountReport(this.records, this.tokenState.windowDays, account, this.epicSuggestions),
         };
         this.pushTokenState();
         return;

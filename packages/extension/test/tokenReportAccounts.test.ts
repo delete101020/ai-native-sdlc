@@ -16,6 +16,7 @@ function rec(account: string, project: string, cost: number): CallRecord {
     msgId: `${account}-${project}`,
     tools: [],
     readPaths: [],
+    turn: 0,
   };
 }
 

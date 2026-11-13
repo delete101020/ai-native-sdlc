@@ -18,7 +18,7 @@ import {
   decodeProject,
   shortenPath,
 } from './tokenRecords';
-import { analyzeSuggestions, type Suggestion } from './costSuggestions';
+import { analyzeSuggestions, sortSuggestions, type Suggestion } from './costSuggestions';
 
 export interface UsageTotals {
   input: number;
@@ -126,14 +126,20 @@ export function buildAccountReport(
   records: CallRecord[],
   windowDays: number,
   account: string | null,
+  epicSuggestions: Suggestion[] = [],
 ): Pick<TokenPanelState, 'report' | 'accounts' | 'account'> {
   const accounts = [...new Set(records.map((r) => r.account))].sort();
   const pick = account !== null && accounts.includes(account) ? account : null;
   const scoped = pick === null ? records : records.filter((r) => r.account === pick);
-  return { report: buildReport(scoped, windowDays), accounts, account: pick };
+  return { report: buildReport(scoped, windowDays, epicSuggestions), accounts, account: pick };
 }
 
-export function buildReport(records: CallRecord[], windowDays: number): TokenReport {
+/** `epicSuggestions` are workspace-level (see `workspaceEpicSuggestions`), so no account filter applies. */
+export function buildReport(
+  records: CallRecord[],
+  windowDays: number,
+  epicSuggestions: Suggestion[] = [],
+): TokenReport {
   const total = emptyTotals();
   const sessions = new Set<string>();
   const projects = new Set<string>();
@@ -143,7 +149,7 @@ export function buildReport(records: CallRecord[], windowDays: number): TokenRep
     if (r.project) { projects.add(r.project); }
   }
   const heat = heatmap(records);
-  const suggestions = analyzeSuggestions(records);
+  const suggestions = sortSuggestions([...analyzeSuggestions(records), ...epicSuggestions]);
 
   return {
     generatedAt: new Date().toISOString(),
