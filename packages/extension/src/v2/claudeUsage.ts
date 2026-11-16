@@ -891,8 +891,17 @@ export function registerClaudePlanUsage(
   context.subscriptions.push(item);
 
   let loggedShape: string | undefined;
+  // A failed refresh (timeout, 429, offline) must not throw away a reading the
+  // user is looking at — the item would vanish under their cursor on click.
+  let lastOk: Extract<UsageState, { kind: 'ok' }> | undefined;
   const render = (state: UsageState): void => {
+    let staleNote: string | undefined;
+    if (state.kind === 'error' && lastOk) {
+      staleNote = `_Last refresh failed (${state.message}) — showing the reading from ${new Date(lastOk.fetchedAt).toLocaleTimeString()}._`;
+      state = lastOk;
+    }
     if (state.kind === 'ok') {
+      lastOk = state;
       if (state.shape && state.shape !== loggedShape) {
         loggedShape = state.shape;
         output.appendLine(`Claude plan usage: server limits ${state.shape} → ${state.windows.map((w) => w.key).join(', ')}`);
@@ -916,6 +925,7 @@ export function registerClaudePlanUsage(
           ...(alert.window
             ? ['', `_Colour set by ${alert.window.label}._`]
             : []),
+          ...(staleNote ? ['', staleNote] : []),
           '',
           'Click to refresh.',
         ].join('\n'),
