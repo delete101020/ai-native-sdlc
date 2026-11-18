@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.0.56
+
+Two robustness fixes: AIDLC Native no longer fails to start when one epic
+folder can't be read, and the status bar keeps showing plan usage when a
+refresh fails.
+
+### Fixed
+
+- The extension no longer fails to activate when an epic's `pipeline.yaml`
+  can't be stat-ed (for example an epic folder with broken permissions); that
+  epic is skipped instead.
+- Plan usage stays in the status bar when a refresh fails, instead of
+  disappearing until the next successful refresh.
+
 ## 4.0.55
 
 The Usage Report's Efficiency Suggestions now point at how you work, not just
