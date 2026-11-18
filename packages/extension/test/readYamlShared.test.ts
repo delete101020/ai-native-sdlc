@@ -2,9 +2,15 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { readYamlShared } from '../src/v2/yamlIO';
+
+// ESM namespaces can't be spied on; wrap statSync so one test can make it throw.
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return { ...actual, statSync: vi.fn(actual.statSync) };
+});
 
 describe('readYamlShared', () => {
   let root: string;
@@ -45,6 +51,23 @@ describe('readYamlShared', () => {
     expect(readYamlShared(root)?.pipelines.map((p) => p.id)).toEqual(['p2']);
     fs.rmSync(file);
     expect(readYamlShared(root)?.pipelines).toEqual([]);
+  });
+
+  it('treats an epic pipeline it cannot stat (EPERM) as absent instead of throwing', () => {
+    const dir = path.join(root, 'docs', 'epics', 'LOCKED');
+    fs.mkdirSync(dir, { recursive: true });
+    const locked = path.join(dir, 'pipeline.yaml');
+    const stat = vi.mocked(fs.statSync);
+    const real = stat.getMockImplementation()!;
+    stat.mockImplementation(((p: fs.PathLike, o?: fs.StatSyncOptions) => {
+      if (String(p) === locked) { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); }
+      return real(p, o);
+    }) as typeof fs.statSync);
+    try {
+      expect(readYamlShared(root)?.pipelines).toEqual([]);
+    } finally {
+      stat.mockImplementation(real);
+    }
   });
 
   it('answers null once the file is gone', () => {

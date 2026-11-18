@@ -95,8 +95,15 @@ let sharedDoc: SharedDoc | null = null;
 const SHARED_DOC_MAX_AGE_MS = 60_000;
 
 function fileSig(file: string): string {
-  const st = fs.statSync(file, { throwIfNoEntry: false });
-  return st ? `${st.mtimeMs}:${st.size}` : '';
+  // Unreadable (EPERM/EACCES, e.g. a broken ACL on one epic dir) counts as
+  // absent, matching `existsSync` in mergeEpicPipelines — one bad epic must
+  // not take down activation.
+  try {
+    const st = fs.statSync(file, { throwIfNoEntry: false });
+    return st ? `${st.mtimeMs}:${st.size}` : '';
+  } catch {
+    return '';
+  }
 }
 
 /** Every epic-owned pipeline file, since `readYaml` splices those into the doc. */
