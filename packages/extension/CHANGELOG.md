@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.0.57
+
+Autopilot no longer fails a step right away after you redo an earlier step.
+
+### Fixed
+
+- When you redo or send back an upstream step, every downstream step that had
+  already done work now reopens as a new revision. It also gets a note that
+  its earlier output was built on the old upstream version. Before this fix,
+  it reopened on the same revision. A batched step such as `cr-build` then saw
+  its report already marked `Status: done`, wrote nothing, and failed with
+  "reported success but left its artifacts unchanged".
+
 ## 4.0.56
 
 Two robustness fixes: AIDLC Native no longer fails to start when one epic
