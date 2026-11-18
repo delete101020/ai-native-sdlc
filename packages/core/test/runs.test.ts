@@ -19,6 +19,7 @@ import {
   type RunState,
   type AutoReviewVerdict,
 } from '../src';
+import { revisionFeedback } from '../src/runs/revisionFeedback';
 
 function tmpRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-runs-'));
@@ -276,6 +277,11 @@ describe('PipelineRunner — state machine', () => {
     expect(s.steps[1].artifactsProduced).toEqual([]);
     // History on step 1 PRESERVED so the UI can mark it "previously done".
     expect((s.steps[1].history ?? []).length).toBeGreaterThan(0);
+    // Step 1 already did work, which is still on disk: it moves to a new
+    // revision told why, or its agent reads the old output as finished.
+    expect(s.steps[1].revision).toBe(2);
+    expect(revisionFeedback(s, 1)).toContain('rate-limit');
+    expect(s.steps[1].history?.at(-1)?.kind).toBe('rerun');
     // currentStepIdx rewound to target.
     expect(s.currentStepIdx).toBe(0);
     // Run flips back to running from completed.

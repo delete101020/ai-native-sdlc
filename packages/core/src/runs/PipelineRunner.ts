@@ -986,15 +986,12 @@ export function requestStepUpdate(args: {
     } else {
       // Downstream step — reset to pending, KEEP history so the UI can
       // distinguish "previously done, awaiting update" from "never reached".
-      next.steps[i] = {
-        ...s,
-        status: 'pending',
-        rejectReason: undefined,
-        autoReviewVerdict: undefined,
-        artifactsProduced: [],
-        startedAt: undefined,
-        finishedAt: undefined,
-      };
+      next.steps[i] = resetForRedoneUpstream(
+        s,
+        `Upstream step "${stepIdentity(target)}" was redone (revision ${target.revision + 1})` +
+          `${feedback ? `: ${feedback}` : ''}.`,
+        now,
+      );
     }
   }
   next.currentStepIdx = stepIdx;
@@ -1547,22 +1544,51 @@ function sendBack(next: RunState, args: {
         history: rejectedHistory,
       };
     } else {
-      // Intermediate step (target < i < idx). Reset to pending, history
-      // preserved as-is — these steps weren't directly involved in this
-      // rejection.
-      next.steps[i] = {
-        ...s,
-        status: 'pending',
-        rejectReason: undefined,
-        autoReviewVerdict: undefined,
-        artifactsProduced: [],
-        startedAt: undefined,
-        finishedAt: undefined,
-      };
+      // Intermediate step (target < i < idx). Reset to pending — these steps
+      // weren't directly involved in this rejection.
+      next.steps[i] = resetForRedoneUpstream(
+        s,
+        `Upstream step "${stepIdentity(next.steps[targetIdx])}" was sent back and redone — ${blame}.`,
+        now,
+      );
     }
   }
   next.currentStepIdx = targetIdx;
   next.status = 'running';
+}
+
+/**
+ * Reset a step to `pending` because a step upstream of it is being redone.
+ *
+ * If it already did work at its current revision, that work is still on disk
+ * and reads as finished — a batched step's report even says `Status: done`. Re-
+ * opened at the same revision, the agent is told nothing changed, takes the old
+ * output as the answer and writes nothing. So such a step moves to a new
+ * revision carrying why, which is what {@link revisionFeedback} hands it.
+ */
+function resetForRedoneUpstream(s: StepRecord, why: string, now: string): StepRecord {
+  const reset: StepRecord = {
+    ...s,
+    status: 'pending',
+    rejectReason: undefined,
+    autoReviewVerdict: undefined,
+    artifactsProduced: [],
+    startedAt: undefined,
+    finishedAt: undefined,
+  };
+  const worked = (s.history ?? []).some(
+    (h) => h.revision === s.revision && (h.kind === 'approve' || h.kind === 'batch'),
+  );
+  if (!worked) { return reset; }
+  const revision = s.revision + 1;
+  const feedback = `${why} Your earlier output was built on its previous version: update it to match, ` +
+    'do not take the earlier work as finished.';
+  return {
+    ...reset,
+    revision,
+    feedback,
+    history: pushHistory(s.history, { kind: 'rerun', at: now, revision, feedback }),
+  };
 }
 
 function clone<T>(value: T): T {
